@@ -240,18 +240,16 @@ sub write_intf {
 
     print $fh "\n";
     print $fh "    // These for use by VN_IS macro only\n";
-    foreach my $type (sort (keys %Classes)) {
-        print $fh "    static bool privateIs",$type,"(const AstNode* nodep);\n";
-    }
-
+    print $fh "    template<class T>\n";
+    print $fh "    static bool privateIs(const AstNode* nodep);\n";
     print $fh "\n";
     print $fh "    // These for use by VN_CAST macro only\n";
-    foreach my $type (sort (keys %Classes)) {
-        print $fh "    static Ast",$type,"* privateCast",$type,"(AstNode* nodep);\n";
-    }
-    foreach my $type (sort (keys %Classes)) {
-        print $fh "    static const Ast",$type,"* privateConstCast",$type,"(const AstNode* nodep);\n";
-    }
+    print $fh "    template<class T>\n";
+    print $fh "    static T* privateCast(AstNode* nodep);\n";
+    print $fh "\n";
+    print $fh "    // These for use by VN_CAST_CONST macro only\n";
+    print $fh "    template<class T>\n";
+    print $fh "    static const T* privateConstCast(const AstNode* nodep);\n";
 
     $fh->close();
 }
@@ -260,34 +258,75 @@ sub write_impl {
     my $fh = open_file(@_);
 
     print $fh "\n";
-    print $fh "    // These for use by VN_IS macro only\n";
+
+    print $fh "    // These for use by VN_IS only\n";
     foreach my $type (sort (keys %Classes)) {
+        print $fh "template<> inline bool AstNode::privateIs<Ast",$type,">(const AstNode* nodep) { ";
+        print $fh "return nodep && ";
         if (children_of($type)) {
-            print $fh "inline bool AstNode::privateIs",$type,"(const AstNode* nodep) { return (bool)(dynamic_cast<const Ast",$type,"*>(nodep)); }\n";
+            print $fh "(nodep->type() >= AstType::at",$type,") && ";
+            print $fh "(nodep->type() <= AstType::last",$type,"); ";
         } else {
-            print $fh "inline bool AstNode::privateIs",$type,"(const AstNode* nodep) { return nodep && nodep->type() == AstType::at",$type,"; }\n";
+            print $fh "nodep->type() == AstType::at",$type,"; ";
         }
+        print $fh "}\n"
     }
 
+    print $fh "    // These for use by VN_CAST macro only\n";
     foreach my $type (sort (keys %Classes)) {
-        print $fh "inline Ast",$type,"* AstNode::privateCast",$type,"(AstNode* nodep) { return dynamic_cast<Ast",$type,"*>(nodep); }\n";
+        print $fh "template<> inline Ast",$type,"* AstNode::privateCast<Ast",$type,">(AstNode* nodep) { ";
+        print $fh "return AstNode::privateIs<Ast",$type,">(nodep) ? ";
+        print $fh "reinterpret_cast<Ast",$type,"*>(nodep) : NULL; ";
+        print $fh "}\n";
     }
+
+    print $fh "    // These for use by VN_CAST_CONST macro only\n";
     foreach my $type (sort (keys %Classes)) {
-        print $fh "inline const Ast",$type,"* AstNode::privateConstCast",$type,"(const AstNode* nodep) { return dynamic_cast<const Ast",$type,"*>(nodep); }\n";
+        print $fh "template<> inline const Ast",$type,"* AstNode::privateConstCast<Ast",$type,">(const AstNode* nodep) { ";
+        print $fh "return AstNode::privateIs<Ast",$type,">(nodep) ? ";
+        print $fh "reinterpret_cast<const Ast",$type,"*>(nodep) : NULL; ";
+        print $fh "}\n";
     }
 
     $fh->close();
+}
+
+sub write_type_en {
+    my $fh = shift;
+    my $type = shift;
+    my $idx = shift;
+    my $processed = shift;
+
+    # Skip this if it has already been processed
+    return $idx if (exists $processed->{$type});
+
+    # Mark processdd
+    $processed->{$type} = 1;
+
+    # Enumerate this type
+    my $last = $type;
+    # Add "at" prefix to avoid conflicting with FOPEN and other macros in include files
+    print $fh "\tat",$type," = ",$idx,",\n";
+    $idx += 1;
+
+    # Enumerate derived types, if any
+    if (my @children = (sort keys %{$::Children{$type}})) {
+        foreach my $child (@children) {
+            ($idx, $last) = write_type_en($fh, $child, $idx, $processed);
+        }
+        print $fh "\tlast",$type," = at",$last,",\n";
+    }
+
+    return $idx, $last;
 }
 
 sub write_types {
     my $fh = open_file(@_);
 
     printf $fh "    enum en {\n";
-    # Add "at" prefix to avoid conflicting with FOPEN and other macros in include files
-    foreach my $type (sort (keys %Classes)) {
-        next if $type =~ /^Node/;
-        print $fh "\tat",$type,",\n";
-    }
+    my $idx = 0;
+    my $processed = {};
+    write_type_en($fh, "Node", $idx, $processed);
     printf $fh "\t_ENUM_END\n";
     printf $fh "    };\n";
     printf $fh "    const char* ascii() const {\n";
