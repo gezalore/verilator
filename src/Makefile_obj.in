@@ -68,6 +68,7 @@ CFG_CXXFLAGS_SRC = @CFG_CXXFLAGS_SRC@
 CFG_CXXFLAGS_PARSER = @CFG_CXXFLAGS_PARSER@
 # Compiler flags that turn on extra warnings
 CFG_CXXFLAGS_WEXTRA = @CFG_CXXFLAGS_WEXTRA@
+CFG_WITH_THREADED = @CFG_WITH_THREADED@
 
 #### End of system configuration section. ####
 
@@ -93,6 +94,9 @@ endif
 # -lfl not needed as Flex invoked with %nowrap option
 # -lstdc++ needed for clang, believed harmless with gcc
 LIBS = -lm -lstdc++
+ifeq ($(CFG_WITH_THREADED),yes)
+LIBS += -lpthread
+endif
 
 CPPFLAGS += -MMD
 CPPFLAGS += -I. -I$(bldsrc) -I$(srcdir) -I$(incdir) -I../../include
@@ -235,8 +239,9 @@ RAW_OBJS = \
 	V3Subst.o \
 	V3Table.o \
 	V3Task.o \
-	V3Trace.o \
+	V3ThreadPool.o \
 	V3TraceDecl.o \
+	V3Trace.o \
 	V3Tristate.o \
 	V3TSP.o \
 	V3Undriven.o \

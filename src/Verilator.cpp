@@ -86,6 +86,7 @@
 #include "V3Subst.h"
 #include "V3Table.h"
 #include "V3Task.h"
+#include "V3ThreadPool.h"
 #include "V3Trace.h"
 #include "V3TraceDecl.h"
 #include "V3Tristate.h"
@@ -614,6 +615,9 @@ int main(int argc, char** argv, char** env) {
         UINFO(1,"--skip-identical: No change to any source files, exiting\n");
         exit(0);
     }
+
+    // Adjust thread pool size
+    v3ThreadPool.resize(v3Global.opt.parallelism());
 
     //--FRONTEND------------------
 

@@ -927,6 +927,15 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc, char
                 shift;
                 m_inlineMult = atoi(argv[i]);
             }
+            else if (!strncmp(sw, "-j", 2)) {
+                m_parallelism = atoi(sw+strlen("-j"));
+                if (m_parallelism < 1) {
+                    fl->v3fatal("-j option requires a positive value");
+                }
+                if (m_parallelism == 1) {
+                    m_parallelism = 0;
+                }
+            }
             else if (!strcmp(sw, "-LDFLAGS") && (i+1)<argc) {
                 shift;
                 addLdLibs(argv[i]);
@@ -1518,6 +1527,7 @@ V3Options::V3Options() {
     m_gateStmts = 100;
     m_ifDepth = 0;
     m_inlineMult = 2000;
+    m_parallelism = 0;
     m_moduleRecursion = 100;
     m_outputSplit = 0;
     m_outputSplitCFuncs = 0;

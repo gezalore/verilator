@@ -27,11 +27,13 @@
 #include "V3EmitCBase.h"
 #include "V3Number.h"
 #include "V3PartitionGraph.h"
+#include "V3ThreadPool.h"
 #include "V3TSP.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdarg>
+#include <future>
 #include <map>
 #include <vector>
 #include VL_INCLUDE_UNORDERED_SET
@@ -3283,15 +3285,14 @@ public:
 void V3EmitC::emitc() {
     UINFO(2,__FUNCTION__<<": "<<endl);
     // Process each module in turn
-    for (AstNodeModule* nodep = v3Global.rootp()->modulesp();
-         nodep; nodep = VN_CAST(nodep->nextp(), NodeModule)) {
+    v3ThreadPool.foreach<AstNodeModule>(v3Global.rootp()->modulesp(), [](AstNodeModule *nodep){
         if (v3Global.opt.outputSplit()) {
             { EmitCImp fast; fast.main(nodep, false, true); }
             { EmitCImp slow; slow.main(nodep, true, false); }
         } else {
             { EmitCImp both; both.main(nodep, true, true); }
         }
-    }
+    });
 }
 
 void V3EmitC::emitcTrace() {

@@ -200,6 +200,7 @@ class V3Options {
     int         m_gateStmts;    // main switch: --gate-stmts
     int         m_ifDepth;      // main switch: --if-depth
     int         m_inlineMult;   // main switch: --inline-mult
+    int         m_parallelism;  // main switch: -j
     VOptionBool m_makeDepend;  // main switch: -MMD
     int         m_moduleRecursion;// main switch: --module-recursion-depth
     int         m_outputSplit;  // main switch: --output-split
@@ -375,6 +376,7 @@ class V3Options {
     int gateStmts() const { return m_gateStmts; }
     int ifDepth() const { return m_ifDepth; }
     int inlineMult() const { return m_inlineMult; }
+    int parallelism() const { return m_parallelism; }
     VOptionBool makeDepend() const { return m_makeDepend; }
     int moduleRecursionDepth() const { return m_moduleRecursion; }
     int outputSplit() const { return m_outputSplit; }
