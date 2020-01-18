@@ -1139,9 +1139,12 @@ public:
 // AstNode -- Base type of all Ast types
 
 // Prefetch a node.
-// The if() makes it faster, even though prefetch won't fault on null pointers
-#define ASTNODE_PREFETCH(nodep) \
-    { if (nodep) { VL_PREFETCH_RD(&((nodep)->m_nextp)); VL_PREFETCH_RD(&((nodep)->m_iterpp)); }}
+// For 64-byte cache lines, we can get away with a single prefetch, which
+// brings in all iteration and child pointers. We can also avoid a null test
+// as prefetch will not fault, and a hard to predict data dependent branch is
+// more costly than a redundant prefetch. This is true at least for a Skylake
+// micro-architecture.
+#define ASTNODE_PREFETCH(nodep) VL_PREFETCH_RD(nodep)
 
 class AstNode {
     // v ASTNODE_PREFETCH depends on below ordering of members

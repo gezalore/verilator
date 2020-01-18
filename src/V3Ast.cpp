@@ -796,28 +796,41 @@ void AstNode::iterateAndNext(AstNVisitor& v) {
     UASSERT_OBJ(!(nodep && !nodep->m_backp), nodep,
                 "iterateAndNext node has no back");
 #endif
-    if (nodep) ASTNODE_PREFETCH(nodep->m_nextp);
-    while (nodep) {   // effectively: if (!this) return;  // Callers rely on this
-        if (nodep->m_nextp) ASTNODE_PREFETCH(nodep->m_nextp->m_nextp);
-        AstNode* niterp = nodep;  // This address may get stomped via m_iterpp if the node is edited
+    do {
+        // Load the next node address for the next iteration into a local
+        // variable. Even if this gets spilled onto the stack, it is far more
+        // likely the top of the stack will be in the cache when it is needed.
+        AstNode *const nextp = nodep->m_nextp;
+        // The children are very often used, including inside iterateChildren
+        // when walking down the tree, so prefetch them. Also prefetch the
+        ASTNODE_PREFETCH(nodep->m_op1p);
+        ASTNODE_PREFETCH(nodep->m_op2p);
+        ASTNODE_PREFETCH(nodep->m_op3p);
+        ASTNODE_PREFETCH(nodep->m_op4p);
+        // Prefetch the content of the next node as well
+        ASTNODE_PREFETCH(nextp);
+        // This address may get stomped via m_iterpp if the node is edited
+        AstNode* niterp = nodep;
         // Desirable check, but many places where multiple iterations are OK
         // UASSERT_OBJ(!niterp->m_iterpp, niterp, "IterateAndNext under iterateAndNext may miss edits");
-        // Optimization note: Doing PREFETCH_RW on m_iterpp is a net even
-        // cppcheck-suppress nullPointer
-        niterp->m_iterpp = &niterp;
-        niterp->accept(v);
+        // Set iteration pointer
+        nodep->m_iterpp = &niterp;
+        // Dispatch to visitor
+        nodep->accept(v);
         // accept may do a replaceNode and change niterp on us...
         // niterp maybe NULL, so need cast if printing
         //if (niterp != nodep) UINFO(1,"iterateAndNext edited "<<cvtToHex(nodep)
         //                             <<" now into "<<cvtToHex(niterp)<<endl);
-        if (!niterp) return;  // Perhaps node deleted inside accept
-        niterp->m_iterpp = NULL;
-        if (VL_UNLIKELY(niterp!=nodep)) {  // Edited node inside accept
+        // No need to give this branch a direction hint, it should compile
+        // into a conditional move.
+        if (niterp != nodep) {  // Edited node inside accept
             nodep = niterp;
         } else {  // Unchanged node, just continue loop
-            nodep = niterp->m_nextp;
+            // Reset iteration pointer on node
+            nodep->m_iterpp = NULL;
+            nodep = nextp;
         }
-    }
+    } while (nodep);
 }
 
 void AstNode::iterateListBackwards(AstNVisitor& v) {
