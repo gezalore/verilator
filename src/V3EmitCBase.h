@@ -45,7 +45,7 @@ public:
     void putbs(const string& str) { ofp()->putbs(str); }
     void putsDecoration(const string& str) { if (v3Global.opt.decoration()) puts(str); }
     void putsQuoted(const string& str) { ofp()->putsQuoted(str); }
-    bool optSystemC() { return v3Global.opt.systemC(); }
+    bool optSystemC() const { return v3Global.opt.systemC(); }
     static string protect(const string& name) { return VIdProtect::protectIf(name, true); }
     static string protectIf(const string& name, bool doIt) {
         return VIdProtect::protectIf(name, doIt); }
@@ -56,7 +56,7 @@ public:
     static string symClassVar()  { return symClassName()+"* __restrict vlSymsp"; }
     static string symTopAssign() {
         return v3Global.opt.prefix()+"* __restrict vlTOPp VL_ATTR_UNUSED = vlSymsp->TOPp;"; }
-    static string modClassName(AstNodeModule* modp) {  // Return name of current module being processed
+    static string modClassName(const AstNodeModule* modp) {  // Return name of current module being processed
         if (modp->isTop()) {
             return v3Global.opt.prefix();
         } else {
@@ -70,10 +70,10 @@ public:
         AstCFile* cfilep = new AstCFile(v3Global.rootp()->fileline(), filename);
         cfilep->slow(slow);
         cfilep->source(source);
-        v3Global.rootp()->addFilesp(cfilep);
+        v3Global.rootp()->addFilesp(cfilep); // BAD
         return cfilep;
     }
-    string cFuncArgs(const AstCFunc* nodep) {
+    string cFuncArgs(const AstCFunc* nodep) const {
         // Return argument list for given C function
         string args = nodep->argTypes();
         // Might be a user function with argument list.

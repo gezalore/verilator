@@ -67,39 +67,40 @@ public:
     int splitSize() const { return m_splitSize; }
     void splitSizeInc(int count) { m_splitSize += count; }
     void splitSizeInc(AstNode* nodep) { splitSizeInc(EmitCBaseCounterVisitor(nodep).count()); }
-    bool splitNeeded() { return (splitSize() && v3Global.opt.outputSplit()
+    bool splitNeeded() const { return (splitSize() && v3Global.opt.outputSplit()
                                  && v3Global.opt.outputSplit() < splitSize()); }
 
     // METHODS
-    void displayNode(AstNode* nodep, AstScopeName* scopenamep,
-                     const string& vformat, AstNode* exprsp, bool isScan);
-    void displayEmit(AstNode* nodep, bool isScan);
-    void displayArg(AstNode* dispp, AstNode** elistp, bool isScan,
-                    const string& vfmt, char fmtLetter);
+    void displayNode(const AstNode* nodep, const AstScopeName* scopenamep,
+                     const string& vformat, const AstNode* exprsp, bool isScan);
+    void displayEmit(const AstNode* nodep, bool isScan);
+    void displayArg(const AstNode* dispp, const AstNode** elistp,
+                    bool isScan, const string& vfmt, char fmtLetter);
 
     void emitVarDecl(const AstVar* nodep, const string& prefixIfImp);
     typedef enum {EVL_CLASS_IO, EVL_CLASS_SIG, EVL_CLASS_TEMP, EVL_CLASS_PAR, EVL_CLASS_ALL,
                   EVL_FUNC_ALL} EisWhich;
-    void emitVarList(AstNode* firstp, EisWhich which, const string& prefixIfImp);
+    void emitVarList(const AstNode* firstp, EisWhich which, const string& prefixIfImp);
     static void emitVarSort(const VarSortMap& vmap, VarVec* sortedp);
     void emitSortedVarList(const VarVec& anons,
                            const VarVec& nonanons, const string& prefixIfImp);
     void emitVarCtors(bool* firstp);
     void emitCtorSep(bool* firstp);
-    bool emitSimpleOk(AstNodeMath* nodep);
-    void emitIQW(AstNode* nodep) {
+    bool emitSimpleOk(const AstNodeMath* nodep);
+    void emitIQW(const AstNode* nodep) {
         // Other abbrevs: "C"har, "S"hort, "F"loat, "D"ouble, stri"N"g
         puts(nodep->dtypep()->charIQWN());
     }
-    void emitScIQW(AstVar* nodep) {
+    void emitScIQW(const AstVar* nodep) {
         UASSERT_OBJ(nodep->isSc(), nodep, "emitting SystemC operator on non-SC variable");
         puts(nodep->isScBigUint() ? "SB"
              : nodep->isScUint()  ? "SU"
              : nodep->isScBv()    ? "SW"
              : (nodep->isScQuad() ? "SQ" : "SI"));
     }
-    void emitOpName(AstNode* nodep, const string& format,
-                    AstNode* lhsp, AstNode* rhsp, AstNode* thsp);
+    void emitOpName(const AstNode* nodep, const string& format,
+                    const AstNode* lhsp, const AstNode* rhsp,
+                    const AstNode* thsp);
     void emitDeclArrayBrackets(const AstVar* nodep) {
         // This isn't very robust and may need cleanup for other data types
         for (const AstUnpackArrayDType* arrayp
@@ -118,10 +119,10 @@ public:
             }
         }
     }
-    void emitTypedefs(AstNode* firstp) {
+    void emitTypedefs(const AstNode* firstp) {
         bool first = true;
-        for (AstNode* loopp=firstp; loopp; loopp = loopp->nextp()) {
-            if (const AstTypedef* nodep = VN_CAST(loopp, Typedef)) {
+        for (const AstNode* loopp=firstp; loopp; loopp = loopp->nextp()) {
+            if (const AstTypedef* nodep = VN_CAST_CONST(loopp, Typedef)) {
                 if (nodep->attrPublic()) {
                     if (first) {
                         first = false;
@@ -136,7 +137,7 @@ public:
                             putsDecoration("// enum "+nodep->nameProtect()+" // Ignored: Too wide for C++\n");
                         } else {
                             puts("enum "+nodep->name()+" {\n");
-                            for (AstEnumItem* itemp = adtypep->itemsp();
+                            for (const AstEnumItem* itemp = adtypep->itemsp();
                                  itemp; itemp = VN_CAST(itemp->nextp(), EnumItem)) {
                                 puts(itemp->nameProtect());
                                 puts(" = ");
@@ -153,7 +154,7 @@ public:
     }
 
     // VISITORS
-    virtual void visit(AstNodeAssign* nodep) {
+    virtual void visit(const AstNodeAssign* nodep) {
         bool paren = true;  bool decind = false;
         if (AstSel* selp = VN_CAST(nodep->lhsp(), Sel)) {
             if (selp->widthMin()==1) {
@@ -998,7 +999,7 @@ unsigned EmitVarTspSorter::m_serialNext = 0;
 
 class EmitCImp : EmitCStmts {
     // MEMBERS
-    AstNodeModule*      m_modp;
+    AstNodeModule*      m_modp; // TODO: Make const member
     std::vector<AstChangeDet*> m_blkChangeDetVec;  // All encountered changes in block
     bool        m_slow;  // Creating __Slow file
     bool        m_fast;  // Creating non __Slow file (or both)
@@ -1042,7 +1043,7 @@ class EmitCImp : EmitCStmts {
         }
     }
 
-    V3OutCFile* newOutCFile(AstNodeModule* modp, bool slow, bool source, int filenum=0) {
+    V3OutCFile* newOutCFile(const AstNodeModule* modp, bool slow, bool source, int filenum=0) {
         string filenameNoExt = v3Global.opt.makeDir()+"/"+ modClassName(modp);
         if (filenum) filenameNoExt += "__"+cvtToStr(filenum);
         filenameNoExt += (slow ? "__Slow":"");
@@ -1421,25 +1422,25 @@ class EmitCImp : EmitCStmts {
         return "";
     }
 
-    void emitCellCtors(AstNodeModule* modp);
+    void emitCellCtors(const AstNodeModule* modp);
     void emitSensitives();
     // Medium level
-    void emitCtorImp(AstNodeModule* modp);
-    void emitConfigureImp(AstNodeModule* modp);
-    void emitCoverageDecl(AstNodeModule* modp);
-    void emitCoverageImp(AstNodeModule* modp);
-    void emitDestructorImp(AstNodeModule* modp);
-    void emitSavableImp(AstNodeModule* modp);
+    void emitCtorImp(const AstNodeModule* modp);
+    void emitConfigureImp(const AstNodeModule* modp);
+    void emitCoverageDecl(const AstNodeModule* modp);
+    void emitCoverageImp(const AstNodeModule* modp);
+    void emitDestructorImp(const AstNodeModule* modp);
+    void emitSavableImp(const AstNodeModule* modp);
     void emitTextSection(AstType type);
-    void emitIntFuncDecls(AstNodeModule* modp);
+    void emitIntFuncDecls(const AstNodeModule* modp);
     // High level
-    void emitImp(AstNodeModule* modp);
+    void emitImp(const AstNodeModule* modp);
     void emitSettleLoop(const std::string& eval_call, bool initial);
-    void emitWrapEval(AstNodeModule* modp);
+    void emitWrapEval(const AstNodeModule* modp);
     void emitMTaskState();
     void emitMTaskVertexCtors(bool* firstp);
-    void emitInt(AstNodeModule* modp);
-    void maybeSplit(AstNodeModule* modp);
+    void emitInt(const AstNodeModule* modp);
+    void maybeSplit(const AstNodeModule* modp);
 
 public:
     EmitCImp() {
@@ -1534,7 +1535,7 @@ void EmitCStmts::emitVarCtors(bool* firstp) {
     }
 }
 
-bool EmitCStmts::emitSimpleOk(AstNodeMath* nodep) {
+bool EmitCStmts::emitSimpleOk(const AstNodeMath* nodep) {
     // Can we put out a simple (A + B) instead of VL_ADD_III(A,B)?
     if (nodep->emitSimpleOperator() == "") return false;
     if (nodep->isWide()) return false;
@@ -1544,8 +1545,9 @@ bool EmitCStmts::emitSimpleOk(AstNodeMath* nodep) {
     return true;
 }
 
-void EmitCStmts::emitOpName(AstNode* nodep, const string& format,
-                            AstNode* lhsp, AstNode* rhsp, AstNode* thsp) {
+void EmitCStmts::emitOpName(const AstNode* nodep, const string& format,
+                            const AstNode* lhsp, const AstNode* rhsp,
+                            const AstNode* thsp) {
     // Look at emitOperator() format for term/uni/dual/triops,
     // and write out appropriate text.
     //  %n*     node
@@ -1577,7 +1579,7 @@ void EmitCStmts::emitOpName(AstNode* nodep, const string& format,
         else if (pos[0]=='%') {
             ++pos;
             bool detail = false;
-            AstNode* detailp = NULL;
+            const AstNode* detailp = NULL;
             switch (pos[0]) {
             case '%': puts("%");  break;
             case 'k': putbs("");  break;
@@ -1649,7 +1651,7 @@ void EmitCStmts::emitOpName(AstNode* nodep, const string& format,
 struct EmitDispState {
     string              m_format;  // "%s" and text from user
     std::vector<char>   m_argsChar;  // Format of each argument to be printed
-    std::vector<AstNode*> m_argsp;  // Each argument to be printed
+    std::vector<const AstNode*> m_argsp;  // Each argument to be printed
     std::vector<string> m_argsFunc;  // Function before each argument to be printed
     EmitDispState() { clear(); }
     void clear() {
@@ -1660,25 +1662,25 @@ struct EmitDispState {
     }
     void pushFormat(const string& fmt) { m_format += fmt; }
     void pushFormat(char fmt) { m_format += fmt; }
-    void pushArg(char fmtChar, AstNode* nodep, const string& func) {
+    void pushArg(char fmtChar, const AstNode* nodep, const string& func) {
         m_argsChar.push_back(fmtChar);
         m_argsp.push_back(nodep); m_argsFunc.push_back(func);
     }
 } emitDispState;
 
-void EmitCStmts::displayEmit(AstNode* nodep, bool isScan) {
+void EmitCStmts::displayEmit(const AstNode* nodep, bool isScan) {
     if (emitDispState.m_format == ""
         && VN_IS(nodep, Display)) {  // not fscanf etc, as they need to return value
         // NOP
     } else {
         // Format
         bool isStmt = false;
-        if (const AstFScanF* dispp = VN_CAST(nodep, FScanF)) {
+        if (const AstFScanF* dispp = VN_CAST_CONST(nodep, FScanF)) {
             isStmt = false;
             puts("VL_FSCANF_IX(");
             iterate(dispp->filep());
             puts(",");
-        } else if (const AstSScanF* dispp = VN_CAST(nodep, SScanF)) {
+        } else if (const AstSScanF* dispp = VN_CAST_CONST(nodep, SScanF)) {
             isStmt = false;
             checkMaxWords(dispp->fromp());
             puts("VL_SSCANF_I"); emitIQW(dispp->fromp()); puts("X(");
@@ -1686,7 +1688,7 @@ void EmitCStmts::displayEmit(AstNode* nodep, bool isScan) {
             puts(",");
             iterate(dispp->fromp());
             puts(",");
-        } else if (const AstDisplay* dispp = VN_CAST(nodep, Display)) {
+        } else if (const AstDisplay* dispp = VN_CAST_CONST(nodep, Display)) {
             isStmt = true;
             if (dispp->filep()) {
                 puts("VL_FWRITEF(");
@@ -1695,14 +1697,14 @@ void EmitCStmts::displayEmit(AstNode* nodep, bool isScan) {
             } else {
                 puts("VL_WRITEF(");
             }
-        } else if (const AstSFormat* dispp = VN_CAST(nodep, SFormat)) {
+        } else if (const AstSFormat* dispp = VN_CAST_CONST(nodep, SFormat)) {
             isStmt = true;
             puts("VL_SFORMAT_X(");
             puts(cvtToStr(dispp->lhsp()->widthMin()));
             putbs(",");
             iterate(dispp->lhsp());
             putbs(",");
-        } else if (const AstSFormatF* dispp = VN_CAST(nodep, SFormatF)) {
+        } else if (const AstSFormatF* dispp = VN_CAST_CONST(nodep, SFormatF)) {
             isStmt = false;
             if (dispp) {}
             puts("VL_SFORMATF_NX(");
@@ -1713,9 +1715,9 @@ void EmitCStmts::displayEmit(AstNode* nodep, bool isScan) {
         // Arguments
         for (unsigned i=0; i < emitDispState.m_argsp.size(); i++) {
             puts(",");
-            char     fmt  = emitDispState.m_argsChar[i];
-            AstNode* argp = emitDispState.m_argsp[i];
-            string   func = emitDispState.m_argsFunc[i];
+            char            fmt  = emitDispState.m_argsChar[i];
+            const AstNode*  argp = emitDispState.m_argsp[i];
+            string          func = emitDispState.m_argsFunc[i];
             ofp()->indentInc();
             ofp()->putbs("");
             if (func!="") puts(func);
@@ -1737,10 +1739,10 @@ void EmitCStmts::displayEmit(AstNode* nodep, bool isScan) {
     }
 }
 
-void EmitCStmts::displayArg(AstNode* dispp, AstNode** elistp, bool isScan,
-                            const string& vfmt, char fmtLetter) {
+void EmitCStmts::displayArg(const AstNode* dispp, const AstNode** elistp,
+                            bool isScan, const string& vfmt, char fmtLetter) {
     // Print display argument, edits elistp
-    AstNode* argp = *elistp;
+    const AstNode* argp = *elistp;
     if (VL_UNCOVERABLE(!argp)) {
         // expectDisplay() checks this first, so internal error if found here
         dispp->v3error("Internal: Missing arguments for $display-like format");  // LCOV_EXCL_LINE
@@ -1776,10 +1778,10 @@ void EmitCStmts::displayArg(AstNode* dispp, AstNode** elistp, bool isScan,
     *elistp = (*elistp)->nextp();
 }
 
-void EmitCStmts::displayNode(AstNode* nodep, AstScopeName* scopenamep,
-                             const string& vformat, AstNode* exprsp,
+void EmitCStmts::displayNode(const AstNode* nodep, const AstScopeName* scopenamep,
+                             const string& vformat, const AstNode* exprsp,
                              bool isScan) {
-    AstNode* elistp = exprsp;
+    const AstNode* elistp = exprsp;
 
     // Convert Verilog display to C printf formats
     //          "%0t" becomes "%d"
@@ -1855,7 +1857,7 @@ void EmitCStmts::displayNode(AstNode* nodep, AstScopeName* scopenamep,
 //######################################################################
 // Internal EmitC
 
-void EmitCImp::emitCoverageDecl(AstNodeModule* modp) {
+void EmitCImp::emitCoverageDecl(const AstNodeModule* modp) {
     if (v3Global.opt.coverage()) {
         ofp()->putsPrivate(true);
         putsDecoration("// Coverage\n");
@@ -1894,7 +1896,7 @@ void EmitCImp::emitMTaskVertexCtors(bool* firstp) {
     emitCtorSep(firstp); puts("__Vm_even_cycle(false)");
 }
 
-void EmitCImp::emitCtorImp(AstNodeModule* modp) {
+void EmitCImp::emitCtorImp(const AstNodeModule* modp) {
     puts("\n");
     bool first = true;
     if (optSystemC() && modp->isTop()) {
@@ -1955,7 +1957,7 @@ void EmitCImp::emitCtorImp(AstNodeModule* modp) {
     puts("}\n");
 }
 
-void EmitCImp::emitConfigureImp(AstNodeModule* modp) {
+void EmitCImp::emitConfigureImp(const AstNodeModule* modp) {
     puts("\nvoid "+modClassName(modp)+"::"+protect("__Vconfigure")
          +"("+symClassName()+"* vlSymsp, bool first) {\n");
     puts(   "if (0 && first) {}  // Prevent unused\n");
@@ -1967,7 +1969,7 @@ void EmitCImp::emitConfigureImp(AstNodeModule* modp) {
     splitSizeInc(10);
 }
 
-void EmitCImp::emitCoverageImp(AstNodeModule* modp) {
+void EmitCImp::emitCoverageImp(const AstNodeModule* modp) {
     if (v3Global.opt.coverage() ) {
         puts("\n// Coverage\n");
         // Rather than putting out VL_COVER_INSERT calls directly, we do it via this function
@@ -1992,7 +1994,7 @@ void EmitCImp::emitCoverageImp(AstNodeModule* modp) {
     }
 }
 
-void EmitCImp::emitDestructorImp(AstNodeModule* modp) {
+void EmitCImp::emitDestructorImp(const AstNodeModule* modp) {
     puts("\n");
     puts(modClassName(modp)+"::~"+modClassName(modp)+"() {\n");
     if (modp->isTop() && v3Global.opt.mtasks()) {
@@ -2004,7 +2006,7 @@ void EmitCImp::emitDestructorImp(AstNodeModule* modp) {
     splitSizeInc(10);
 }
 
-void EmitCImp::emitSavableImp(AstNodeModule* modp) {
+void EmitCImp::emitSavableImp(const AstNodeModule* modp) {
     if (v3Global.opt.savable() ) {
         puts("\n// Savable\n");
         for (int de=0; de<2; ++de) {
@@ -2087,8 +2089,8 @@ void EmitCImp::emitSavableImp(AstNodeModule* modp) {
 
 void EmitCImp::emitTextSection(AstType type) {
     int last_line = -999;
-    for (AstNode* nodep = m_modp->stmtsp(); nodep; nodep = nodep->nextp()) {
-        if (const AstNodeText* textp = VN_CAST(nodep, NodeText)) {
+    for (const AstNode* nodep = m_modp->stmtsp(); nodep; nodep = nodep->nextp()) {
+        if (const AstNodeText* textp = VN_CAST_CONST(nodep, NodeText)) {
             if (nodep->type() == type) {
                 if (last_line != nodep->fileline()->lineno()) {
                     if (last_line < 0) {
@@ -2108,14 +2110,14 @@ void EmitCImp::emitTextSection(AstType type) {
     }
 }
 
-void EmitCImp::emitCellCtors(AstNodeModule* modp) {
+void EmitCImp::emitCellCtors(const AstNodeModule* modp) {
     if (modp->isTop()) {
         // Must be before other constructors, as __vlCoverInsert calls it
         puts(EmitCBaseVisitor::symClassVar()+" = __VlSymsp = new "+symClassName()+"(this, name());\n");
         puts(EmitCBaseVisitor::symTopAssign()+"\n");
     }
-    for (AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
-        if (AstCell* cellp = VN_CAST(nodep, Cell)) {
+    for (const AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
+        if (const AstCell* cellp = VN_CAST_CONST(nodep, Cell)) {
             puts("VL_CELL("+cellp->nameProtect()+", "+modClassName(cellp->modp())+");\n");
         }
     }
@@ -2186,7 +2188,7 @@ void EmitCImp::emitSettleLoop(const std::string& eval_call, bool initial) {
     puts("} while (VL_UNLIKELY(__Vchange));\n");
 }
 
-void EmitCImp::emitWrapEval(AstNodeModule* modp) {
+void EmitCImp::emitWrapEval(const AstNodeModule* modp) {
     puts("\nvoid "+modClassName(modp)+"::eval() {\n");
     puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+++++TOP Evaluate "+modClassName(modp)+"::eval\\n\"); );\n");
     puts(EmitCBaseVisitor::symClassVar()+" = this->__VlSymsp;  // Setup global symbol table\n");
@@ -2276,7 +2278,8 @@ void EmitCImp::emitWrapEval(AstNodeModule* modp) {
 //----------------------------------------------------------------------
 // Top interface/ implementation
 
-void EmitCStmts::emitVarList(AstNode* firstp, EisWhich which, const string& prefixIfImp) {
+void EmitCStmts::emitVarList(const AstNode* firstp, EisWhich which,
+                             const string& prefixIfImp) {
     // Put out a list of signal declarations
     // in order of 0:clocks, 1:vluint8, 2:vluint16, 4:vluint32, 5:vluint64, 6:wide, 7:arrays
     // This aids cache packing and locality
@@ -2292,8 +2295,8 @@ void EmitCStmts::emitVarList(AstNode* firstp, EisWhich which, const string& pref
 
     for (int isstatic=1; isstatic>=0; isstatic--) {
         if (prefixIfImp!="" && !isstatic) continue;
-        for (AstNode* nodep=firstp; nodep; nodep = nodep->nextp()) {
-            if (const AstVar* varp = VN_CAST(nodep, Var)) {
+        for (const AstNode* nodep=firstp; nodep; nodep = nodep->nextp()) {
+            if (const AstVar* varp = VN_CAST_CONST(nodep, Var)) {
                 bool doit = true;
                 switch (which) {
                 case EVL_CLASS_IO:   doit = varp->isIO(); break;
@@ -2456,12 +2459,12 @@ struct CmpName {
     }
 };
 
-void EmitCImp::emitIntFuncDecls(AstNodeModule* modp) {
+void EmitCImp::emitIntFuncDecls(const AstNodeModule* modp) {
     typedef std::vector<const AstCFunc*> FuncVec;
     FuncVec funcsp;
 
-    for (AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
-        if (const AstCFunc* funcp = VN_CAST(nodep, CFunc)) {
+    for (const AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
+        if (const AstCFunc* funcp = VN_CAST_CONST(nodep, CFunc)) {
             if (!funcp->skipDecl()) {
                 funcsp.push_back(funcp);
             }
@@ -2540,7 +2543,7 @@ void EmitCImp::emitMTaskState() {
     puts("bool __Vm_even_cycle;\n");
 }
 
-void EmitCImp::emitInt(AstNodeModule* modp) {
+void EmitCImp::emitInt(const AstNodeModule* modp) {
     // Always have this first; gcc has short circuiting if #ifdef is first in a file
     ofp()->putsGuard();
     puts("\n");
@@ -2574,8 +2577,8 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
     // Declare foreign instances up front to make C++ happy
     puts("class "+symClassName()+";\n");
     vl_unordered_set<string> didClassName;
-    for (AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
-        if (AstCell* cellp = VN_CAST(nodep, Cell)) {
+    for (const AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
+        if (const AstCell* cellp = VN_CAST_CONST(nodep, Cell)) {
             string className = modClassName(cellp->modp());
             if (didClassName.find(className)==didClassName.end()) {
                 puts("class "+className+";\n");
@@ -2600,8 +2603,8 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
 
     {  // Instantiated cells
         bool did = false;
-        for (AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
-            if (AstCell* cellp = VN_CAST(nodep, Cell)) {
+        for (const AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
+            if (const AstCell* cellp = VN_CAST_CONST(nodep, Cell)) {
                 if (!did) {
                     did = true;
                     putsDecoration("// CELLS\n");
@@ -2647,8 +2650,8 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
     if (modp->isTop()) puts("// Parameters marked /*verilator public*/ for use by application code\n");
     ofp()->putsPrivate(false);  // public:
     emitVarList(modp->stmtsp(), EVL_CLASS_PAR, "");  // Only those that are non-CONST
-    for (AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
-        if (const AstVar* varp = VN_CAST(nodep, Var)) {
+    for (const AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
+        if (const AstVar* varp = VN_CAST_CONST(nodep, Var)) {
             if (varp->isParam() && (varp->isUsedParam() || varp->isSigPublic())) {
                 UASSERT_OBJ(varp->valuep(), nodep, "No init for a param?");
                 // These should be static const values, however microsloth VC++ doesn't
@@ -2765,7 +2768,7 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
 
 //----------------------------------------------------------------------
 
-void EmitCImp::emitImp(AstNodeModule* modp) {
+void EmitCImp::emitImp(const AstNodeModule* modp) {
     puts("\n");
     puts("#include \""+modClassName(modp)+".h\"\n");
     puts("#include \""+symClassName()+".h\"\n");
@@ -2789,6 +2792,7 @@ void EmitCImp::emitImp(AstNodeModule* modp) {
     }
 
     if (m_slow && splitFilenum()==0) {
+        // NEEDS REVIEW
         puts("\n//--------------------\n");
         emitCtorImp(modp);
         emitConfigureImp(modp);
@@ -2812,7 +2816,7 @@ void EmitCImp::emitImp(AstNodeModule* modp) {
 
 //######################################################################
 
-void EmitCImp::maybeSplit(AstNodeModule* modp) {
+void EmitCImp::maybeSplit(const AstNodeModule* modp) {
     if (splitNeeded()) {
         // Close old file
         delete m_ofp; m_ofp = NULL;
@@ -2842,8 +2846,8 @@ void EmitCImp::main(AstNodeModule* modp, bool slow, bool fast) {
     m_ofp = newOutCFile(modp, !m_fast, true/*source*/);
     emitImp(modp);
 
-    for (AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
-        if (AstCFunc* funcp = VN_CAST(nodep, CFunc)) {
+    for (const AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
+        if (const AstCFunc* funcp = VN_CAST_CONST(nodep, CFunc)) {
             maybeSplit(modp);
             mainDoFunc(funcp);
         }

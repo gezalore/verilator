@@ -1564,13 +1564,13 @@ public:
     ASTNODE_BASE_FUNCS(NodeMath)
     // METHODS
     virtual bool hasDType() const { return true; }
-    virtual string emitVerilog() = 0;  /// Format string for verilog writing; see V3EmitV
-    virtual string emitC() = 0;
-    virtual string emitSimpleOperator() { return ""; }
+    virtual string emitVerilog() const = 0;  /// Format string for verilog writing; see V3EmitV
+    virtual string emitC() const = 0;
+    virtual string emitSimpleOperator() const { return ""; }
     virtual bool cleanOut() const = 0;  // True if output has extra upper bits zero
     // Someday we will generically support data types on every math node
     // Until then isOpaque indicates we shouldn't constant optimize this node type
-    bool isOpaque() { return VN_IS(this, CvtPackString); }
+    bool isOpaque() const { return VN_IS(this, CvtPackString); }
 };
 
 class AstNodeTermop : public AstNodeMath {
@@ -1690,8 +1690,8 @@ public:
     AstNode* condp() const { return op1p(); }  // op1 = Condition
     AstNode* expr1p() const { return op2p(); }  // op2 = If true...
     AstNode* expr2p() const { return op3p(); }  // op3 = If false...
-    virtual string emitVerilog() { return "%k(%l %f? %r %k: %t)"; }
-    virtual string emitC() { return "VL_COND_%nq%lq%rq%tq(%nw,%lw,%rw,%tw, %P, %li, %ri, %ti)"; }
+    virtual string emitVerilog() const { return "%k(%l %f? %r %k: %t)"; }
+    virtual string emitC() const { return "VL_COND_%nq%lq%rq%tq(%nw,%lw,%rw,%tw, %P, %li, %ri, %ti)"; }
     virtual bool cleanOut() const { return false; }  // clean if e1 & e2 clean
     virtual bool cleanLhs() const { return true; }
     virtual bool cleanRhs() const { return false; }

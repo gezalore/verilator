@@ -320,7 +320,7 @@ void V3File::createMakeDirFor(const string& filename) {
     }
 }
 void V3File::createMakeDir() {
-    static bool created = false;
+    static bool created = false; // BAD
     if (!created) {
         created = true;
         V3Os::createDir(v3Global.opt.makeDir());
@@ -616,7 +616,7 @@ V3OutFormatter::V3OutFormatter(const string& filename, V3OutFormatter::Language 
 
 const string V3OutFormatter::indentSpaces(int num) {
     // Indent the specified number of spaces.  Use spaces.
-    static char str[MAXSPACE+20];
+    static char str[MAXSPACE+20]; // BAD
     char* cp = str;
     if (num>MAXSPACE) num = MAXSPACE;
     while (num>0) {
@@ -994,6 +994,7 @@ public:
     }
     string protectIf(const string& old, bool doIt) {
         if (!v3Global.opt.protectIds() || old.empty() || !doIt) return old;
+        UASSERT(v3Global.opt.parallelism() == 0, "--protect-ids does not work with -j");
         IdMap::iterator it = m_nameMap.find(old);
         if (it != m_nameMap.end()) return it->second;
         else {
