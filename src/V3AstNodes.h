@@ -3639,8 +3639,6 @@ class AstJumpLabel : public AstNodeStmt {
     // Separate from AstJumpGo; as a declaration can't be deleted
     // Parents:  {statement list}
     // Children: {statement list, with JumpGo below}
-private:
-    int m_labelNum;  // Set by V3EmitCSyms to tell final V3Emit what to increment
 public:
     AstJumpLabel(FileLine* fl, AstNode* stmtsp)
         : AstNodeStmt(fl), m_labelNum(0) {
@@ -3654,8 +3652,6 @@ public:
     // op1 = Statements
     AstNode* stmtsp() const { return op1p(); }  // op1 = List of statements
     void addStmtsp(AstNode* nodep) { addNOp1p(nodep); }
-    int labelNum() const { return m_labelNum; }
-    void labelNum(int flag) { m_labelNum = flag; }
 };
 
 class AstJumpGo : public AstNodeStmt {
