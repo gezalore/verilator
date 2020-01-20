@@ -934,7 +934,7 @@ void AstNode::iterateAndNext(AstNConstVisitor& v) const {
         ASTNODE_PREFETCH(nodep->m_op1p);
         ASTNODE_PREFETCH(nodep->m_op2p);
         ASTNODE_PREFETCH(nodep->m_op3p);
-        ASTNODE_PREFETCH(nodep->m_op3p);
+        ASTNODE_PREFETCH(nodep->m_op4p);
         // Prefetch the content of the next node as well
         ASTNODE_PREFETCH(nextp);
         // Dispatch to visitor

@@ -3641,7 +3641,7 @@ class AstJumpLabel : public AstNodeStmt {
     // Children: {statement list, with JumpGo below}
 public:
     AstJumpLabel(FileLine* fl, AstNode* stmtsp)
-        : AstNodeStmt(fl), m_labelNum(0) {
+        : AstNodeStmt(fl) {
         addNOp1p(stmtsp);
     }
     virtual int instrCount() const { return 0; }
