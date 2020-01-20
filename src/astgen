@@ -38,7 +38,8 @@ if ($opt_report) {
 if ($opt_classes) {
     write_report("V3Ast__gen_report.txt");
     write_classes("V3Ast__gen_classes.h");
-    write_visitor("V3Ast__gen_visitor.h");
+    write_visitor("V3Ast__gen_visitor.h", 0);
+    write_visitor("V3Ast__gen_const_visitor.h", 1);
     write_intf("V3Ast__gen_interface.h");
     write_impl("V3Ast__gen_impl.h");
     write_types("V3Ast__gen_types.h");
@@ -223,13 +224,14 @@ sub write_classes {
 }
 
 sub write_visitor {
-    my $fh = open_file(@_);
+    my $fh = open_file(shift);
+    my $const = shift ? "const " : "";
     foreach my $type (sort (keys %Classes)) {
         my $base = $Classes{$type};
         if ($base) {
-            printf $fh "    virtual void visit(Ast${type}* nodep) { visit((Ast${base}*)(nodep)); }\n";
+            printf $fh "    virtual void visit(${const}Ast${type}* nodep) { visit((${const}Ast${base}*)(nodep)); }\n";
         } else {
-            printf $fh "    virtual void visit(Ast${type}*) = 0;\n";
+            printf $fh "    virtual void visit(${const}Ast${type}*) = 0;\n";
         }
     }
     $fh->close();

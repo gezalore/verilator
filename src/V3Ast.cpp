@@ -900,6 +900,67 @@ AstNode* AstNode::iterateSubtreeReturnEdits(AstNVisitor& v) {
     return nodep;
 }
 
+
+void AstNode::iterateChildren(AstNConstVisitor& v) const {
+    // This is a very hot function
+    ASTNODE_PREFETCH(m_op1p);
+    ASTNODE_PREFETCH(m_op2p);
+    ASTNODE_PREFETCH(m_op3p);
+    ASTNODE_PREFETCH(m_op4p);
+    if (m_op1p) m_op1p->iterateAndNext(v);
+    if (m_op2p) m_op2p->iterateAndNext(v);
+    if (m_op3p) m_op3p->iterateAndNext(v);
+    if (m_op4p) m_op4p->iterateAndNext(v);
+}
+
+void AstNode::iterateAndNext(AstNConstVisitor& v) const {
+    // This is a very hot function
+    // IMPORTANT: If you replace a node that's the target of this iterator,
+    // then the NEW node will be iterated on next, it isn't skipped!
+    // Future versions of this function may require the node to have a back to be iterated;
+    // there's no lower level reason yet though the back must exist.
+    const AstNode* nodep = this;
+#ifdef VL_DEBUG  // Otherwise too hot of a function for debug
+    UASSERT_OBJ(!(nodep && !nodep->m_backp), nodep,
+                "iterateAndNext node has no back");
+#endif
+    do {
+        // Load the next node address for the next iteration into a local
+        // variable. Even if this gets spilled onto the stack, it is far more
+        // likely the top of the stack will be in the cache when it is needed.
+        const AstNode *const nextp = nodep->m_nextp;
+        // The children are very often used, including inside iterateChildren
+        // when walking down the tree, so prefetch them. Also prefetch the
+        ASTNODE_PREFETCH(nodep->m_op1p);
+        ASTNODE_PREFETCH(nodep->m_op2p);
+        ASTNODE_PREFETCH(nodep->m_op3p);
+        ASTNODE_PREFETCH(nodep->m_op3p);
+        // Prefetch the content of the next node as well
+        ASTNODE_PREFETCH(nextp);
+        // Dispatch to visitor
+        nodep->accept(v);
+        // Do next node
+        nodep = nextp;
+    } while (nodep);
+}
+
+void AstNode::iterateChildrenBackwards(AstNConstVisitor& v) const {
+    if (m_op1p) m_op1p->iterateListBackwards(v);
+    if (m_op2p) m_op2p->iterateListBackwards(v);
+    if (m_op3p) m_op3p->iterateListBackwards(v);
+    if (m_op4p) m_op4p->iterateListBackwards(v);
+}
+
+void AstNode::iterateListBackwards(AstNConstVisitor& v) const {
+    const AstNode* nodep = this;
+    while (nodep->m_nextp) nodep = nodep->m_nextp;
+    while (nodep) {
+        nodep->accept(v);
+        if (nodep->backp()->m_nextp == nodep) nodep = nodep->backp();
+        else nodep = NULL;  // else: backp points up the tree.
+    }
+}
+
 //======================================================================
 
 void AstNode::cloneRelinkTree() {

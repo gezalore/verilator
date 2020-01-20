@@ -503,7 +503,7 @@ string V3Number::displayPad(size_t fmtsize, char pad, bool left, const string& i
     return left ? (in + padding) : (padding + in);
 }
 
-string V3Number::displayed(AstNode* nodep, const string& vformat) const {
+string V3Number::displayed(const AstNode* nodep, const string& vformat) const {
     return displayed(nodep->fileline(), vformat);
 }
 

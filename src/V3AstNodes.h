@@ -30,6 +30,7 @@
 
 #define ASTNODE_NODE_FUNCS_NO_DTOR(name) \
     virtual void accept(AstNVisitor& v) { v.visit(this); } \
+    virtual void accept(AstNConstVisitor& v) const { v.visit(this); } \
     virtual AstType type() const { return AstType::at ## name; } \
     virtual AstNode* clone() { return new Ast ##name (*this); } \
     static Ast ##name * cloneTreeNull(Ast ##name * nodep, bool cloneNextLink) { \
@@ -2768,7 +2769,7 @@ class AstCoverDecl : public AstNodeStmt {
     // Parents:  {statement list}
     // Children: none
 private:
-    AstCoverDecl* m_dataDeclp;  // [After V3CoverageJoin] Pointer to duplicate declaration to get data from instead
+    const AstCoverDecl* m_dataDeclp;  // [After V3CoverageJoin] Pointer to duplicate declaration to get data from instead
     string      m_page;
     string      m_text;
     string      m_hier;
@@ -2808,11 +2809,11 @@ public:
                 && comment() == asamep->comment()
                 && column() == asamep->column()); }
     virtual bool isPredictOptimizable() const { return false; }
-    void dataDeclp(AstCoverDecl* nodep) { m_dataDeclp = nodep; }
+    void dataDeclp(const AstCoverDecl* nodep) { m_dataDeclp = nodep; }
     // dataDecl NULL means "use this one", but often you want "this" to
     // indicate to get data from here
-    AstCoverDecl* dataDeclNullp() const { return m_dataDeclp; }
-    AstCoverDecl* dataDeclThisp() { return dataDeclNullp()?dataDeclNullp():this; }
+    const AstCoverDecl* dataDeclNullp() const { return m_dataDeclp; }
+    const AstCoverDecl* dataDeclThisp() const { return dataDeclNullp()?dataDeclNullp():this; }
 };
 
 class AstCoverInc : public AstNodeStmt {
@@ -3980,7 +3981,7 @@ private:
 public:
     AstTraceDecl(FileLine* fl, const string& showname,
                  AstVar* varp,  // For input/output state etc
-                 AstNode* valuep,
+                 const AstNode* valuep,
                  const VNumRange& bitRange, const VNumRange& arrayRange,
                  bool isScoped)
         : AstNodeStmt(fl)
@@ -6471,7 +6472,7 @@ public:
     virtual V3Hash sameHash() const { return V3Hash(); }
     virtual bool same(const AstNode* samep) const { return true; }
     void tblockp(AstTextBlock* tblockp) { setOp1p(tblockp); }
-    AstTextBlock* tblockp() { return VN_CAST(op1p(), TextBlock); }
+    AstTextBlock* tblockp() const { return VN_CAST(op1p(), TextBlock); }
 };
 
 //======================================================================

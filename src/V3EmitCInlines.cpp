@@ -40,57 +40,57 @@ class EmitCInlines : EmitCBaseVisitor {
     void emitInt();
 
     // VISITORS
-    virtual void visit(AstBasicDType* nodep) {
+    virtual void visit(const AstBasicDType* nodep) {
         if (nodep->keyword() == AstBasicDTypeKwd::STRING) {
             // Request #include <string> via verilated_heavy.h when we create symbol file
             v3Global.needHeavy(true);
         }
     }
-    virtual void visit(AstAssocArrayDType* nodep) {
+    virtual void visit(const AstAssocArrayDType* nodep) {
         v3Global.needHeavy(true);
         iterateChildren(nodep);
     }
-    virtual void visit(AstQueueDType* nodep) {
+    virtual void visit(const AstQueueDType* nodep) {
         v3Global.needHeavy(true);
         iterateChildren(nodep);
     }
-    virtual void visit(AstNodeReadWriteMem* nodep) {
+    virtual void visit(const AstNodeReadWriteMem* nodep) {
         v3Global.needHeavy(true);
         iterateChildren(nodep);
     }
-    virtual void visit(AstValuePlusArgs* nodep) {
+    virtual void visit(const AstValuePlusArgs* nodep) {
         v3Global.needHeavy(true);
         iterateChildren(nodep);
     }
-    virtual void visit(AstAtoN* nodep) {
+    virtual void visit(const AstAtoN* nodep) {
         v3Global.needHeavy(true);
         iterateChildren(nodep);
     }
-    virtual void visit(AstPutcN* nodep) {
+    virtual void visit(const AstPutcN* nodep) {
         v3Global.needHeavy(true);
         iterateChildren(nodep);
     }
-    virtual void visit(AstGetcN* nodep) {
+    virtual void visit(const AstGetcN* nodep) {
         v3Global.needHeavy(true);
         iterateChildren(nodep);
     }
-    virtual void visit(AstSubstrN* nodep) {
+    virtual void visit(const AstSubstrN* nodep) {
         v3Global.needHeavy(true);
         iterateChildren(nodep);
     }
-    virtual void visit(AstCompareNN* nodep) {
+    virtual void visit(const AstCompareNN* nodep) {
         v3Global.needHeavy(true);
         iterateChildren(nodep);
     }
 
     // Default
-    virtual void visit(AstNode* nodep) {
+    virtual void visit(const AstNode* nodep) {
         iterateChildren(nodep);
     }
     //---------------------------------------
     // ACCESSORS
 public:
-    explicit EmitCInlines(AstNetlist* nodep) {
+    explicit EmitCInlines(const AstNetlist* nodep) {
         iterate(nodep);
         if (v3Global.needHInlines()) {
             emitInt();

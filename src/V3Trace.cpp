@@ -153,7 +153,7 @@ public:
 //######################################################################
 // Trace state, as a visitor of each AstNode
 
-class TraceVisitor : public EmitCBaseVisitor {
+class TraceVisitor : public AstNVisitor {
 private:
     // NODE STATE
     // V3Hashed

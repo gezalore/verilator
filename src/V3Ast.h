@@ -1055,6 +1055,31 @@ public:
 };
 
 //######################################################################
+// AstNConstVisitor -- Like AstNVisitor, but all iterate/visit methods take
+// const node pointers, hence the tree cannot be modified. This is useful for
+// passes that only do analysis as it shows intent and is slightly faster.
+
+class AstNConstVisitor {
+protected:
+    friend class AstNode;
+public:
+    virtual ~AstNConstVisitor() {}
+    /// Call visit()s on nodep
+    void iterate(const AstNode* nodep);
+    /// Call visit()s on nodep's children
+    void iterateChildren(const AstNode* nodep);
+    /// Call visit()s on nodep's children in backp() order
+    void iterateChildrenBackwards(const AstNode* nodep);
+    /// Call visit()s on nodep (maybe NULL) and nodep's nextp() list
+    void iterateAndNextNull(const AstNode* nodep);
+
+#include "V3Ast__gen_const_visitor.h"  // From ./astgen
+    // Things like:
+    //  virtual void visit(const AstBreak* nodep) { visit((const AstNodeStmt*)(nodep)); }
+    //  virtual void visit(const AstNodeStmt* nodep) { visit((const AstNode*)(nodep)); }
+};
+
+//######################################################################
 // AstNRelinker -- Holds the state of a unlink so a new node can be
 // added at the same point.
 
@@ -1412,7 +1437,7 @@ public:
 
     // METHODS - data type changes especially for initial creation
     void dtypep(AstNodeDType* nodep) { if (m_dtypep != nodep) { m_dtypep = nodep; editCountInc(); } }
-    void dtypeFrom(AstNode* fromp) { if (fromp) { dtypep(fromp->dtypep()); }}
+    void dtypeFrom(const AstNode* fromp) { if (fromp) { dtypep(fromp->dtypep()); }}
     void dtypeChgSigned(bool flag=true);
     void dtypeChgWidth(int width, int widthMin);
     void dtypeChgWidthSigned(int width, int widthMin, AstNumeric numeric);
@@ -1520,6 +1545,7 @@ public:
 
     // INVOKERS
     virtual void accept(AstNVisitor& v) = 0;
+    virtual void accept(AstNConstVisitor& v) const = 0;
 
 protected:
     // All AstNVisitor related functions are called as methods off the visitor
@@ -1530,8 +1556,14 @@ protected:
     void iterateAndNext(AstNVisitor& v);  // Use instead AstNVisitor::iterateAndNextNull
     void iterateAndNextConst(AstNVisitor& v);  // Use instead AstNVisitor::iterateAndNextConstNull
     AstNode* iterateSubtreeReturnEdits(AstNVisitor& v);  // Use instead AstNVisitor::iterateSubtreeReturnEdits
+    // ... AstNConstVisitor
+    friend class AstNConstVisitor;
+    void iterateChildren(AstNConstVisitor& v) const;  // Use instead AstnConstVisitor::iterateChildren
+    void iterateChildrenBackwards(AstNConstVisitor& v) const;  // Use instead AstnConstVisitor::iterateChildrenBackwards
+    void iterateAndNext(AstNConstVisitor& v) const;  // Use instead AstnConstVisitor::iterateAndNextNull
 private:
     void iterateListBackwards(AstNVisitor& v);
+    void iterateListBackwards(AstNConstVisitor& v) const;
 
     // CONVERSION
 public:
@@ -2310,6 +2342,22 @@ inline void AstNVisitor::iterateAndNextConstNull(AstNode* nodep) {
 }
 inline AstNode* AstNVisitor::iterateSubtreeReturnEdits(AstNode* nodep) {
     return nodep->iterateSubtreeReturnEdits(*this);
+}
+
+//######################################################################
+// Inline AstNConstVisitor METHODS
+
+inline void AstNConstVisitor::iterate(const AstNode* nodep) {
+    nodep->accept(*this);
+}
+inline void AstNConstVisitor::iterateChildren(const AstNode* nodep) {
+    nodep->iterateChildren(*this);
+}
+inline void AstNConstVisitor::iterateChildrenBackwards(const AstNode* nodep) {
+    nodep->iterateChildrenBackwards(*this);
+}
+inline void AstNConstVisitor::iterateAndNextNull(const AstNode* nodep) {
+    if (VL_LIKELY(nodep)) nodep->iterateAndNext(*this);
 }
 
 //######################################################################
