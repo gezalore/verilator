@@ -1171,7 +1171,7 @@ public:
 // micro-architecture.
 #define ASTNODE_PREFETCH(nodep) VL_PREFETCH_RD(nodep)
 
-class AstNode {
+class alignas(64) AstNode {
     // v ASTNODE_PREFETCH depends on below ordering of members
     AstNode*    m_nextp;        // Next peer in the parent's list
     AstNode*    m_backp;        // Node that points to this one (via next/op1/op2/...)

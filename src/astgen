@@ -75,8 +75,8 @@ sub read_types {
     while (defined (my $line = $fh->getline())) {
         $line =~ s/\/\/.*$//;
         next if $line =~ /^\s*$/;
-        if ($line =~ /^\s*(class|struct)\s*(\S+)/) {
-            my $class = $2;
+        if ($line =~ /^\s*(class|struct)\s+(alignas\(\d+\)\s*)?(\S+)/) {
+            my $class = $3;
             my $inh = "";
             $inh = $1 if ($line =~ /:\s*public\s+(\S+)/);
             print "class $class : $inh\n" if $Debug;
