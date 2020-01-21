@@ -99,7 +99,22 @@
 #include <ctime>
 #include <sys/stat.h>
 
+#include <chrono>
+
 V3Global v3Global;
+
+
+std::chrono::high_resolution_clock::time_point begin;
+std::chrono::high_resolution_clock::time_point start;
+
+static void ttt(const char* tag) {
+    auto end = std::chrono::high_resolution_clock::now();
+    auto dif = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    auto cum = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+    printf("%30s +%10.3f %10.3f\n", tag, static_cast<double>(dif)/1000, static_cast<double>(cum)/1000);
+    std::cout.flush();
+    start = std::chrono::high_resolution_clock::now();
+}
 
 //######################################################################
 // V3 Class -- top level
@@ -182,6 +197,8 @@ void process() {
     V3LinkJump::linkJump(v3Global.rootp());
     V3Error::abortIfErrors();
 
+    ttt("Initial");
+
     if (v3Global.opt.stats()) V3Stats::statsStageAll(v3Global.rootp(), "Link");
 
     // Remove parameters by cloning modules to de-parameterized versions
@@ -258,8 +275,10 @@ void process() {
         // Cannot remove dead variables after this, as alias information for final
         // V3Scope's V3LinkDot is in the AstVar.
         if (v3Global.opt.oInline()) {
+            ttt("Inline start");
             V3Inline::inlineAll(v3Global.rootp());
             V3LinkDot::linkDotArrayed(v3Global.rootp());  // Cleanup as made new modules
+            ttt("Inline end");
         }
     }
 
@@ -320,13 +339,17 @@ void process() {
         V3Const::constifyAll(v3Global.rootp());
 
         if (v3Global.opt.oLife()) {
+            ttt("Life start");
             V3Life::lifeAll(v3Global.rootp());
+            ttt("Life end");
         }
 
         // Make large low-fanin logic blocks into lookup tables
         // This should probably be done much later, once we have common logic elimination.
         if (!v3Global.opt.lintOnly() && v3Global.opt.oTable()) {
+            ttt("Table start");
             V3Table::tableAll(v3Global.rootp());
+            ttt("Table end");
         }
 
         // Cleanup
@@ -340,7 +363,9 @@ void process() {
 
         // Split single ALWAYS blocks into multiple blocks for better ordering chances
         if (v3Global.opt.oSplit()) {
+            ttt("Split start");
             V3Split::splitAlwaysAll(v3Global.rootp());
+            ttt("Split end");
         }
         V3SplitAs::splitAsAll(v3Global.rootp());
 
@@ -352,7 +377,9 @@ void process() {
         // Gate-based logic elimination; eliminate signals and push constant across cell boundaries
         // Instant propagation makes lots-o-constant reduction possibilities.
         if (v3Global.opt.oGate()) {
+            ttt("Gate start");
             V3Gate::gateAll(v3Global.rootp());
+            ttt("Gate end");
             // V3Gate calls constant propagation itself.
         } else {
             v3info("Command Line disabled gate optimization with -Og/-O0.  This may cause ordering problems.");
@@ -376,7 +403,9 @@ void process() {
 
         // Reorder assignments in pipelined blocks
         if (v3Global.opt.oReorder()) {
+            ttt("Reorder start");
             V3Split::splitReorderAll(v3Global.rootp());
+            ttt("Reorder end");
         }
 
         // Create delayed assignments
@@ -403,11 +432,15 @@ void process() {
         // Life must be done before Subst, as it assumes each CFunc under
         // _eval is called only once.
         if (v3Global.opt.oLife()) {
+            ttt("Life 2 start");
             V3Const::constifyAll(v3Global.rootp());
             V3Life::lifeAll(v3Global.rootp());
+            ttt("Life 2 end");
         }
         if (v3Global.opt.oLifePost()) {
+            ttt("LifePost start");
             V3LifePost::lifepostAll(v3Global.rootp());
+            ttt("LifePost end");
         }
 
         // Remove unused vars
@@ -441,12 +474,16 @@ void process() {
 
         // Move BLOCKTEMPS from class to local variables
         if (v3Global.opt.oLocalize()) {
+            ttt("Localize start");
             V3Localize::localizeAll(v3Global.rootp());
+            ttt("Localize end");
         }
 
         // Icache packing; combine common code in each module's functions into subroutines
         if (v3Global.opt.oCombine()) {
+            ttt("Combine start");
             V3Combine::combineAll(v3Global.rootp());
+            ttt("Combine end");
         }
     }
 
@@ -474,31 +511,39 @@ void process() {
     if (!v3Global.opt.lintOnly()
         && !v3Global.opt.xmlOnly()
         && v3Global.opt.oExpand()) {
+        ttt("Expand start");
         V3Expand::expandAll(v3Global.rootp());
+        ttt("Expand end");
     }
 
     // Propagate constants across WORDSEL arrayed temporaries
     if (!v3Global.opt.xmlOnly()
         && v3Global.opt.oSubst()) {
+        ttt("Subst start");
         // Constant folding of expanded stuff
         V3Const::constifyCpp(v3Global.rootp());
         V3Subst::substituteAll(v3Global.rootp());
+        ttt("Subst end");
     }
 
     if (!v3Global.opt.xmlOnly()
         && v3Global.opt.oSubstConst()) {
+        ttt("SubstConst start");
         // Constant folding of substitutions
         V3Const::constifyCpp(v3Global.rootp());
 
         V3Dead::deadifyAll(v3Global.rootp());
+        ttt("SubstConst end");
     }
 
     if (!v3Global.opt.lintOnly()
         && !v3Global.opt.xmlOnly()
         && v3Global.opt.oReloop()) {
+        ttt("Reloop start");
         // Reform loops to reduce code size
         // Must be after all Sel/array index based optimizations
         V3Reloop::reloopAll(v3Global.rootp());
+        ttt("Reloop end");
     }
 
     if (!v3Global.opt.lintOnly()
@@ -521,17 +566,25 @@ void process() {
         V3CCtors::cctorsAll();
     }
 
+    ttt("Emit start");
+
     // Output the text
     if (!v3Global.opt.lintOnly()
         && !v3Global.opt.xmlOnly()
         && !v3Global.opt.dpiHdrOnly()) {
         // emitcInlines is first, as it may set needHInlines which other emitters read
         V3EmitC::emitcInlines();
+        ttt("Emit emitcInlines end");
         V3EmitC::emitcSyms();
+        ttt("Emit emitcSyms end");
         V3EmitC::emitcTrace();
+        ttt("Emit emitcTrace end");
     } else if (v3Global.opt.dpiHdrOnly()) {
         V3EmitC::emitcSyms(true);
     }
+
+    ttt("Emit first end");
+
     if (!v3Global.opt.xmlOnly()
         && v3Global.opt.mtasks()) {
         // Finalize our MTask cost estimates and pack the mtasks into
@@ -540,10 +593,16 @@ void process() {
         // costs of mtasks.
         V3Partition::finalize();
     }
+
+    ttt("Emit partition finalize end");
+
     if (!v3Global.opt.xmlOnly()
         && !v3Global.opt.dpiHdrOnly()) {  // Unfortunately we have some lint checks in emitc.
         V3EmitC::emitc();
     }
+
+    ttt("Emit C end");
+
     if (v3Global.opt.xmlOnly()
         // Check XML when debugging to make sure no missing node types
         || (v3Global.opt.debugCheck() && !v3Global.opt.lintOnly()
@@ -551,12 +610,15 @@ void process() {
         V3EmitXml::emitxml();
     }
 
+    ttt("Emit XML end");
+
     // Output DPI protected library files
     if (!v3Global.opt.protectLib().empty()) {
         V3ProtectLib::protect();
         V3EmitV::emitvFiles();
         V3EmitC::emitcFiles();
     }
+    ttt("Emit c/v Files end");
 
     // Statistics
     if (v3Global.opt.stats()) {
@@ -576,12 +638,17 @@ void process() {
         }
     }
 
+    ttt("Emit end");
+
     // Note early return above when opt.cdc()
 }
 
 //######################################################################
 
 int main(int argc, char** argv, char** env) {
+    begin = std::chrono::high_resolution_clock::now();
+    start = begin;
+
     // General initialization
     std::ios::sync_with_stdio();
 
@@ -607,6 +674,8 @@ int main(int argc, char** argv, char** env) {
 
     V3Error::abortIfErrors();
 
+    ttt("Check begin");
+
     // Can we skip doing everything if times are ok?
     V3File::addSrcDepend(v3Global.opt.bin());
     if (v3Global.opt.skipIdentical().isTrue()
@@ -615,6 +684,8 @@ int main(int argc, char** argv, char** env) {
         UINFO(1,"--skip-identical: No change to any source files, exiting\n");
         exit(0);
     }
+
+    ttt("Check end");
 
     // Adjust thread pool size
     v3ThreadPool.resize(v3Global.opt.parallelism());
@@ -638,13 +709,21 @@ int main(int argc, char** argv, char** env) {
         V3Partition::selfTest();
     }
 
+    ttt("Read begin");
+
     // Read first filename
     v3Global.readFiles();
 
+    ttt("Read end");
+
     // Link, etc, if needed
     if (!v3Global.opt.preprocOnly()) {
+        ttt("Process begin");
         process();
+        ttt("Process end");
     }
+
+    ttt("Final begin");
 
     // Final steps
     V3Global::dumpCheckGlobalTree("final", 990, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
@@ -668,6 +747,9 @@ int main(int argc, char** argv, char** env) {
     v3Global.clear();
 #endif
     FileLine::deleteAllRemaining();
+
+    ttt("Finished");
+    printf("====\n");
 
     UINFO(1,"Done, Exiting...\n");
 }
