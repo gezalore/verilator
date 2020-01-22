@@ -25,6 +25,9 @@
 #error "Use V3Ast.h as the include"
 #endif
 
+#include "V3Assert.h"
+#include "V3MemoryPool.h"
+
 //######################################################################
 // Standard defines for all AstNode final classes
 
@@ -35,7 +38,13 @@
     static Ast ##name * cloneTreeNull(Ast ##name * nodep, bool cloneNextLink) { \
         return nodep ? nodep->cloneTree(cloneNextLink) : NULL; } \
     Ast ##name * cloneTree(bool cloneNext) { return static_cast<Ast ##name *>(AstNode::cloneTree(cloneNext)); } \
-    Ast ##name * clonep() const { return static_cast<Ast ##name *>(AstNode::clonep()); }
+    Ast ##name * clonep() const { return static_cast<Ast ##name *>(AstNode::clonep()); } \
+    static V3MemoryPool<Ast##name> memoryPool; \
+    static void* operator new(size_t sz) { \
+        assert(sz == sizeof(Ast ## name)); \
+        return memoryPool.allocate(); \
+    } \
+    static void operator delete(void* m) { memoryPool.release(m); }
 
 #define ASTNODE_NODE_FUNCS(name) \
     virtual ~Ast ##name() {} \

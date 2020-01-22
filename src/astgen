@@ -50,6 +50,7 @@ if ($opt_classes) {
     write_visitor("V3Ast__gen_visitor.h");
     write_impl("V3Ast__gen_impl.h");
     write_types("V3Ast__gen_types.h");
+    write_static("V3Ast__gen_static.h");
 }
 foreach my $cpt (@Opt_Cpt) {
     Cpt::process(in_filename=>"$Opt_I[0]/${cpt}.cpp", out_filename=>"${cpt}__gen.cpp");
@@ -353,6 +354,15 @@ sub write_types {
     printf $fh "        return names[m_e];\n";
     printf $fh "    };\n";
     $fh->close();
+}
+
+sub write_static {
+    my $fh = open_file(@_);
+
+    foreach my $type (sort (keys %Classes)) {
+      next if $type =~ /^Node/;
+      print $fh "V3MemoryPool<Ast",$type,"> Ast",$type,"::memoryPool;\n";
+    }
 }
 
 #######################################################################

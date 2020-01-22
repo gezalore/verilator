@@ -1307,3 +1307,5 @@ void AstCFunc::dump(std::ostream& str) const {
     if (dpiExport()) str<<" [DPIX]";
     if (dpiExportWrapper()) str<<" [DPIXWR]";
 }
+
+#include "V3Ast__gen_static.h"
