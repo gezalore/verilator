@@ -1308,4 +1308,9 @@ void AstCFunc::dump(std::ostream& str) const {
     if (dpiExportWrapper()) str<<" [DPIXWR]";
 }
 
+V3MemoryPool v3MemoryPool192(192);
+V3MemoryPool v3MemoryPool256(256);
+V3MemoryPool v3MemoryPool320(320);
+V3MemoryPool v3MemoryPool384(384);
+
 #include "V3Ast__gen_static.h"

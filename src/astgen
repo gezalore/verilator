@@ -359,10 +359,17 @@ sub write_types {
 sub write_static {
     my $fh = open_file(@_);
 
+    print $fh "#define ALIGN64(x) (((x) + 63) & ~63)\n";
     foreach my $type (sort (keys %Classes)) {
       next if $type =~ /^Node/;
-      print $fh "V3MemoryPool<Ast",$type,"> Ast",$type,"::memoryPool;\n";
+      my $node = "Ast$type";
+      my $size = "ALIGN64(sizeof($node))";
+      print $fh "V3MemoryPool* ",$node,"::memoryPool = ",$size," == 192 ? &v3MemoryPool192 :\n";
+      print $fh "                                      ",$size," == 256 ? &v3MemoryPool256 :\n";
+      print $fh "                                      ",$size," == 320 ? &v3MemoryPool320 :\n";
+      print $fh "                                      ",$size," == 384 ? &v3MemoryPool384 : NULL;\n";
     }
+    print $fh "#undef ALIGN64\n";
 }
 
 #######################################################################
