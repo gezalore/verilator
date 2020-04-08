@@ -54,8 +54,13 @@ public:
         of.puts(v3Global.opt.outputSplit() ? "1" : "0"); of.puts("\n");
         of.puts("# Threaded output mode?  0/1/N threads (from --threads)\n");
         of.puts("VM_THREADS = "); of.puts(cvtToStr(v3Global.opt.threads())); of.puts("\n");
-        of.puts("# Tracing output mode?  0/1 (from --trace)\n");
-        of.puts("VM_TRACE = "); of.puts(v3Global.opt.trace()?"1":"0"); of.puts("\n");
+        of.puts("# Tracing output mode?  0/1 (from --trace/--trace-fst/--trace-fst-threaded)\n");
+        string tFlag = v3Global.opt.trace() ? "1" : "0";
+        of.puts("VM_TRACE = "); of.puts(tFlag); of.puts("\n");
+        of.puts("# Tracing VCD output mode?  0/1 (from --trace)\n");
+        of.puts("VM_TRACE_VCD = "); of.puts(v3Global.opt.traceFormat().fstFlavor() ? "0" : tFlag); of.puts("\n");
+        of.puts("# Tracing FST output mode?  0/1 (from --trace-fst/--trace-fst-threaded)\n");
+        of.puts("VM_TRACE_FST = "); of.puts(v3Global.opt.traceFormat().fstFlavor() ? tFlag : "0"); of.puts("\n");
         of.puts("# Tracing threaded output mode?  0/1 (from --trace-fst-thread)\n");
         of.puts("VM_TRACE_THREADED = "); of.puts(v3Global.opt.traceFormat().threaded()
                                                  ?"1":"0"); of.puts("\n");
