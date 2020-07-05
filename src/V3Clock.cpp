@@ -34,6 +34,7 @@
 #include "V3Clock.h"
 #include "V3Ast.h"
 #include "V3EmitCBase.h"
+#include "V3Hashed.h"
 
 #include <algorithm>
 #include <list>
@@ -148,14 +149,76 @@ private:
         }
         return senEqnp;
     }
-    AstIf* makeActiveIf(const AstSenTree* sensesp) {
-        AstNode* senEqnp = createSenseEquation(sensesp->sensesp());
+
+    AstIf* makeActiveIf(const AstSenItem* sensesp) {
+        AstNode* senEqnp = createSenseEquation(sensesp);
         UASSERT_OBJ(senEqnp, sensesp, "No sense equation, shouldn't be in sequent activation.");
-        AstIf* newifp = new AstIf(sensesp->fileline(), senEqnp, NULL, NULL);
-        return newifp;
+        return new AstIf(sensesp->fileline(), senEqnp, NULL, NULL);
     }
 
     typedef std::list<AstActive*> ActList;
+    typedef std::list<AstSenItem*> SenList;
+
+    // Given a list of Activate nodes that need to be converted for this
+    // function, return a list of SenItem nodes which should be specialized.
+    SenList getSenItemsToSpecialize(const ActList& actList) {
+        // Count how many Active blocks depend on each unique SenItem
+        struct Hash {
+            size_t operator()(const AstSenItem* kp) const {
+                return V3Hashed::uncachedHash(kp).fullValue();
+            }
+        };
+        struct Equals {
+            bool operator()(const AstSenItem* ap, const AstSenItem* bp) const {
+                return ap->sameTree(bp);
+            }
+        };
+        typedef vl_unordered_map<AstSenItem*, int, Hash, Equals> SenItemCount;
+        SenItemCount senItemCount;
+
+        for (ActList::const_iterator it = actList.begin(); it != actList.end(); ++it) {
+            const AstActive* const active = *it;
+            if (!active->hasClocked()) continue;  // Only care about clocked nodes
+            const AstSenTree* treep = active->sensesp();
+            for (AstSenItem* itemp = treep->sensesp(); itemp;
+                 itemp = VN_CAST(itemp->nextp(), SenItem)) {
+                // Increment mapped value (with default to 0)
+                senItemCount.insert(make_pair(itemp, 0)).first->second++;
+            }
+        }
+
+        // Sort the SenItems by frequency
+        typedef std::multimap<int, AstSenItem*> SortedMap;
+        SortedMap sortedMap;
+        for (SenItemCount::iterator it = senItemCount.begin(); it != senItemCount.end(); ++it) {
+            sortedMap.insert(make_pair(it->second, it->first));
+        }
+
+        // Pick the first 2 // TODO: better heuristic
+        SenList result;
+        SortedMap ::reverse_iterator it = sortedMap.rbegin();
+        for (int n = 0; n < 2; ++n, ++it) {
+            if (it == sortedMap.rend()) break;
+            result.push_back(it->second);
+        }
+        return result;
+    }
+
+    AstSenItem* complementEdge(AstSenItem* nodep) {
+        if (nodep->edgeType() == VEdgeType::ET_POSEDGE) {
+            AstSenItem*const clonep = nodep->cloneTree(false);
+            pushDeletep(clonep);
+            clonep->edgeType(VEdgeType::ET_NEGEDGE);
+            return clonep;
+        } else if (nodep->edgeType() == VEdgeType::ET_NEGEDGE) {
+            AstSenItem*const clonep = nodep->cloneTree(false);
+            pushDeletep(clonep);
+            clonep->edgeType(VEdgeType::ET_POSEDGE);
+            return clonep;
+        }
+        return NULL;
+
+    }
 
     void addActiveToList(AstActive* activep, ActList& actList) {
         if (!actList.empty() && actList.back()->sensesp()->sameTree(activep->sensesp())) {
@@ -168,13 +231,132 @@ private:
         }
     }
 
+    // If the given SenTree has a SenItem equivalent to the given SenItem,
+    // return that SenItem under the SenTree, otherwise return NULL.
+    AstSenItem* findSenItem(const AstSenTree* treep, const AstSenItem* senItemp) {
+        for (AstSenItem* itemp = treep->sensesp(); itemp;
+             itemp = VN_CAST(itemp->nextp(), SenItem)) {
+            if (itemp->sameTree(senItemp)) return itemp;
+        }
+        return NULL;
+    }
+
+    // Return any SenItem from the given SenTree that also exists in the
+    // given senList, or NULL if no such SenItem exists in the SenTree.
+    AstSenItem* findSenItem(const AstSenTree* treep, const SenList& senList) {
+        for (SenList::const_iterator it = senList.begin(); it != senList.end(); ++it) {
+            if (AstSenItem* const resultp = findSenItem(treep, *it)) { return resultp; }
+        }
+        return NULL;
+    }
+
+    AstNode* lowerActList(
+        ActList::const_iterator curr,  // Start of remaining Active node list (inclusive)
+        const ActList::const_iterator end,  // end of remaining Active node list (exclusive)
+        const SenList knownTrue,  // SenItems known to be triggered in this branch
+        const SenList knownFalse,  // SenItems known not to be triggered in this branch
+        SenList toSpecialize,  // SenItems to specialize over when encountered
+        const bool doClone  // Whether to clone the statements of Active nodes, or just move them
+    ) {
+        UASSERT(toSpecialize.empty() || doClone, "Must be cloning when specializing");
+
+        AstNode* resultp = NULL;  // The resulting lowered list
+
+        // Lower the Active nodes to If statements
+        while (curr != end) {
+            const AstActive* const activep = *curr;
+            // Clone the body if told to do so as we might be duplicating it.
+            // Otherwise simply move it.
+            AstNode* const stmtsp = doClone ? activep->stmtsp()->cloneTree(true)
+                                            : activep->stmtsp()->unlinkFrBackWithNext();
+            UASSERT_OBJ(!activep->hasInitial() && !activep->hasSettle(), activep,
+                        "Should have already converted initial and settle blocks");
+            if (AstSenItem* senp = findSenItem(activep->sensesp(), toSpecialize)) {
+                // A clocked block that has a SenItem we want to specialize.
+                // Find the last Active conditional on this SenItem
+                ActList::const_iterator last = end;
+                while (--last != curr) {
+                    if (findSenItem((*last)->sensesp(), senp)) { break; }
+                }
+                ++last;  // Make 'last' the exclusive end point of the sub-list
+                // Create if statement conditional on this SenItem only
+                AstSenItem* const uniquep = senp->cloneTree(false);
+                AstIf* const ifp = makeActiveIf(uniquep);
+                VL_DO_DANGLING(uniquep->deleteTree(), uniquep);
+                // Remove the SenItem being specialized over for the recursion
+                for (SenList::iterator it = toSpecialize.begin(); it != toSpecialize.end();) {
+                    if (senp->sameTree(*it)) {
+                        it = toSpecialize.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+                {  // Build the list assuming senp is true, add it to the then branch
+                    SenList recKnownTrue = knownTrue;
+                    recKnownTrue.push_back(senp);
+                    SenList recKnownFalse = knownFalse;
+                    if (AstSenItem *const complementp = complementEdge(senp)) {
+                        recKnownFalse.push_back(complementp);
+                    }
+                    AstNode* const thensp = lowerActList(curr, last, recKnownTrue, recKnownFalse,
+                                                         toSpecialize, doClone);
+                    if (thensp) ifp->addIfsp(thensp);
+                }
+                {  // Build the list assuming senp is false, add it to the else branch
+                    SenList recKnownFalse = knownFalse;
+                    recKnownFalse.push_back(senp);
+                    AstNode* const elsesp = lowerActList(curr, last, knownTrue, recKnownFalse,
+                                                         toSpecialize, doClone);
+                    if (elsesp) ifp->addElsesp(elsesp);
+                }
+                // Append to result list
+                resultp = resultp ? resultp->addNext(ifp) : ifp;
+                // Move on to rest if list
+                curr = last;
+            } else if (activep->hasClocked()) {
+                // An ordinary clocked block
+                if (findSenItem(activep->sensesp(), knownTrue)) {
+                    // This block is known to be triggered in this branch
+                    resultp = resultp ? resultp->addNext(stmtsp) : stmtsp;
+                } else {
+                    // Simplify condition based on knownFalse triggers
+                    AstSenTree* const senTreep = activep->sensesp()->cloneTree(true);
+                    while (AstSenItem* itemp = findSenItem(senTreep, knownFalse)) {
+                        itemp->unlinkFrBack();
+                        VL_DO_DANGLING(itemp->deleteTree(), itemp);
+                    }
+                    // If no triggers left, we know it is not triggered,
+                    // otherwise convert the if and append to the result list.
+                    if (senTreep->sensesp()) {
+                        AstIf* const ifp = makeActiveIf(senTreep->sensesp());
+                        ifp->addIfsp(stmtsp);
+                        resultp = resultp ? resultp->addNext(ifp) : ifp;
+                    }
+                    VL_DO_DANGLING(senTreep->deleteTree(), senTreep);
+                }
+                // Move on to next item
+                ++curr;
+            } else {  // Combinational block
+                // Append to result list
+                resultp = resultp ? resultp->addNext(stmtsp) : stmtsp;
+                // Move on to next item
+                ++curr;
+            }
+        }
+
+        return resultp;
+    }
+
     // Remove and lower all Active nodes in the list starting at nodep.
     // Returns the start of the list of lowered nodes (may be NULL).
     AstNode* lowerActives(AstNode* nodep) {
         ActList actList;  // The merged Active nodes in the list starting at nodep
 
-        // Extract active nodes, recursively process MTask bodies in ExecGraph,
-        // also merge consecutive nodes with identical sensitivities.
+        bool haveExecGraph = false;  // Need to know if we have an ExecGrap
+
+        // Extract active nodes, recursively process MTask bodies in ExecGraph.
+        // Convert initial and settle blocks, merge consecutive nodes with
+        // identical sensitivities.
         for (AstNode* nextp; nodep; nodep = nextp) {
             nextp = nodep->nextp();
             if (AstActive* const activep = VN_CAST(nodep, Active)) {
@@ -182,10 +364,20 @@ private:
                 if (!activep->stmtsp()) {
                     // Delete empty nodes immediately
                     VL_DO_DANGLING(activep->deleteTree(), activep);
-                    continue;
+                } else if (activep->hasInitial()) {
+                    // Add statements to init function
+                    m_initFuncp->addStmtsp(activep->stmtsp()->unlinkFrBackWithNext());
+                    VL_DO_DANGLING(activep->deleteTree(), activep);
+                } else if (activep->hasSettle()) {
+                    // Add statements to settle function
+                    m_settleFuncp->addStmtsp(activep->stmtsp()->unlinkFrBackWithNext());
+                    VL_DO_DANGLING(activep->deleteTree(), activep);
+                } else {
+                    // Queue for processing
+                    addActiveToList(activep, actList);
                 }
-                addActiveToList(activep, actList);
             } else if (AstExecGraph* const egraphp = VN_CAST(nodep, ExecGraph)) {
+                haveExecGraph = true;
                 egraphp->unlinkFrBack();
                 // Process MTask bodies recursively
                 for (AstMTaskBody* mtaskp = egraphp->mTaskBody(); mtaskp;
@@ -202,35 +394,24 @@ private:
                 const string name = "execgraph";
                 AstActive* const combp = new AstActive(flp, name, senTreep);
                 combp->addStmtsp(egraphp);
+                // Queue for processing
                 addActiveToList(combp, actList);
             }
         }
 
-        AstNode* resultp = NULL;  // The resulting lowered list
+        // Choose the SenItems we will be specializing over. As ExecGraph is
+        // not cloneable, we must not specialize triggers in this list if the
+        // list contains an ExecGraph.
+        const SenList toSpecialize = haveExecGraph ? SenList() : getSenItemsToSpecialize(actList);
 
-        // Lower the Active nodes to If statements and append them to bodyp
-        for (ActList::iterator it = actList.begin(); it != actList.end(); ++it) {
-            AstActive* const activep = *it;
-            AstNode* const stmtsp = activep->stmtsp()->unlinkFrBackWithNext();
-            if (activep->hasClocked()) {
-                // Make a new if statement
-                AstIf* const ifp = makeActiveIf(activep->sensesp());
-                // Move statements under the if
-                ifp->addIfsp(stmtsp);
-                // Append to result list
-                resultp = resultp ? resultp->addNext(ifp) : ifp;
-            } else if (activep->hasInitial()) {
-                // Add to init function
-                m_initFuncp->addStmtsp(stmtsp);
-            } else if (activep->hasSettle()) {
-                // Add to settle function
-                m_settleFuncp->addStmtsp(stmtsp);
-            } else {
-                // Append to result list
-                resultp = resultp ? resultp->addNext(stmtsp) : stmtsp;
-            }
-            // Delete the active node (already unlinked above)
-            VL_DO_DANGLING(activep->deleteTree(), activep);
+        AstNode* const resultp = lowerActList(actList.begin(), actList.end(), SenList(), SenList(),
+                                              toSpecialize, !toSpecialize.empty());
+
+        // Delete the active nodes. They have already been unlinked above and
+        // their content cloned and moved under resultp.
+        while (!actList.empty()) {
+            actList.back()->deleteTree();
+            actList.pop_back();
         }
 
         return resultp;

@@ -8681,6 +8681,7 @@ public:
         BROKEN_RTN(!m_depGraphp);
         return NULL;
     }
+    // Note: This node is not cloneable at the moment
     const V3Graph* depGraphp() const { return m_depGraphp; }
     V3Graph* mutableDepGraphp() { return m_depGraphp; }
     AstMTaskBody* mTaskBody() const { return VN_CAST(op1p(), MTaskBody); }
