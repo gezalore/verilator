@@ -1746,53 +1746,71 @@ void OrderVisitor::processMoveOne(OrderMoveVertex* vertexp, OrderMoveDomScope* d
 
 AstActive* OrderVisitor::processMoveOneLogic(const OrderLogicVertex* lvertexp,
                                              AstCFunc*& newFuncpr, int& newStmtsr) {
-    AstActive* activep = NULL;
-    AstScope* scopep = lvertexp->scopep();
-    AstSenTree* domainp = lvertexp->domainp();
-    AstNode* nodep = lvertexp->nodep();
-    AstNodeModule* modp = VN_CAST(scopep->user1p(), NodeModule);  // Stashed by visitor func
-    UASSERT(modp, "NULL");
-    if (VN_IS(nodep, SenTree)) {
-        // Just ignore sensitivities, we'll deal with them when we move statements that need them
-    } else {  // Normal logic
-        // Make or borrow a CFunc to contain the new statements
-        if (v3Global.opt.profCFuncs()
-            || (v3Global.opt.outputSplitCFuncs()
-                && v3Global.opt.outputSplitCFuncs() < newStmtsr)) {
-            // Put every statement into a unique function to ease profiling or reduce function size
-            newFuncpr = NULL;
-        }
-        if (!newFuncpr && domainp != m_deleteDomainp) {
-            string name = cfuncName(modp, domainp, scopep, nodep);
-            newFuncpr = new AstCFunc(nodep->fileline(), name, scopep);
-            newFuncpr->argTypes(EmitCBaseVisitor::symClassVar());
-            newFuncpr->symProlog(true);
-            newStmtsr = 0;
-            if (domainp->hasInitial() || domainp->hasSettle()) newFuncpr->slow(true);
-            scopep->addActivep(newFuncpr);
-            // Where will we be adding the call?
-            activep = new AstActive(nodep->fileline(), name, domainp);
-            // Add a top call to it
-            AstCCall* callp = new AstCCall(nodep->fileline(), newFuncpr);
-            callp->argTypes("vlSymsp");
-            activep->addStmtsp(callp);
-            UINFO(6, "      New " << newFuncpr << endl);
-        }
+    AstNode* const nodep = lvertexp->nodep();
+    AstSenTree* const domainp = lvertexp->domainp();
 
-        // Move the logic to the function we're creating
-        nodep->unlinkFrBack();
-        if (domainp == m_deleteDomainp) {
-            UINFO(4, " Ordering deleting pre-settled " << nodep << endl);
-            VL_DO_DANGLING(pushDeletep(nodep), nodep);
-        } else {
-            newFuncpr->addStmtsp(nodep);
-            if (v3Global.opt.outputSplitCFuncs()) {
-                // Add in the number of nodes we're adding
-                EmitCBaseCounterVisitor visitor(nodep);
-                newStmtsr += visitor.count();
-            }
-        }
+    // Just ignore sensitivities, we will deal with them when we move
+    // statements that need them
+    if (VN_IS(nodep, SenTree)) {  //
+        return NULL;
     }
+
+    // Normal logic, move to the function we're creating
+    nodep->unlinkFrBack();
+
+    // We are moving the children of Active nodes under the new functions,
+    // no need to move the Active node itself as it will be emptied.
+    if (VN_IS(nodep, Active)) {
+        UINFO(4, " Ordering will delete Active node " << nodep << endl);
+        VL_DO_DANGLING(pushDeletep(nodep), nodep);
+        return NULL;
+    }
+
+    // Node was marked for deletion
+    if (domainp == m_deleteDomainp) {
+        UINFO(4, " Ordering will delete pre-settled " << nodep << endl);
+        VL_DO_DANGLING(pushDeletep(nodep), nodep);
+        return NULL;
+    }
+
+    // Put every statement into a unique function to ease profiling,
+    // or create a new function when the size limit is reached.
+    if (v3Global.opt.profCFuncs()
+        || (v3Global.opt.outputSplitCFuncs() && v3Global.opt.outputSplitCFuncs() < newStmtsr)) {
+        newFuncpr = NULL;
+    }
+
+    AstActive* activep = NULL;
+
+    if (!newFuncpr) {
+        AstScope* const scopep = lvertexp->scopep();
+        AstNodeModule* const modp = VN_CAST(scopep->user1p(), NodeModule);  // Stashed by visitor
+        UASSERT(modp, "NULL");
+        const string name = cfuncName(modp, domainp, scopep, nodep);
+        newFuncpr = new AstCFunc(nodep->fileline(), name, scopep);
+        newFuncpr->argTypes(EmitCBaseVisitor::symClassVar());
+        newFuncpr->symProlog(true);
+        newStmtsr = 0;
+        if (domainp->hasInitial() || domainp->hasSettle()) newFuncpr->slow(true);
+        scopep->addActivep(newFuncpr);
+        // Where will we be adding the call?
+        activep = new AstActive(nodep->fileline(), name, domainp);
+        // Add a top call to it
+        AstCCall* const callp = new AstCCall(nodep->fileline(), newFuncpr);
+        callp->argTypes("vlSymsp");
+        activep->addStmtsp(callp);
+        UINFO(6, "      New " << newFuncpr << endl);
+    }
+
+    // Move the node under the CFunc
+    newFuncpr->addStmtsp(nodep);
+
+    if (v3Global.opt.outputSplitCFuncs()) {
+        // Add in the number of nodes we're adding
+        EmitCBaseCounterVisitor visitor(nodep);
+        newStmtsr += visitor.count();
+    }
+
     return activep;
 }
 
