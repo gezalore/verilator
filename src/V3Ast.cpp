@@ -507,7 +507,7 @@ AstNode* AstNode::unlinkFrBackWithNext(AstNRelinker* linkerp) {
 
 AstNode* AstNode::unlinkFrBack(AstNRelinker* linkerp) {
     this->debugTreeChange("-unlinkFrBkThs: ", __LINE__, true);
-    AstNode* oldp = this;
+    AstNode* const oldp = this;
     UASSERT(oldp->m_backp, "Node has no back, already unlinked?");
     oldp->editCountInc();
     AstNode* backp = oldp->m_backp;

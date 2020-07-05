@@ -8683,6 +8683,7 @@ public:
     }
     const V3Graph* depGraphp() const { return m_depGraphp; }
     V3Graph* mutableDepGraphp() { return m_depGraphp; }
+    AstMTaskBody* mTaskBody() const { return VN_CAST(op1p(), MTaskBody); }
     void addMTaskBody(AstMTaskBody* bodyp) { addOp1p(bodyp); }
 };
 
