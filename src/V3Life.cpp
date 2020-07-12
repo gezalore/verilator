@@ -72,14 +72,13 @@ class LifeVarEntry {
     AstNodeAssign* m_assignp;  // Last assignment to this varscope, NULL if no longer relevant
     AstConst* m_constp;  // Known constant value
     // First access was a set (and thus block above may have a set that can be deleted
-    bool m_setBeforeUse;
+    const bool m_setBeforeUse;
     // Was ever assigned (and thus above block may not preserve constant propagation)
     bool m_everSet;
 
-    inline void init(bool setBeforeUse) {
+    inline void init() {
         m_assignp = NULL;
         m_constp = NULL;
-        m_setBeforeUse = setBeforeUse;
         m_everSet = false;
     }
 
@@ -88,16 +87,19 @@ public:
     class COMPLEXASSIGN {};
     class CONSUMED {};
 
-    LifeVarEntry(SIMPLEASSIGN, AstNodeAssign* assp) {
-        init(true);
+    LifeVarEntry(SIMPLEASSIGN, AstNodeAssign* assp)
+        : m_setBeforeUse(true) {
+        init();
         simpleAssign(assp);
     }
-    explicit LifeVarEntry(COMPLEXASSIGN) {
-        init(false);
+    explicit LifeVarEntry(COMPLEXASSIGN)
+        : m_setBeforeUse(false) {
+        init();
         complexAssign();
     }
-    explicit LifeVarEntry(CONSUMED) {
-        init(false);
+    explicit LifeVarEntry(CONSUMED)
+        : m_setBeforeUse(false) {
+        init();
         consumed();
     }
     ~LifeVarEntry() {}
@@ -133,16 +135,15 @@ class LifeBlock {
     //  For each basic block, we'll make a new map of what variables that if/else is changing
     typedef std::map<AstVarScope*, LifeVarEntry> LifeMap;
     LifeMap m_map;  // Current active lifetime map for current scope
-    LifeBlock* m_aboveLifep;  // Upper life, or NULL
-    LifeState* m_statep;  // Current global state
+    LifeBlock* const m_aboveLifep;  // Upper life, or NULL
+    LifeState& m_state;  // Current global state
 
     VL_DEBUG_FUNC;  // Declare debug()
 
 public:
-    LifeBlock(LifeBlock* aboveLifep, LifeState* statep) {
-        m_aboveLifep = aboveLifep;  // Null if top
-        m_statep = statep;
-    }
+    LifeBlock(LifeBlock* aboveLifep, LifeState& state)
+        : m_aboveLifep(aboveLifep)
+        , m_state(state) {}
     ~LifeBlock() {}
     // METHODS
     void checkRemoveAssign(const LifeMap::iterator& it) {
@@ -159,8 +160,8 @@ public:
                 // above our current iteration point.
                 if (debug() > 4) oldassp->dumpTree(cout, "       REMOVE/SAMEBLK ");
                 entp->complexAssign();
-                VL_DO_DANGLING(m_statep->pushUnlinkDeletep(oldassp), oldassp);
-                ++m_statep->m_statAssnDel;
+                VL_DO_DANGLING(m_state.pushUnlinkDeletep(oldassp), oldassp);
+                ++m_state.m_statAssnDel;
             }
         }
     }
@@ -197,7 +198,7 @@ public:
                     UINFO(4, "     replaceconst: " << varrefp << endl);
                     varrefp->replaceWith(constp->cloneTree(false));
                     VL_DO_DANGLING(varrefp->deleteTree(), varrefp);
-                    ++m_statep->m_statAssnCon;
+                    ++m_state.m_statAssnCon;
                     return;  // **DONE, no longer a var reference**
                 }
             }
@@ -279,7 +280,7 @@ public:
 class LifeVisitor : public AstNVisitor {
 private:
     // STATE
-    LifeState* m_statep;  // Current state
+    LifeState& m_state;  // Current state
     bool m_sideEffect;  // Side effects discovered in assign RHS
     bool m_noopt;  // Disable optimization of variables in this block
     bool m_tracingCall;  // Iterating into a CCall to a CFunc
@@ -297,8 +298,6 @@ private:
     virtual void visit(AstVarRef* nodep) VL_OVERRIDE {
         // Consumption/generation of a variable,
         // it's used so can't elim assignment before this use.
-        UASSERT_OBJ(nodep->varScopep(), nodep, "NULL");
-        //
         AstVarScope* vscp = nodep->varScopep();
         UASSERT_OBJ(vscp, nodep, "Scope not assigned");
         if (nodep->lvalue()) {
@@ -334,13 +333,13 @@ private:
     }
 
     //---- Track control flow changes
-    virtual void visit(AstNodeIf* nodep) VL_OVERRIDE {
+    virtual void visit(AstIf* nodep) VL_OVERRIDE {
         UINFO(4, "   IF " << nodep << endl);
         // Condition is part of PREVIOUS block
         iterateAndNextNull(nodep->condp());
         LifeBlock* prevLifep = m_lifep;
-        LifeBlock* ifLifep = new LifeBlock(prevLifep, m_statep);
-        LifeBlock* elseLifep = new LifeBlock(prevLifep, m_statep);
+        LifeBlock* ifLifep = new LifeBlock(prevLifep, m_state);
+        LifeBlock* elseLifep = new LifeBlock(prevLifep, m_state);
         {
             m_lifep = ifLifep;
             iterateAndNextNull(nodep->ifsp());
@@ -369,8 +368,8 @@ private:
         // it as a IF statement, and just don't allow elimination of
         // variables across the body.
         LifeBlock* prevLifep = m_lifep;
-        LifeBlock* condLifep = new LifeBlock(prevLifep, m_statep);
-        LifeBlock* bodyLifep = new LifeBlock(prevLifep, m_statep);
+        LifeBlock* condLifep = new LifeBlock(prevLifep, m_state);
+        LifeBlock* bodyLifep = new LifeBlock(prevLifep, m_state);
         {
             m_lifep = condLifep;
             iterateAndNextNull(nodep->precondsp());
@@ -394,7 +393,7 @@ private:
         // It's worse though as an IF(..., JUMPGO) may change the control flow.
         // Just don't optimize blocks with labels; they're rare - so far.
         LifeBlock* prevLifep = m_lifep;
-        LifeBlock* bodyLifep = new LifeBlock(prevLifep, m_statep);
+        LifeBlock* bodyLifep = new LifeBlock(prevLifep, m_state);
         bool prev_noopt = m_noopt;
         {
             m_lifep = bodyLifep;
@@ -441,14 +440,14 @@ private:
 
 public:
     // CONSTRUCTORS
-    LifeVisitor(AstNode* nodep, LifeState* statep) {
+    LifeVisitor(AstNode* nodep, LifeState& state)
+        : m_state(state) {
         UINFO(4, "  LifeVisitor on " << nodep << endl);
-        m_statep = statep;
         m_sideEffect = false;
         m_noopt = false;
         m_tracingCall = false;
         {
-            m_lifep = new LifeBlock(NULL, m_statep);
+            m_lifep = new LifeBlock(NULL, m_state);
             iterate(nodep);
             if (m_lifep) VL_DO_CLEAR(delete m_lifep, m_lifep = NULL);
         }
@@ -462,22 +461,22 @@ public:
 //######################################################################
 
 class LifeTopVisitor : public AstNVisitor {
-    // Visit all top nodes searching for functions that are entry points we want to start
-    // finding code within.
+    // Visit all top nodes searching for functions that are entry points we
+    // want to start finding code within.
 private:
     // STATE
-    LifeState* m_statep;  // Current state
+    LifeState m_state;  // Current state
 
     // VISITORS
     virtual void visit(AstCFunc* nodep) VL_OVERRIDE {
         if (nodep->entryPoint()) {
             // Usage model 1: Simulate all C code, doing lifetime analysis
-            LifeVisitor visitor(nodep, m_statep);
+            LifeVisitor visitor(nodep, m_state);
         }
     }
     virtual void visit(AstNodeProcedure* nodep) VL_OVERRIDE {
         // Usage model 2: Cleanup basic blocks
-        LifeVisitor visitor(nodep, m_statep);
+        LifeVisitor visitor(nodep, m_state);
     }
     virtual void visit(AstVar*) VL_OVERRIDE {}  // Accelerate
     virtual void visit(AstNodeStmt*) VL_OVERRIDE {}  // Accelerate
@@ -486,10 +485,7 @@ private:
 
 public:
     // CONSTRUCTORS
-    LifeTopVisitor(AstNetlist* nodep, LifeState* statep) {
-        m_statep = statep;
-        iterate(nodep);
-    }
+    LifeTopVisitor(AstNetlist* nodep) { iterate(nodep); }
     virtual ~LifeTopVisitor() {}
 };
 
@@ -498,9 +494,6 @@ public:
 
 void V3Life::lifeAll(AstNetlist* nodep) {
     UINFO(2, __FUNCTION__ << ": " << endl);
-    {
-        LifeState state;
-        LifeTopVisitor visitor(nodep, &state);
-    }  // Destruct before checking
+    { LifeTopVisitor visitor(nodep); }  // Destruct before checking
     V3Global::dumpCheckGlobalTree("life", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 }
