@@ -2244,6 +2244,7 @@ private:
     AstScope* m_scopep;  // Scope variable is underneath
     AstVar* m_varp;  // [AfterLink] Pointer to variable itself
     bool m_circular : 1;  // Used in circular ordering dependency, need change detect
+    bool m_delayedClock : 1;  // This is a generated delayed (circular) clock.
     bool m_trace : 1;  // Tracing is turned on for this scope
 public:
     AstVarScope(FileLine* fl, AstScope* scopep, AstVar* varp)
@@ -2251,6 +2252,7 @@ public:
         , m_scopep(scopep)
         , m_varp(varp) {
         m_circular = false;
+        m_delayedClock = false;
         m_trace = true;
         dtypeFrom(varp);
     }
@@ -2278,6 +2280,8 @@ public:
     void valuep(AstNode* valuep) { addOp1p(valuep); }
     bool isCircular() const { return m_circular; }
     void circular(bool flag) { m_circular = flag; }
+    bool isDelayedClock() const { return m_delayedClock; }
+    void delayedClock(bool flag) { m_delayedClock = flag; }
     bool isTrace() const { return m_trace; }
     void trace(bool flag) { m_trace = flag; }
 };

@@ -66,11 +66,25 @@ private:
                 = new AstVar(varp->fileline(), AstVarType::MODULETEMP, newvarname, varp);
             m_topModp->addStmtp(newvarp);
             AstVarScope* newvscp = new AstVarScope(vscp->fileline(), m_scopetopp, newvarp);
+            newvscp->delayedClock(true);
             m_scopetopp->addVarp(newvscp);
             AstAssign* asninitp
                 = new AstAssign(vscp->fileline(), new AstVarRef(vscp->fileline(), newvscp, true),
                                 new AstVarRef(vscp->fileline(), vscp, false));
             m_scopetopp->addFinalClkp(asninitp);
+            // Create the global flag the first time we encounter a circular clock
+            if (!v3Global.firstEvalInStepp()) {
+                const string name = "__VfirstEvalInStep";
+                AstVar* newvarp = new AstVar(varp->fileline(), AstVarType::MODULETEMP, name, VFlagBitPacked(), 1);
+                m_topModp->addStmtp(newvarp);
+                AstVarScope* newvscp = new AstVarScope(vscp->fileline(), m_scopetopp, newvarp);
+                m_scopetopp->addVarp(newvscp);
+                AstAssign* setp = new AstAssign(vscp->fileline(),
+                                                    new AstVarRef(vscp->fileline(), newvscp, true),
+                                                    new AstConst(vscp->fileline(), AstConst::LogicTrue()));
+                m_scopetopp->addFinalClkp(setp);
+                v3Global.firstEvalInStepp(newvscp);
+            }
             //
             vscp->user2p(newvscp);
             return newvscp;

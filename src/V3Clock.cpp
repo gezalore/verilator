@@ -206,18 +206,17 @@ private:
 
     AstSenItem* complementEdge(AstSenItem* nodep) {
         if (nodep->edgeType() == VEdgeType::ET_POSEDGE) {
-            AstSenItem*const clonep = nodep->cloneTree(false);
+            AstSenItem* const clonep = nodep->cloneTree(false);
             pushDeletep(clonep);
             clonep->edgeType(VEdgeType::ET_NEGEDGE);
             return clonep;
         } else if (nodep->edgeType() == VEdgeType::ET_NEGEDGE) {
-            AstSenItem*const clonep = nodep->cloneTree(false);
+            AstSenItem* const clonep = nodep->cloneTree(false);
             pushDeletep(clonep);
             clonep->edgeType(VEdgeType::ET_POSEDGE);
             return clonep;
         }
         return NULL;
-
     }
 
     void addActiveToList(AstActive* activep, ActList& actList) {
@@ -255,9 +254,12 @@ private:
         const ActList::const_iterator end,  // end of remaining Active node list (exclusive)
         const SenList knownTrue,  // SenItems known to be triggered in this branch
         const SenList knownFalse,  // SenItems known not to be triggered in this branch
+        const bool knownDelayed,  // Known to be under a delayed clock branch
+        const bool knownNonDelayed,  // Known to be under a non-delayed clock branch
         SenList toSpecialize,  // SenItems to specialize over when encountered
         const bool doClone  // Whether to clone the statements of Active nodes, or just move them
     ) {
+        UASSERT(!(knownDelayed && knownNonDelayed), "Both knownDelayed and knownNonDelayed");
         UASSERT(toSpecialize.empty() || doClone, "Must be cloning when specializing");
 
         AstNode* resultp = NULL;  // The resulting lowered list
@@ -269,81 +271,108 @@ private:
             // Otherwise simply move it.
             AstNode* const stmtsp = doClone ? activep->stmtsp()->cloneTree(true)
                                             : activep->stmtsp()->unlinkFrBackWithNext();
+//            int cnt = 0;
+//            if (AstCCall *callp = VN_CAST(stmtsp, CCall)) {
+//                EmitCBaseCounterVisitor c(callp->funcp());
+//                cnt = c.count();
+//            }
             UASSERT_OBJ(!activep->hasInitial() && !activep->hasSettle(), activep,
                         "Should have already converted initial and settle blocks");
-            if (AstSenItem* senp = findSenItem(activep->sensesp(), toSpecialize)) {
-                // A clocked block that has a SenItem we want to specialize.
-                // Find the last Active conditional on this SenItem
-                ActList::const_iterator last = end;
-                while (--last != curr) {
-                    if (findSenItem((*last)->sensesp(), senp)) { break; }
-                }
-                ++last;  // Make 'last' the exclusive end point of the sub-list
-                // Create if statement conditional on this SenItem only
-                AstSenItem* const uniquep = senp->cloneTree(false);
-                AstIf* const ifp = makeActiveIf(uniquep);
-                VL_DO_DANGLING(uniquep->deleteTree(), uniquep);
-                // Remove the SenItem being specialized over for the recursion
-                for (SenList::iterator it = toSpecialize.begin(); it != toSpecialize.end();) {
-                    if (senp->sameTree(*it)) {
-                        it = toSpecialize.erase(it);
-                    } else {
-                        ++it;
-                    }
-                }
-                {  // Build the list assuming senp is true, add it to the then branch
-                    SenList recKnownTrue = knownTrue;
-                    recKnownTrue.push_back(senp);
-                    SenList recKnownFalse = knownFalse;
-                    if (AstSenItem *const complementp = complementEdge(senp)) {
-                        recKnownFalse.push_back(complementp);
-                    }
-                    AstNode* const thensp = lowerActList(curr, last, recKnownTrue, recKnownFalse,
-                                                         toSpecialize, doClone);
-                    if (thensp) ifp->addIfsp(thensp);
-                }
-                {  // Build the list assuming senp is false, add it to the else branch
-                    SenList recKnownFalse = knownFalse;
-                    recKnownFalse.push_back(senp);
-                    AstNode* const elsesp = lowerActList(curr, last, knownTrue, recKnownFalse,
-                                                         toSpecialize, doClone);
-                    if (elsesp) ifp->addElsesp(elsesp);
-                }
-                // Append to result list
-                resultp = resultp ? resultp->addNext(ifp) : ifp;
-                // Move on to rest if list
-                curr = last;
-            } else if (activep->hasClocked()) {
-                // An ordinary clocked block
-                if (findSenItem(activep->sensesp(), knownTrue)) {
-                    // This block is known to be triggered in this branch
-                    resultp = resultp ? resultp->addNext(stmtsp) : stmtsp;
-                } else {
-                    // Simplify condition based on knownFalse triggers
-                    AstSenTree* const senTreep = activep->sensesp()->cloneTree(true);
-                    while (AstSenItem* itemp = findSenItem(senTreep, knownFalse)) {
-                        itemp->unlinkFrBack();
-                        VL_DO_DANGLING(itemp->deleteTree(), itemp);
-                    }
-                    // If no triggers left, we know it is not triggered,
-                    // otherwise convert the if and append to the result list.
-                    if (senTreep->sensesp()) {
-                        AstIf* const ifp = makeActiveIf(senTreep->sensesp());
-                        ifp->addIfsp(stmtsp);
-                        resultp = resultp ? resultp->addNext(ifp) : ifp;
-                    }
-                    VL_DO_DANGLING(senTreep->deleteTree(), senTreep);
-                }
-                // Move on to next item
-                ++curr;
-            } else {  // Combinational block
-                // Append to result list
+            if (!activep->hasClocked()) {
+                // Combinational block, append to result list
                 resultp = resultp ? resultp->addNext(stmtsp) : stmtsp;
                 // Move on to next item
                 ++curr;
+            } else if (findSenItem(activep->sensesp(), knownTrue)) {
+                // This block is known to be triggered in this branch, append to result list
+                resultp = resultp ? resultp->addNext(stmtsp) : stmtsp;
+                // Move on to next item
+                ++curr;
+//            } else if (activep->sensesp()->isMulti() && !stmtsp->nextp() && cnt < 50) {
+//                // This was a comb block and has only a single stmt, inline it..
+//                resultp = resultp ? resultp->addNext(stmtsp) : stmtsp;
+//                // Move on to next item
+//                ++curr;
+            } else {
+                // Simplify condition
+                AstSenTree* const senTreep = activep->sensesp()->cloneTree(false);
+                // Remvoe knownFalse triggers
+                while (AstSenItem* itemp = findSenItem(senTreep, knownFalse)) {
+                    itemp->unlinkFrBack();
+                    VL_DO_DANGLING(itemp->deleteTree(), itemp);
+                }
+                // Remove Delayed/Non-delayed triggers if knownNonDelayed/knownDelayed
+                for (AstSenItem* itemp = senTreep->sensesp(); itemp;) {
+                    AstSenItem* const nextp = VN_CAST(itemp->nextp(), SenItem);
+                    UASSERT_OBJ(itemp->varrefp(), itemp, "Missing VarRef");
+                    UASSERT_OBJ(itemp->varrefp()->varScopep(), itemp, "VarRef is not to VarScope");
+                    const bool delayed = itemp->varrefp()->varScopep()->isDelayedClock();
+                    if ((delayed && knownNonDelayed) || (!delayed && knownDelayed)) {
+                        itemp->unlinkFrBack();
+                        VL_DO_DANGLING(itemp->deleteTree(), itemp);
+                    }
+                    itemp = nextp;
+                }
+                if (!senTreep->sensesp()) {
+                    // If no triggers left, we know it is not triggered.
+                    // Move on to next item
+                    ++curr;
+                } else if (AstSenItem* senp = findSenItem(senTreep, toSpecialize)) {
+                    // It has a SenItem we want to specialize over.
+                    // Find the last Active conditional on this SenItem
+                    ActList::const_iterator last = end;
+                    while (--last != curr) {
+                        if (findSenItem((*last)->sensesp(), senp)) { break; }
+                    }
+                    ++last;  // Make 'last' the exclusive end point of the sub-list
+                    // Create if statement conditional on this SenItem only
+                    AstSenItem* const uniquep = senp->cloneTree(false);
+                    AstIf* const ifp = makeActiveIf(uniquep);
+                    VL_DO_DANGLING(uniquep->deleteTree(), uniquep);
+                    // Remove the SenItem being specialized over for the recursion
+                    for (SenList::iterator it = toSpecialize.begin(); it != toSpecialize.end();) {
+                        if (senp->sameTree(*it)) {
+                            it = toSpecialize.erase(it);
+                        } else {
+                            ++it;
+                        }
+                    }
+                    {  // Build the list assuming senp is true, add it to the then branch
+                        SenList recKnownTrue = knownTrue;
+                        recKnownTrue.push_back(senp);
+                        SenList recKnownFalse = knownFalse;
+                        if (AstSenItem* const complementp = complementEdge(senp)) {
+                            recKnownFalse.push_back(complementp);
+                        }
+                        const bool delayed = senp->varrefp()->varScopep()->isDelayedClock();
+                        AstNode* const thensp
+                            = lowerActList(curr, last, recKnownTrue, recKnownFalse, delayed,
+                                           !delayed, toSpecialize, doClone);
+                        if (thensp) ifp->addIfsp(thensp);
+                    }
+                    {  // Build the list assuming senp is false, add it to the else branch
+                        SenList recKnownFalse = knownFalse;
+                        recKnownFalse.push_back(senp);
+                        AstNode* const elsesp
+                            = lowerActList(curr, last, knownTrue, recKnownFalse, knownDelayed,
+                                           knownNonDelayed, toSpecialize, doClone);
+                        if (elsesp) ifp->addElsesp(elsesp);
+                    }
+                    // Append to result list
+                    resultp = resultp ? resultp->addNext(ifp) : ifp;
+                    // Move on to rest if list
+                    curr = last;
+                } else {
+                    // Ordinary block
+                    AstIf* const ifp = makeActiveIf(senTreep->sensesp());
+                    ifp->addIfsp(stmtsp);
+                    resultp = resultp ? resultp->addNext(ifp) : ifp;
+                    // Move on to next item
+                    ++curr;
+                }
+                VL_DO_DANGLING(senTreep->deleteTree(), senTreep);
             }
         }
-
         return resultp;
     }
 
@@ -405,7 +434,7 @@ private:
         const SenList toSpecialize = haveExecGraph ? SenList() : getSenItemsToSpecialize(actList);
 
         AstNode* const resultp = lowerActList(actList.begin(), actList.end(), SenList(), SenList(),
-                                              toSpecialize, !toSpecialize.empty());
+                                              false, false, toSpecialize, !toSpecialize.empty());
 
         // Delete the active nodes. They have already been unlinked above and
         // their content cloned and moved under resultp.

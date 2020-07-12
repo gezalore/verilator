@@ -34,6 +34,7 @@
 #include VL_INCLUDE_UNORDERED_MAP
 
 class AstNetlist;
+class AstVarScope;
 
 //======================================================================
 // Statics
@@ -71,6 +72,8 @@ class V3Global {
     AstNetlist* m_rootp;  // Root of entire netlist
     VWidthMinUsage m_widthMinUsage;  // What AstNode::widthMin() is used for
 
+    AstVarScope* m_firstEvalInStepp; // Variable indicating first eval in current step
+
     int m_debugFileNumber;  // Number to append to debug files created
     bool m_assertDTypesResolved;  // Tree should have dtypep()'s
     bool m_constRemoveXs;  // Const needs to strip any Xs
@@ -92,6 +95,7 @@ public:
     V3Global()
         : m_rootp(NULL)  // created by makeInitNetlist() so static constructors run first
         , m_widthMinUsage(VWidthMinUsage::LINT_WIDTH)
+        , m_firstEvalInStepp(NULL) // created in genClkAll, if any
         , m_debugFileNumber(0)
         , m_assertDTypesResolved(false)
         , m_constRemoveXs(false)
@@ -108,6 +112,8 @@ public:
     // ACCESSORS (general)
     AstNetlist* rootp() const { return m_rootp; }
     VWidthMinUsage widthMinUsage() const { return m_widthMinUsage; }
+    AstVarScope* firstEvalInStepp() const { return m_firstEvalInStepp; }
+    void firstEvalInStepp(AstVarScope* nodep) { m_firstEvalInStepp = nodep; }
     bool assertDTypesResolved() const { return m_assertDTypesResolved; }
 
     // METHODS
