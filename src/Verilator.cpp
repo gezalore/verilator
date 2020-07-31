@@ -96,6 +96,8 @@
 #include "V3Waiver.h"
 #include "V3Width.h"
 
+#include "V3FlowGraph.h"
+
 #include <ctime>
 
 V3Global v3Global;
@@ -343,6 +345,8 @@ static void process() {
 
         // Convert sense lists into IF statements.
         V3Clock::clockAll(v3Global.rootp());
+
+        V3FlowGraph::build(v3Global.rootp()->evalp());
 
         // Cleanup any dly vars or other temps that are simple assignments
         // Life must be done before Subst, as it assumes each CFunc under

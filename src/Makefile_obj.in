@@ -193,6 +193,7 @@ RAW_OBJS = \
 	V3Expand.o \
 	V3File.o \
 	V3FileLine.o \
+	V3FlowGraph.o \
 	V3Gate.o \
 	V3GenClk.o \
 	V3Global.o \
