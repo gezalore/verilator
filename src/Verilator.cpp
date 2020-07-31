@@ -344,14 +344,14 @@ static void process() {
         // Convert sense lists into IF statements.
         V3Clock::clockAll(v3Global.rootp());
 
-        // Cleanup any dly vars or other temps that are simple assignments
-        // Life must be done before Subst, as it assumes each CFunc under
-        // _eval is called only once.
-        if (v3Global.opt.oLife()) {
-            V3Const::constifyAll(v3Global.rootp());
-            V3Life::lifeAll(v3Global.rootp());
-        }
-        if (v3Global.opt.oLifePost()) V3LifePost::lifepostAll(v3Global.rootp());
+//        // Cleanup any dly vars or other temps that are simple assignments
+//        // Life must be done before Subst, as it assumes each CFunc under
+//        // _eval is called only once.
+//        if (v3Global.opt.oLife()) {
+//            V3Const::constifyAll(v3Global.rootp());
+//            V3Life::lifeAll(v3Global.rootp());
+//        }
+//        if (v3Global.opt.oLifePost()) V3LifePost::lifepostAll(v3Global.rootp());
 
         // Remove unused vars
         V3Const::constifyAll(v3Global.rootp());

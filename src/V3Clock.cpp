@@ -271,11 +271,6 @@ private:
             // Otherwise simply move it.
             AstNode* const stmtsp = doClone ? activep->stmtsp()->cloneTree(true)
                                             : activep->stmtsp()->unlinkFrBackWithNext();
-//            int cnt = 0;
-//            if (AstCCall *callp = VN_CAST(stmtsp, CCall)) {
-//                EmitCBaseCounterVisitor c(callp->funcp());
-//                cnt = c.count();
-//            }
             UASSERT_OBJ(!activep->hasInitial() && !activep->hasSettle(), activep,
                         "Should have already converted initial and settle blocks");
             if (!activep->hasClocked()) {
@@ -288,11 +283,6 @@ private:
                 resultp = resultp ? resultp->addNext(stmtsp) : stmtsp;
                 // Move on to next item
                 ++curr;
-//            } else if (activep->sensesp()->isMulti() && !stmtsp->nextp() && cnt < 50) {
-//                // This was a comb block and has only a single stmt, inline it..
-//                resultp = resultp ? resultp->addNext(stmtsp) : stmtsp;
-//                // Move on to next item
-//                ++curr;
             } else {
                 // Simplify condition
                 AstSenTree* const senTreep = activep->sensesp()->cloneTree(false);
@@ -344,10 +334,9 @@ private:
                         if (AstSenItem* const complementp = complementEdge(senp)) {
                             recKnownFalse.push_back(complementp);
                         }
-                        const bool delayed = senp->varrefp()->varScopep()->isDelayedClock();
                         AstNode* const thensp
-                            = lowerActList(curr, last, recKnownTrue, recKnownFalse, delayed,
-                                           !delayed, toSpecialize, doClone);
+                            = lowerActList(curr, last, recKnownTrue, recKnownFalse, knownDelayed,
+                                           knownNonDelayed, toSpecialize, doClone);
                         if (thensp) ifp->addIfsp(thensp);
                     }
                     {  // Build the list assuming senp is false, add it to the else branch
@@ -433,8 +422,26 @@ private:
         // list contains an ExecGraph.
         const SenList toSpecialize = haveExecGraph ? SenList() : getSenItemsToSpecialize(actList);
 
-        AstNode* const resultp = lowerActList(actList.begin(), actList.end(), SenList(), SenList(),
-                                              false, false, toSpecialize, !toSpecialize.empty());
+        AstVarScope* const firstEvalInStepp = v3Global.firstEvalInStepVarScopep();
+
+        AstNode* resultp = NULL;
+        if (haveExecGraph || !firstEvalInStepp) {
+            resultp = lowerActList(actList.begin(), actList.end(), SenList(), SenList(), false,
+                                   false, toSpecialize, !toSpecialize.empty());
+        } else {
+            FileLine* const flp = firstEvalInStepp->fileline();
+            AstVarRef* const refp
+                = new AstVarRef(firstEvalInStepp->fileline(), firstEvalInStepp, false);
+            AstIf* const ifp = new AstIf(flp, refp, NULL, NULL);
+            AstNode* const thensp = lowerActList(actList.begin(), actList.end(), SenList(),
+                                                 SenList(), false, true, toSpecialize, true);
+            if (thensp) ifp->addIfsp(thensp);
+            AstNode* const elsesp = lowerActList(
+                actList.begin(), actList.end(), SenList(), SenList(),
+                false /* could be true if no comb loops... */, false, toSpecialize, true);
+            if (elsesp) ifp->addElsesp(elsesp);
+            resultp = ifp;
+        }
 
         // Delete the active nodes. They have already been unlinked above and
         // their content cloned and moved under resultp.

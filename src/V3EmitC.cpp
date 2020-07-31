@@ -2643,6 +2643,11 @@ void EmitCImp::emitSettleLoop(const std::string& eval_call, bool initial) {
     putsDecoration("// Evaluate till stable\n");
     puts("int __VclockLoop = 0;\n");
     puts("QData __Vchange = 1;\n");
+    if (AstVar*const firstEvalInStep = v3Global.firstEvalInStepVarp()) {
+        puts("vlSymsp->TOPp->");
+        puts(firstEvalInStep->name());
+        puts(" = 1U;\n");
+    }
     puts("do {\n");
     puts(eval_call + "\n");
     puts("if (VL_UNLIKELY(++__VclockLoop > " + cvtToStr(v3Global.opt.convergeLimit()) + ")) {\n");
