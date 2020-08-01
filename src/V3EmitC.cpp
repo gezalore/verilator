@@ -766,13 +766,13 @@ public:
         puts("__Vlabel" + cvtToStr(nodep->blockp()->labelNum()) + ": ;\n");
     }
     virtual void visit(AstWhile* nodep) VL_OVERRIDE {
+        puts("for (;;) {\n");
         iterateAndNextNull(nodep->precondsp());
-        puts("while (");
+        puts("if (!(");
         iterateAndNextNull(nodep->condp());
-        puts(") {\n");
+        puts(")) break;\n");
         iterateAndNextNull(nodep->bodysp());
         iterateAndNextNull(nodep->incsp());
-        iterateAndNextNull(nodep->precondsp());  // Need to recompute before next loop
         puts("}\n");
     }
     virtual void visit(AstNodeIf* nodep) VL_OVERRIDE {
