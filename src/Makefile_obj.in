@@ -160,6 +160,7 @@ RAW_OBJS = \
 	V3Ast.o	\
 	V3AstNodes.o	\
 	V3Begin.o \
+	V3BetterLife.o \
 	V3Branch.o \
 	V3Broken.o \
 	V3CCtors.o \

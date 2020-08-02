@@ -1,0 +1,34 @@
+// -*- mode: C++; c-file-style: "cc-mode" -*-
+//*************************************************************************
+// DESCRIPTION: Verilator: Remove assignments to dead variables
+//
+// Code available from: https://verilator.org
+//
+//*************************************************************************
+//
+// Copyright 2003-2020 by Wilson Snyder. This program is free software; you
+// can redistribute it and/or modify it under the terms of either the GNU
+// Lesser General Public License Version 3 or the Perl Artistic License
+// Version 2.0.
+// SPDX-License-Identifier: LGPL-3.0-only OR Artistic-2.0
+//
+//*************************************************************************
+//
+//*************************************************************************
+
+#include "config_build.h"
+#include "verilatedos.h"
+
+#include "V3Global.h"
+#include "V3BetterLife.h"
+#include "V3Ast.h"
+#include "V3Error.h"
+
+//######################################################################
+// Life class functions
+
+void V3BetterLife::all(AstNetlist* nodep) {
+    UINFO(2, __FUNCTION__ << ": " << endl);
+
+    V3Global::dumpCheckGlobalTree("better-life", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
+}
