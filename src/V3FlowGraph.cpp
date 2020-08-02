@@ -28,23 +28,33 @@ class EntryVertex : public V3FlowVertex {
 public:
     explicit EntryVertex(V3FlowGraph* graphp)
         : V3FlowVertex(graphp, NULL) {}
-    string name() const VL_OVERRIDE { return "ENTRY"; }
+    string name() const VL_OVERRIDE { return "ENTRY :: " + cvtToStr(m_pon); }
 };
 class ExitVertex : public V3FlowVertex {
 public:
     explicit ExitVertex(V3FlowGraph* graphp)
         : V3FlowVertex(graphp, NULL) {}
-    string name() const VL_OVERRIDE { return "EXIT"; }
+    string name() const VL_OVERRIDE { return "ENTRY :: " + cvtToStr(m_pon); }
 };
 
-V3FlowGraph::V3FlowGraph()
-    : V3Graph()
-    , m_entryp(new EntryVertex(this))
-    , m_exitp(new ExitVertex(this)) {}
+V3FlowVertex::V3FlowVertex(V3FlowGraph* graphp, const AstNode* nodep)
+    : V3GraphVertex(graphp)
+    , m_nodep(nodep)
+    , m_dfvi(NULL)
+    , m_dfvo(NULL)
+    , m_pon(0) {}
 
-V3FlowGraph::~V3FlowGraph() {
-    m_entryp->unlinkDelete(this);
-    m_exitp->unlinkDelete(this);
+void V3FlowVertex::assignPon(unsigned& cnt) {
+    // Depth first search..
+    UASSERT(m_pon == 0, "Vertex already visited");
+    // Mark as visited by assigning a non zero value;
+    m_pon = std::numeric_limits<unsigned>::max();
+    for (V3GraphEdge* ep = outBeginp(); ep; ep = ep->outNextp()) {
+        V3FlowVertex* const vp = static_cast<V3FlowVertex*>(ep->top());
+        if (vp->m_pon == 0) vp->assignPon(cnt);
+    }
+    // Assign post order number
+    m_pon = cnt++;
 }
 
 class BuildGraphForNode;
@@ -305,12 +315,11 @@ class BuildGraphForNode : AstNVisitor {
         single(nodep);
     }
     virtual void visit(AstAlwaysPublic* nodep) VL_OVERRIDE {
-        single(nodep); // TODO: Not sure what this is
+        single(nodep);  // TODO: Not sure what this is
     }
     virtual void visit(AstVar* nodep) VL_OVERRIDE {
-        single(nodep);// TODO: Not sure what this is
+        single(nodep);  // TODO: Not sure what this is
     }
-
 
     virtual void visit(AstNode* nodep) VL_OVERRIDE {
         v3fatal(string("Don't know how to build control flow graph for ") + nodep->typeName());
@@ -326,8 +335,28 @@ V3FlowVertex* V3FlowGraphBuilder::buildNode(AstNode* nodep, V3FlowVertex* succp)
     return instance.m_headerp;
 }
 
-void V3FlowGraph::build(AstCFunc* nodep) {
-    V3FlowGraph* graphp = V3FlowGraphBuilder::build(nodep);
+V3FlowGraph::V3FlowGraph()
+    : V3Graph()
+    , m_entryp(new EntryVertex(this))
+    , m_exitp(new ExitVertex(this)) {}
 
-    delete graphp;
+V3FlowGraph::~V3FlowGraph() {
+    m_entryp->unlinkDelete(this);
+    m_exitp->unlinkDelete(this);
 }
+
+V3FlowGraph* V3FlowGraph::build(AstCFunc* nodep) {
+    // Build the graph
+    V3FlowGraph* graphp = V3FlowGraphBuilder::build(nodep);
+    // Compute post order enumeration
+    unsigned cnt = 1;
+    graphp->m_entryp->assignPon(cnt);
+    UINFO(6, "Vertices in flow graph:" << cnt - 1 << endl);
+    // Sort vertices in reverse post order (i.e.: depth first order)
+    graphp->sortVertices();
+    graphp->dumpDotFilePrefixed("flow-graph-ordered");
+    // Done
+    return graphp;
+}
+
+#include "V3FlowAnalysis.h"

@@ -43,6 +43,7 @@ public:
     // METHODS
     T begin() const { return m_headp; }
     T end() const { return NULL; }
+    T last() const { return m_tailp; }
     bool empty() const { return m_headp == NULL; }
     void reset() {  // clear() without walking the list
         m_headp = NULL;
@@ -78,6 +79,7 @@ public:
 #endif
     }
     T nextp() const { return m_nextp; }
+    T prevp() const { return m_prevp; }
     // METHODS
     void pushBack(V3List<T>& listr, T newp) {
         // "this" must be a element inside of *newp

@@ -110,6 +110,7 @@ public:
     bool empty() const { return m_vertices.empty(); }
 
     V3GraphVertex* verticesBeginp() const { return m_vertices.begin(); }
+    V3GraphVertex* verticesLastp() const { return m_vertices.last(); }
 
     // METHODS - ALGORITHMS
 
@@ -249,6 +250,7 @@ public:
     void* userp() const { return m_userp; }
     // ITERATORS
     V3GraphVertex* verticesNextp() const { return m_vertices.nextp(); }
+    V3GraphVertex* verticesPrevp() const { return m_vertices.prevp(); }
     V3GraphEdge* inBeginp() const { return m_ins.begin(); }
     bool inEmpty() const { return inBeginp() == NULL; }
     bool inSize1() const;
