@@ -96,7 +96,7 @@
 #include "V3Waiver.h"
 #include "V3Width.h"
 
-#include "V3FlowGraph.h"
+#include "V3BetterLife.h"
 
 #include <ctime>
 
@@ -346,8 +346,6 @@ static void process() {
         // Convert sense lists into IF statements.
         V3Clock::clockAll(v3Global.rootp());
 
-        V3FlowGraph::build(v3Global.rootp()->evalp());
-
         // Cleanup any dly vars or other temps that are simple assignments
         // Life must be done before Subst, as it assumes each CFunc under
         // _eval is called only once.
@@ -356,6 +354,8 @@ static void process() {
             V3Life::lifeAll(v3Global.rootp());
         }
         if (v3Global.opt.oLifePost()) V3LifePost::lifepostAll(v3Global.rootp());
+
+        V3BetterLife::all(v3Global.rootp());
 
         // Remove unused vars
         V3Const::constifyAll(v3Global.rootp());

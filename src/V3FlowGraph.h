@@ -31,7 +31,7 @@ class V3FlowVertex : public V3GraphVertex {
     friend class V3FlowGraph;
 
 public:
-    const AstNode* const m_nodep;  // The statement in this node
+    AstNode* const m_nodep;  // The statement in this node
 private:
     void* m_dfvi;  // The incoming data flow value
     void* m_dfvo;  // The outgoing data flow value
@@ -40,7 +40,7 @@ protected:
     // enumeration of vertices). '0' means unassigned.
     void assignPon(unsigned& next);  // Compute post order enumeration
 public:
-    V3FlowVertex(V3FlowGraph* graphp, const AstNode* nodep);
+    V3FlowVertex(V3FlowGraph* graphp, AstNode* nodep);
     virtual ~V3FlowVertex() {}
 
     virtual int sortCmp(const V3GraphVertex* rhsp) const VL_OVERRIDE {
@@ -61,8 +61,8 @@ public:
         delete reinterpret_cast<T*>(m_dfvo);
     }
     // Get references to data flow values
-    template <typename T> T& dfvi() { return *reinterpret_cast<T*>(m_dfvi); }
-    template <typename T> T& dfvo() { return *reinterpret_cast<T*>(m_dfvo); }
+    template <typename T> T& dfvi() const { return *reinterpret_cast<T*>(m_dfvi); }
+    template <typename T> T& dfvo() const { return *reinterpret_cast<T*>(m_dfvo); }
 
     // Apply function to each predecessor of this vertex
     void foreachPredecessor(std::function<void(V3FlowVertex&)>&& f) {
@@ -117,14 +117,14 @@ public:
         }
     }
 
-    template <typename T> void allocateDataFlowValues(V3FlowGraph& flowGraph) {
-        foreachVertex([](V3FlowVertex* vp) {  //
-            vp->allocDfvs<T>();
+    template <typename T> void allocateDataFlowValues() {
+        foreachVertex([](V3FlowVertex& v) {  //
+            v.allocDfvs<T>();
         });
     }
-    template <typename T> void freeDataFlowValues(V3FlowGraph& flowGraph) {
-        foreachVertex([](V3FlowVertex* vp) {  //
-            vp->freeDfvs<T>();
+    template <typename T> void freeDataFlowValues() {
+        foreachVertex([](V3FlowVertex& v) {  //
+            v.freeDfvs<T>();
         });
     }
 

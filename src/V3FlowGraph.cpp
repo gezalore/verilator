@@ -34,10 +34,10 @@ class ExitVertex : public V3FlowVertex {
 public:
     explicit ExitVertex(V3FlowGraph* graphp)
         : V3FlowVertex(graphp, NULL) {}
-    string name() const VL_OVERRIDE { return "ENTRY :: " + cvtToStr(m_pon); }
+    string name() const VL_OVERRIDE { return "EXIT :: " + cvtToStr(m_pon); }
 };
 
-V3FlowVertex::V3FlowVertex(V3FlowGraph* graphp, const AstNode* nodep)
+V3FlowVertex::V3FlowVertex(V3FlowGraph* graphp, AstNode* nodep)
     : V3GraphVertex(graphp)
     , m_nodep(nodep)
     , m_dfvi(NULL)
@@ -358,5 +358,3 @@ V3FlowGraph* V3FlowGraph::build(AstCFunc* nodep) {
     // Done
     return graphp;
 }
-
-#include "V3FlowAnalysis.h"

@@ -52,6 +52,7 @@
 // That is: 'B' is the smallest element with respect to '<='
 template <typename T_Elem>  // The type of the domain 'S'
 class V3Semilattice {
+public:
     // The meet operator. Must be associative, commutative and idempotent.
     virtual T_Elem meet(const T_Elem& x, const T_Elem& y) const = 0;
     // The top element
@@ -65,7 +66,7 @@ class V3Semilattice {
 // 'S'. Since transfer functions depend heavily on the type of nodes, we use a
 // visitor to represent them to take advantage of dynamic type based dispatch.
 template <typename T_Elem>  // The type of the domain 'S'
-class V3TransferFunctions : AstNVisitor {
+class V3TransferFunctions : public AstNVisitor {
 protected:
     const V3Semilattice<T_Elem>& m_lattice;
     const T_Elem* m_argp;  // Argument of transfer function
@@ -78,7 +79,7 @@ public:
     T_Elem operator()(AstNode* nodep, const T_Elem& arg) {
         m_argp = &arg;  // Keep hold of argument
         iterate(nodep);  // Dispatch to visit to do the work
-        return m_ret;  // Return teh result
+        return m_ret;  // Return the result
     }
 
     // The constant transfer function of the entry/exit node. Used to
@@ -87,7 +88,7 @@ public:
 
 protected:
     // VISITORS
-    virtual void visit(AstNode* nodep) {
+    virtual void visit(AstNode* nodep) VL_OVERRIDE {
         // The most conservative (i.e.: safest) solution to a data flow problem
         // is the bottom element of the lattice, as this contains the least
         // amount of information about the program. We return this by default.
@@ -105,7 +106,7 @@ template <bool T_Forward,  // The data flow direction
           typename T_Elem>  // The type of the domain 'S'
 class V3FlowAnalysis {
     const V3Semilattice<T_Elem>& m_lattice;
-    const V3TransferFunctions<T_Elem>& m_tf;
+    V3TransferFunctions<T_Elem>& m_tf;
 
 public:
     V3FlowAnalysis(const V3Semilattice<T_Elem>& lattice,
@@ -136,8 +137,8 @@ private:
             v.dfvo<T_Elem>() = m_lattice.top();
         });
         // Iterate until the fixed point is reached.
-        bool change = false;
-        do {
+        for (bool change = true; change;) {
+            change = false;
             flowGraph.iterateVerticesForward([&](V3FlowVertex& v) {
                 // Reduce incoming values using the meet operator
                 T_Elem acc = m_lattice.top();
@@ -145,7 +146,7 @@ private:
                     acc = m_lattice.meet(acc, pred.dfvo<T_Elem>());
                 });
                 // Apply transfer function
-                T_Elem o = m_tf(v.m_nodep, acc);
+                T_Elem o = v.m_nodep ? m_tf(v.m_nodep, acc) : acc;
                 // Check for change
                 if (!m_lattice.eq(o, v.dfvo<T_Elem>())) {  //
                     change = true;
@@ -154,15 +155,15 @@ private:
                 v.dfvi<T_Elem>() = std::move(acc);
                 v.dfvo<T_Elem>() = std::move(o);
             });
-        } while (change);
+        }
         // Build the solution map
         Solution s;
         flowGraph.foreachVertex([&](V3FlowVertex& v) {
             const AstNode* const nodep = v.m_nodep;
-            if (nodep) return;  // Skip empty nodes
+            if (!nodep) return;  // Skip empty nodes
             const auto& dfvi = v.dfvi<T_Elem>();
             const auto it = s.find(nodep);
-            s[nodep] = it == s.end() ? dfvi : m_lattice.meet(it.second, dfvi);
+            s[nodep] = it == s.end() ? dfvi : m_lattice.meet(it->second, dfvi);
         });
         // Free data flow values
         flowGraph.freeDataFlowValues<T_Elem>();
@@ -179,8 +180,8 @@ private:
             v.dfvi<T_Elem>() = m_lattice.top();
         });
         // Iterate until the fixed point is reached.
-        bool change = false;
-        do {
+        for (bool change = true; change;) {
+            change = false;
             flowGraph.iterateVerticesBackward([&](V3FlowVertex& v) {
                 // Reduce incoming values using the meet operator
                 T_Elem acc = m_lattice.top();
@@ -188,7 +189,7 @@ private:
                     acc = m_lattice.meet(acc, pred.dfvi<T_Elem>());
                 });
                 // Apply transfer function
-                T_Elem i = m_tf(v.m_nodep, acc);
+                T_Elem i = v.m_nodep ? m_tf(v.m_nodep, acc) : acc;
                 // Check for change
                 if (!m_lattice.eq(i, v.dfvi<T_Elem>())) {  //
                     change = true;
@@ -197,15 +198,16 @@ private:
                 v.dfvo<T_Elem>() = std::move(acc);
                 v.dfvi<T_Elem>() = std::move(i);
             });
-        } while (change);
+            UINFO(0, "CHANGE " << change << endl);
+        }
         // Build the solution map
         Solution s;
         flowGraph.foreachVertex([&](V3FlowVertex& v) {
             const AstNode* const nodep = v.m_nodep;
-            if (nodep) return;  // Skip empty nodes
+            if (!nodep) return;  // Skip empty nodes
             const auto& dfvo = v.dfvo<T_Elem>();
             const auto it = s.find(nodep);
-            s[nodep] = it == s.end() ? dfvo : m_lattice.meet(it.second, dfvo);
+            s[nodep] = it == s.end() ? dfvo : m_lattice.meet(it->second, dfvo);
         });
         // Free data flow values
         flowGraph.freeDataFlowValues<T_Elem>();
