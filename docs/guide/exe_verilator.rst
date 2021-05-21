@@ -521,6 +521,11 @@ Summary:
 
    See :vlopt:`-y`.
 
+.. option:: --incremental
+
+   Experimental. Attempt to generate output C++ more friendly to incremental
+   compilation via ccache.
+
 .. option:: --inhibit-sim
 
    Rarely needed and deprecated.  Create a :code:`inhibitSim(bool)`

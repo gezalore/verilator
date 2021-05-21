@@ -738,6 +738,12 @@ void V3Options::notify() {
         m_protectKey = "VL-KEY-HIERARCHICAL";
     }
 
+    if (incremental() && outputSplit()) {
+        cmdfl->v3info("--incremental places all output functions in separate files\n"
+                      + V3Error::warnMore()
+                      + "... this effectively behaves as if --output-split was set to 1");
+    }
+
     if (protectIds()) {
         if (allPublic()) {
             // We always call protect() on names, we don't check if public or not
@@ -1095,6 +1101,7 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc, char
                 [this, &optdir](const char* optp) { addIncDirUser(parseFileArg(optdir, optp)); });
     DECL_OPTION("-if-depth", Set, &m_ifDepth);
     DECL_OPTION("-ignc", OnOff, &m_ignc);
+    DECL_OPTION("-incremental", OnOff, &m_incremental);
     DECL_OPTION("-inhibit-sim", CbOnOff, [this, fl](bool flag) {
         fl->v3warn(DEPRECATED, "-inhibit-sim option is deprecated");
         m_inhibitSim = flag;

@@ -87,6 +87,7 @@
 #include "V3Global.h"
 #include "V3Graph.h"
 #include "V3GraphStream.h"
+#include "V3Hasher.h"
 #include "V3List.h"
 #include "V3Partition.h"
 #include "V3PartitionGraph.h"
@@ -106,6 +107,8 @@
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
+
+constexpr static size_t HASH_WINDOW_SIZE = 33;  // Must be an odd number to avoid 0 hash values
 
 static bool domainsExclusive(const AstSenTree* fromp, const AstSenTree* top);
 
@@ -646,13 +649,14 @@ private:
     //    AstVarScope::user4()  -> VarUsage(gen/con/both).      Where already encountered signal
     // Ordering (user3/4/5 cleared between forming and ordering)
     //    AstScope::user1p()    -> AstNodeModule*. Module this scope is under
-    //    AstNodeModule::user3()    -> Number of routines created
+    //    AstCFunc::user3p()    -> AstNodeModule*. Module this function is under
+    //    AstNodeModule::user3p()    -> Function name multiplicity tables
     //  Each call to V3Const::constify
     //   AstNode::user4()               Used by V3Const::constify, called below
     AstUser1InUse m_inuser1;
     AstUser2InUse m_inuser2;
     AstUser3InUse m_inuser3;
-    // AstUser4InUse     m_inuser4;      // Used only when building tree, so below
+    // AstUser4InUse     m_inuser4;      // Used only when building tree, or hashing new function
 
     // STATE
     OrderGraph m_graph;  // Scoreboard of var usages/dependencies
@@ -675,10 +679,15 @@ private:
     OrderLogicVertex* m_activeSenVxp = nullptr;  // Sensitivity vertex
     std::deque<OrderUser*> m_orderUserps;  // All created OrderUser's for later deletion.
     // STATE... for inside process
-    AstCFunc* m_pomNewFuncp = nullptr;  // Current function being created
-    int m_pomNewStmts = 0;  // Statements in function being created
+    AstCFunc* m_currNewFuncp = nullptr;  // Current function being created
+    uint32_t m_currNewSize = 0;  // Size of current function being created
     V3Graph m_pomGraph;  // Graph of logic elements to move
     V3List<OrderMoveVertex*> m_pomWaiting;  // List of nodes needing inputs to become ready
+    using NameMultiplicityMap = std::unordered_map<std::string, unsigned>;
+    std::unordered_map<const AstNodeModule*, NameMultiplicityMap> m_nameMultiplicityMaps;
+    std::deque<uint32_t> m_hashWindow;  // Window of hash values for --incremental splits
+    uint32_t m_runningHash = 0;  // Current running hash for --incremental splits
+
 protected:
     friend class OrderMoveDomScope;
     V3List<OrderMoveDomScope*> m_pomReadyDomScope;  // List of ready domain/scope pairs, by loopId
@@ -687,6 +696,9 @@ protected:
 private:
     // STATS
     std::array<VDouble0, OrderVEdgeType::_ENUM_END> m_statCut;  // Count of each edge type cut
+    VDouble0 m_funcCount;
+    VDouble0 m_funcSizeSplits;
+    VDouble0 m_funcHashSplits;
 
     // TYPES
     enum VarUsage : uint8_t { VU_NONE = 0, VU_CON = 1, VU_GEN = 2 };
@@ -745,9 +757,8 @@ private:
     void processMovePrepReady();
     void processMoveReadyOne(OrderMoveVertex* vertexp);
     void processMoveDoneOne(OrderMoveVertex* vertexp);
-    void processMoveOne(OrderMoveVertex* vertexp, OrderMoveDomScope* domScopep, int level);
-    AstActive* processMoveOneLogic(const OrderLogicVertex* lvertexp, AstCFunc*& newFuncpr,
-                                   int& newStmtsr);
+    void processMoveOne(OrderMoveVertex* vertexp, OrderMoveDomScope* domScopep);
+    AstActive* processMoveOneLogic(const OrderLogicVertex* lvertexp);
 
     // processMTask* routines schedule threaded execution
     struct MTaskState {
@@ -760,10 +771,7 @@ private:
     enum InitialLogicE : uint8_t { LOGIC_INITIAL, LOGIC_SETTLE };
     void processMTasksInitial(InitialLogicE logic_type);
 
-    string cfuncName(AstNodeModule* modp, AstSenTree* domainp, AstScope* scopep,
-                     AstNode* forWhatp) {
-        modp->user3Inc();
-        int funcnum = modp->user3();
+    string cfuncBaseName(AstSenTree* domainp, AstScope* scopep, AstNode* forWhatp) {
         string name = (domainp->hasCombo()
                            ? "_combo"
                            : (domainp->hasInitial()
@@ -771,11 +779,38 @@ private:
                                   : (domainp->hasSettle()
                                          ? "_settle"
                                          : (domainp->isMulti() ? "_multiclk" : "_sequent"))));
-        name = name + "__" + scopep->nameDotless() + "__" + cvtToStr(funcnum);
+        name = name + "__" + scopep->nameDotless();
         if (v3Global.opt.profCFuncs()) {
             name += "__PROF__" + forWhatp->fileline()->profileFuncname();
         }
         return name;
+    }
+
+    void finishCurrentFunction() {
+        if (m_currNewFuncp) {
+            ++m_funcCount;
+
+            if (v3Global.opt.incremental()) {
+                // In incremental mode, rename function based on the hash of it's contents
+                const V3Hash hash = V3Hasher::uncachedHash(m_currNewFuncp);
+                const string newName = m_currNewFuncp->name() + "__" + cvtToStr(hash);
+                m_currNewFuncp->name(newName);
+            }
+
+            // Grab module pointer stashed by processMoveOneLogic
+            const AstNodeModule* const modp = VN_CAST(m_currNewFuncp->user3p(), NodeModule);
+            UASSERT(modp, "Missing modp on newly created function");
+            // Get the name multiplicity map of this module, or emplace a new if missing
+            auto& nmm = m_nameMultiplicityMaps.emplace(modp, NameMultiplicityMap{}).first->second;
+            // Get function name ..
+            const string funcName = m_currNewFuncp->name();
+            // Get current multiplicity of name, or emplace a 0 if missing, then increment
+            const unsigned funcNum = nmm.emplace(funcName, 0).first->second++;
+            // Append suffix
+            m_currNewFuncp->name(funcName + "__" + cvtToStr(funcNum));
+        }
+        m_currNewFuncp = nullptr;
+        m_currNewSize = 0;
     }
 
     void nodeMarkCircular(OrderVarVertex* vertexp, OrderEdge* edgep) {
@@ -1231,6 +1266,10 @@ public:
                 V3Stats::addStat(string("Order, cut, ") + OrderVEdgeType(type).ascii(), count);
             }
         }
+        V3Stats::addStat("Order, function count", m_funcCount);
+        V3Stats::addStat("Order, function splits due to size", m_funcSizeSplits);
+        V3Stats::addStat("Order, function splits due to hash", m_funcHashSplits);
+
         // Destruction
         for (OrderUser* ip : m_orderUserps) delete ip;
         m_graph.debug(V3Error::debugDefault());
@@ -1630,10 +1669,10 @@ void OrderVisitor::processMove() {
         while (domScopep) {
             UINFO(6, "   MoveDomain l=" << domScopep->domainp() << endl);
             // Process all nodes ready under same domain & scope
-            m_pomNewFuncp = nullptr;
+            finishCurrentFunction();
             while (OrderMoveVertex* vertexp
                    = domScopep->readyVertices().begin()) {  // lintok-begin-on-ref
-                processMoveOne(vertexp, domScopep, 1);
+                processMoveOne(vertexp, domScopep);
             }
             // Done with scope/domain pair, pick new scope under same domain, or nullptr if none
             // left
@@ -1648,6 +1687,7 @@ void OrderVisitor::processMove() {
             domScopep = domScopeNextp;
         }
     }
+    finishCurrentFunction();
     UASSERT(m_pomWaiting.empty(),
             "Didn't converge; nodes waiting, none ready, perhaps some input activations lost.");
     // Cleanup memory
@@ -1707,35 +1747,37 @@ void OrderVisitor::processMoveDoneOne(OrderMoveVertex* vertexp) {
     }
 }
 
-void OrderVisitor::processMoveOne(OrderMoveVertex* vertexp, OrderMoveDomScope* domScopep,
-                                  int level) {
+void OrderVisitor::processMoveOne(OrderMoveVertex* vertexp, OrderMoveDomScope* domScopep) {
     UASSERT_OBJ(vertexp->domScopep() == domScopep, vertexp, "Domain mismatch; list misbuilt?");
-    const OrderLogicVertex* lvertexp = vertexp->logicp();
-    const AstScope* scopep = lvertexp->scopep();
-    UINFO(5, "    POSmove l" << std::setw(3) << level << " d=" << cvtToHex(lvertexp->domainp())
-                             << " s=" << cvtToHex(scopep) << " " << lvertexp << endl);
-    AstActive* newActivep
-        = processMoveOneLogic(lvertexp, m_pomNewFuncp /*ref*/, m_pomNewStmts /*ref*/);
+    const OrderLogicVertex* const lvertexp = vertexp->logicp();
+    const AstScope* const scopep = lvertexp->scopep();
+    UINFO(5, "    POSmove d=" << cvtToHex(lvertexp->domainp()) << " s=" << cvtToHex(scopep) << " "
+                              << lvertexp << endl);
+    AstActive* const newActivep = processMoveOneLogic(lvertexp);
     if (newActivep) m_scopetopp->addActivep(newActivep);
     processMoveDoneOne(vertexp);
 }
 
-AstActive* OrderVisitor::processMoveOneLogic(const OrderLogicVertex* lvertexp,
-                                             AstCFunc*& newFuncpr, int& newStmtsr) {
-    AstActive* activep = nullptr;
-    AstScope* const scopep = lvertexp->scopep();
-    AstSenTree* const domainp = lvertexp->domainp();
+AstActive* OrderVisitor::processMoveOneLogic(const OrderLogicVertex* lvertexp) {
     AstNode* nodep = lvertexp->nodep();
-    AstNodeModule* const modp = VN_CAST(scopep->user1p(), NodeModule);  // Stashed by visitor func
-    UASSERT(modp, "nullptr");
+    AstSenTree* const domainp = lvertexp->domainp();
     if (VN_IS(nodep, SenTree)) {
         // Just ignore sensitivities, we'll deal with them when we move statements that need them
+        return nullptr;
+    } else if (domainp == m_deleteDomainp) {  // Deleted logic
+        UINFO(4, " Ordering deleting pre-settled " << nodep << endl);
+        VL_DO_DANGLING(pushDeletep(nodep->unlinkFrBack()), nodep);
+        return nullptr;
     } else {  // Normal logic
         // Move the logic into a CFunc
+        AstActive* activep = nullptr;
+        AstScope* const scopep = lvertexp->scopep();
+
+        // Unlink current node
         nodep->unlinkFrBack();
 
         // Process procedures per statement (unless profCFuncs), so we can split CFuncs within
-        // procedures. Everything else is handled in one go
+        // procedures. Everything else is handled in one go.
         AstNodeProcedure* const procp = VN_CAST(nodep, NodeProcedure);
         if (procp && !v3Global.opt.profCFuncs()) {
             nodep = procp->bodysp();
@@ -1743,63 +1785,101 @@ AstActive* OrderVisitor::processMoveOneLogic(const OrderLogicVertex* lvertexp,
         }
 
         while (nodep) {
-            // Make or borrow a CFunc to contain the new statements
-            if (v3Global.opt.profCFuncs()
-                || (v3Global.opt.outputSplitCFuncs()
-                    && v3Global.opt.outputSplitCFuncs() < newStmtsr)) {
-                // Put every statement into a unique function to ease profiling or reduce function
-                // size
-                newFuncpr = nullptr;
+            AstNode* const nextp = nodep->nextp();
+            // Unlink the current node (might already be unlinked if not in procedure)
+            if (nodep->backp()) nodep->unlinkFrBack();
+
+            // If tracking function sizes, compute size of function after adding new tree
+            const uint32_t newTreeSize
+                = v3Global.opt.outputSplitCFuncs() ? EmitCBaseCounterVisitor(nodep).count() : 0;
+
+            // In incremental mode update the running tree hash
+            if (v3Global.opt.incremental()) {
+                // We compute a running hash by using the associativity of XOR, and the property
+                // that x^x == 0. This means we simply need to hold onto the last N hashes, and
+                // whenever one moves out of the window, we XOR it in again, which effectively
+                // removes it from the running hash.
+                // Compute hash of current tree
+                const uint32_t newHash = V3Hasher::uncachedHash(nodep).value();
+                // Add in hash of current tree
+                m_runningHash ^= newHash;
+                // Add current hash to window
+                m_hashWindow.push_back(newHash);
+                // Once the window is filled
+                if (m_hashWindow.size() > HASH_WINDOW_SIZE) {
+                    // Remove hash of oldest tree
+                    m_runningHash ^= m_hashWindow.front();
+                    // Remove oldest hash from window
+                    m_hashWindow.pop_front();
+                }
             }
-            if (!newFuncpr && domainp != m_deleteDomainp) {
-                const string name = cfuncName(modp, domainp, scopep, nodep);
-                newFuncpr = new AstCFunc(nodep->fileline(), name, scopep);
-                newFuncpr->isStatic(false);
-                newFuncpr->isLoose(true);
-                newStmtsr = 0;
-                if (domainp->hasInitial() || domainp->hasSettle()) newFuncpr->slow(true);
-                scopep->addActivep(newFuncpr);
+
+            // Check if we should start a new CFunc, and remember why
+            string splitReason;
+            if (v3Global.opt.profCFuncs()) {  // When --profile-cfuncs, all statements separate
+                splitReason = "--profile-cfuncs";
+                finishCurrentFunction();
+            } else if (m_currNewSize &&  // Current function already has contents and ...
+                                         // ... adding new tree would push it over the limit
+                       (m_currNewSize + newTreeSize > v3Global.opt.outputSplitCFuncs())) {
+                ++m_funcSizeSplits;
+                splitReason = "--output-split-cfuncs";
+                finishCurrentFunction();
+            } else if (m_currNewSize &&  //  Current function already has contents and ...
+                       v3Global.opt.incremental() &&  // ... Split due to --incremental
+                       m_runningHash % 10 == 0) {  // TODO: tune constant
+                UINFO(0, "split hash: " << m_runningHash << endl);
+                ++m_funcHashSplits;
+                splitReason = "--incremental";
+                finishCurrentFunction();
+            }
+
+            // Create new CFunc to contain the tree if required
+            if (!m_currNewFuncp) {
+                AstNodeModule* const modp
+                    = VN_CAST(scopep->user1p(), NodeModule);  // Stashed by visitor
+                UASSERT(modp, "Scope not under module ?");
+                const string name = cfuncBaseName(domainp, scopep, nodep);
+                m_currNewFuncp = new AstCFunc(nodep->fileline(), name, scopep);
+                m_currNewFuncp->isStatic(false);
+                m_currNewFuncp->isLoose(true);
+                m_currNewFuncp->user3p(modp);
+                if (domainp->hasInitial() || domainp->hasSettle()) m_currNewFuncp->slow(true);
+                scopep->addActivep(m_currNewFuncp);
+                // Add a comment for the split reason for debugging
+                if (!splitReason.empty()) {
+                    m_currNewFuncp->addStmtsp(
+                        new AstComment(nodep->fileline(), "Function split due to " + splitReason));
+                }
                 // Create top call to it
-                AstCCall* const callp = new AstCCall(nodep->fileline(), newFuncpr);
+                AstCCall* const callp = new AstCCall(nodep->fileline(), m_currNewFuncp);
                 // Where will we be adding the call?
-                AstActive* const newActivep = new AstActive(nodep->fileline(), name, domainp);
+                AstActive* const newActivep = new AstActive(nodep->fileline(), domainp);
                 newActivep->addStmtsp(callp);
                 if (!activep) {
                     activep = newActivep;
                 } else {
                     activep->addNext(newActivep);
                 }
-                UINFO(6, "      New " << newFuncpr << endl);
+                UINFO(6, "      New " << m_currNewFuncp << endl);
             }
 
-            AstNode* const nextp = nodep->nextp();
-            // When processing statements in a procedure, unlink the current statement
-            if (nodep->backp()) nodep->unlinkFrBack();
-
-            if (domainp == m_deleteDomainp) {
-                UINFO(4, " Ordering deleting pre-settled " << nodep << endl);
-                VL_DO_DANGLING(pushDeletep(nodep), nodep);
-            } else {
-                newFuncpr->addStmtsp(nodep);
-                if (v3Global.opt.outputSplitCFuncs()) {
-                    // Add in the number of nodes we're adding
-                    EmitCBaseCounterVisitor visitor(nodep);
-                    newStmtsr += visitor.count();
-                }
-            }
+            // Add tree to current CFunc
+            m_currNewFuncp->addStmtsp(nodep);
+            // Keep track of size of current CFunc
+            m_currNewSize += newTreeSize;
 
             nodep = nextp;
         }
+
+        return activep;
     }
-    return activep;
 }
 
 void OrderVisitor::processMTasksInitial(InitialLogicE logic_type) {
     // Emit initial/settle logic. Initial blocks won't be part of the
     // mtask partition, aren't eligible for parallelism.
     //
-    int initStmts = 0;
-    AstCFunc* initCFunc = nullptr;
     AstScope* lastScopep = nullptr;
     for (V3GraphVertex* initVxp = m_graph.verticesBeginp(); initVxp;
          initVxp = initVxp->verticesNextp()) {
@@ -1809,12 +1889,13 @@ void OrderVisitor::processMTasksInitial(InitialLogicE logic_type) {
         if ((logic_type == LOGIC_SETTLE) && !initp->domainp()->hasSettle()) continue;
         if (initp->scopep() != lastScopep) {
             // Start new cfunc, don't let the cfunc cross scopes
-            initCFunc = nullptr;
+            finishCurrentFunction();
             lastScopep = initp->scopep();
         }
-        AstActive* newActivep = processMoveOneLogic(initp, initCFunc /*ref*/, initStmts /*ref*/);
+        AstActive* newActivep = processMoveOneLogic(initp);
         if (newActivep) m_scopetopp->addActivep(newActivep);
     }
+    finishCurrentFunction();
 }
 
 void OrderVisitor::processMTasks() {
@@ -1911,19 +1992,16 @@ void OrderVisitor::processMTasks() {
         // and create a set of AstActive's to call those CFuncs.
         // Add the AstActive's into the AstMTaskBody.
         const AstSenTree* last_domainp = nullptr;
-        AstCFunc* leafCFuncp = nullptr;
-        int leafStmts = 0;
         for (const OrderLogicVertex* logicp : state.m_logics) {
             if (logicp->domainp() != last_domainp) {
                 // Start a new leaf function.
-                leafCFuncp = nullptr;
+                finishCurrentFunction();
             }
             last_domainp = logicp->domainp();
-
-            AstActive* newActivep
-                = processMoveOneLogic(logicp, leafCFuncp /*ref*/, leafStmts /*ref*/);
+            AstActive* newActivep = processMoveOneLogic(logicp);
             if (newActivep) bodyp->addStmtsp(newActivep);
         }
+        finishCurrentFunction();
 
         // Translate the LogicMTask graph into the corresponding ExecMTask
         // graph, which will outlive V3Order and persist for the remainder

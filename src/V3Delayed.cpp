@@ -158,8 +158,7 @@ private:
     }
 
     AstActive* createActivePost(AstVarRef* varrefp) {
-        AstActive* newactp
-            = new AstActive(varrefp->fileline(), "sequentdly", m_activep->sensesp());
+        AstActive* newactp = new AstActive(varrefp->fileline(), m_activep->sensesp());
         // Was addNext(), but addNextHere() avoids a linear search.
         m_activep->addNextHere(newactp);
         return newactp;

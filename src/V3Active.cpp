@@ -242,8 +242,8 @@ public:
     AstScope* scopep() { return m_scopep; }
     AstActive* getCActive(FileLine* fl) {
         if (!m_cActivep) {
-            m_cActivep = new AstActive(
-                fl, "combo", new AstSenTree(fl, new AstSenItem(fl, AstSenItem::Combo())));
+            m_cActivep
+                = new AstActive(fl, new AstSenTree(fl, new AstSenItem(fl, AstSenItem::Combo())));
             m_cActivep->sensesStorep(m_cActivep->sensesp());
             addActive(m_cActivep);
         }
@@ -251,8 +251,8 @@ public:
     }
     AstActive* getIActive(FileLine* fl) {
         if (!m_iActivep) {
-            m_iActivep = new AstActive(
-                fl, "initial", new AstSenTree(fl, new AstSenItem(fl, AstSenItem::Initial())));
+            m_iActivep
+                = new AstActive(fl, new AstSenTree(fl, new AstSenItem(fl, AstSenItem::Initial())));
             m_iActivep->sensesStorep(m_iActivep->sensesp());
             addActive(m_iActivep);
         }
@@ -272,7 +272,7 @@ public:
         // Not found, form a new one
         if (!activep) {
             AstSenTree* newsenp = sensesp->cloneTree(false);
-            activep = new AstActive(fl, "sequent", newsenp);
+            activep = new AstActive(fl, newsenp);
             activep->sensesStorep(activep->sensesp());
             UINFO(8, "    New ACTIVE " << activep << endl);
             // Form the sensitivity list

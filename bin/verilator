@@ -331,6 +331,7 @@ detailed descriptions of these arguments.
     --gate-stmts <value>        Tune gate optimizer depth
     --if-depth <value>          Tune IFDEPTH warning
      +incdir+<dir>              Directory to search for includes
+    --incremental               Experimental. Attempt to generate ccache friendly output.
     --inhibit-sim               Create function to turn off sim
     --inline-mult <value>       Tune module inlining
      -LDFLAGS <flags>           Linker pre-object arguments for makefile

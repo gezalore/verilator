@@ -180,7 +180,8 @@ private:
 
         AstConst* const constp = VN_CAST(nodep, Const);
 
-        const bool useStatic = constp && (constp->width() >= STATIC_CONST_MIN_WIDTH)
+        const bool useStatic = !v3Global.opt.incremental() && constp
+                               && (constp->width() >= STATIC_CONST_MIN_WIDTH)
                                && !constp->num().isFourState();
         if (useStatic) {
             // Extract as static constant

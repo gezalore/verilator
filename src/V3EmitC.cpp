@@ -61,7 +61,6 @@ public:
     VL_DEBUG_FUNC;  // Declare debug()
 
     // ACCESSORS
-    int splitFilenum() const { return m_splitFilenum; }
     int splitFilenumInc() {
         m_splitSize = 0;
         return ++m_splitFilenum;
@@ -1488,11 +1487,11 @@ class EmitCImp final : EmitCStmts {
         }
     }
 
-    V3OutCFile* newOutCFile(bool slow, bool source, int filenum = 0) {
+    V3OutCFile* newOutCFile(const string& subName, bool slow, bool source) {
         m_lazyDecls.reset();  // Need to emit new lazy declarations
 
         string filenameNoExt = v3Global.opt.makeDir() + "/" + prefixNameProtect(m_fileModp);
-        if (filenum) filenameNoExt += "__" + cvtToStr(filenum);
+        if (!subName.empty()) filenameNoExt += "__" + subName;
         filenameNoExt += (slow ? "__Slow" : "");
         V3OutCFile* ofp = nullptr;
         if (v3Global.opt.lintOnly()) {
@@ -1600,7 +1599,7 @@ class EmitCImp final : EmitCStmts {
     }
 
     virtual void visit(AstMTaskBody* nodep) override {
-        maybeSplit();
+        if (splitNeeded()) splitFile("");
         splitSizeInc(10);
 
         puts("\n");
@@ -1628,10 +1627,13 @@ class EmitCImp final : EmitCStmts {
         if (nodep->dpiImport()) return;
         if (!(nodep->slow() ? m_slow : m_fast)) return;
 
-        maybeSplit();
-
         m_blkChangeDetVec.clear();
 
+        if (v3Global.opt.incremental()) {
+            splitFile(cvtToStr(std::hash<string>{}(funcNameProtect(nodep))));
+        } else if (splitNeeded()) {
+            splitFile("");
+        }
         splitSizeInc(nodep);
 
         puts("\n");
@@ -1979,7 +1981,7 @@ class EmitCImp final : EmitCStmts {
     void emitMTaskVertexCtors(bool* firstp);
     void emitIntTop(AstNodeModule* modp);
     void emitInt(AstNodeModule* modp);
-    void maybeSplit();
+    void splitFile(const string& subName);
 
 public:
     EmitCImp()
@@ -3541,15 +3543,14 @@ void EmitCImp::emitImp(AstNodeModule* modp) {
 
 //######################################################################
 
-void EmitCImp::maybeSplit() {
-    if (!splitNeeded()) return;
-
+void EmitCImp::splitFile(const string& subName) {
     // Splitting file, so using parallel build.
     v3Global.useParallelBuild(true);
     // Close old file
     VL_DO_CLEAR(delete m_ofp, m_ofp = nullptr);
     // Open a new file
-    m_ofp = newOutCFile(!m_fast, true /*source*/, splitFilenumInc());
+    m_ofp = newOutCFile(!subName.empty() ? subName : cvtToStr(splitFilenumInc()), !m_fast,
+                        true /*source*/);
     emitImpTop();
 }
 
@@ -3561,7 +3562,7 @@ void EmitCImp::mainInt(AstNodeModule* modp) {
 
     UINFO(5, "  Emitting " << prefixNameProtect(modp) << endl);
 
-    m_ofp = newOutCFile(false /*slow*/, false /*source*/);
+    m_ofp = newOutCFile("", false /*slow*/, false /*source*/);
     emitIntTop(modp);
     emitInt(modp);
     if (AstClassPackage* packagep = VN_CAST(modp, ClassPackage)) {
@@ -3583,7 +3584,8 @@ void EmitCImp::mainImp(AstNodeModule* modp, bool slow) {
 
     UINFO(5, "  Emitting " << prefixNameProtect(modp) << endl);
 
-    m_ofp = newOutCFile(!m_fast, true /*source*/);
+    splitFilenumInc();
+    m_ofp = newOutCFile("", !m_fast, true /*source*/);
     emitImpTop();
     emitImp(modp);
 

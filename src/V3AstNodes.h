@@ -5280,19 +5280,16 @@ class AstActive final : public AstNode {
     // Parents:  MODULE | CFUNC
     // Children: SENTREE, statements
 private:
-    string m_name;
     AstSenTree* m_sensesp;
 
 public:
-    AstActive(FileLine* fl, const string& name, AstSenTree* sensesp)
+    AstActive(FileLine* fl, AstSenTree* sensesp)
         : ASTGEN_SUPER_Active(fl) {
-        m_name = name;  // Copy it
         UASSERT(sensesp, "Sensesp required arg");
         m_sensesp = sensesp;
     }
     ASTNODE_NODE_FUNCS(Active)
     virtual void dump(std::ostream& str = std::cout) const override;
-    virtual string name() const override { return m_name; }
     virtual const char* broken() const override {
         BROKEN_RTN(m_sensesp && !m_sensesp->brokeExists());
         return nullptr;
@@ -5428,9 +5425,9 @@ public:
                        : (m_urandom ? "%f$urandom()" : "%f$random()");
     }
     virtual string emitC() override {
-        return m_reset
-                   ? "VL_RAND_RESET_%nq(%nw, %P)"
-                   : seedp() ? "VL_RANDOM_SEEDED_%nq%lq(%nw, %P, %li)" : "VL_RANDOM_%nq(%nw, %P)";
+        return m_reset   ? "VL_RAND_RESET_%nq(%nw, %P)"
+               : seedp() ? "VL_RANDOM_SEEDED_%nq%lq(%nw, %P, %li)"
+                         : "VL_RANDOM_%nq(%nw, %P)";
     }
     virtual bool cleanOut() const override { return true; }
     virtual bool isGateOptimizable() const override { return false; }

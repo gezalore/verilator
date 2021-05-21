@@ -82,7 +82,7 @@ private:
         if (sensesp->hasCombo()) {
             AstSenTree* newsentreep = new AstSenTree(
                 nodep->fileline(), new AstSenItem(nodep->fileline(), AstSenItem::Settle()));
-            AstActive* newp = new AstActive(nodep->fileline(), "settle", newsentreep);
+            AstActive* newp = new AstActive(nodep->fileline(), newsentreep);
             newp->sensesStorep(newsentreep);
             if (nodep->stmtsp()) newp->addStmtsp(nodep->stmtsp()->cloneTree(true));
             nodep->addNextHere(newp);
