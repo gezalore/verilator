@@ -383,14 +383,21 @@ public:
         puts(")");
     }
     virtual void visit(AstNodeCCall* nodep) override {
+        const AstCFunc* const funcp = nodep->funcp();
         if (AstCMethodCall* ccallp = VN_CAST(nodep, CMethodCall)) {
             // make this a Ast type for future opt
             iterate(ccallp->fromp());
             putbs("->");
+        } else if (funcp->isMethod() && funcp->isStatic().trueUnknown()) {
+            // Find containing module
+            const AstNode* modp = funcp;
+            do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
+            UASSERT_OBJ(modp, funcp, "Static method not under module");
+            puts(prefixNameProtect(modp) + "::");
         } else {
             puts(nodep->hiernameProtect());
         }
-        puts(nodep->funcp()->nameProtect());
+        puts(funcp->nameProtect());
         puts("(");
         ccallIterateArgs(nodep);
         if (VN_IS(nodep->backp(), NodeMath) || VN_IS(nodep->backp(), CReturn)) {
