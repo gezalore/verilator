@@ -26,4 +26,4 @@ internalsDump:
 *-* All Finished *-*
 -V{t#,#}+    Vt_verilated_debug::_change_request
 -V{t#,#}+    Vt_verilated_debug::_change_request_1
--V{t#,#}+    Vt_verilated_debug::final
+-V{t#,#}+    Vt_verilated_debug::_final

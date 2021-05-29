@@ -65,8 +65,7 @@ public:
     void splitSizeInc(int count) { m_splitSize += count; }
     void splitSizeInc(AstNode* nodep) { splitSizeInc(EmitCBaseCounterVisitor(nodep).count()); }
     bool splitNeeded() const {
-        return (splitSize() && v3Global.opt.outputSplit()
-                && v3Global.opt.outputSplit() < splitSize());
+        return v3Global.opt.outputSplit() && splitSize() >= v3Global.opt.outputSplit();
     }
 
     // METHODS
@@ -231,7 +230,7 @@ public:
 
         for (AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
             if (const AstCFunc* funcp = VN_CAST(nodep, CFunc)) {
-                if (!funcp->skipDecl() && funcp->isMethod() == methodFuncs
+                if (funcp->isMethod() == methodFuncs
                     && !funcp->dpiImport()) {  // DPI is prototyped in __Dpi.h
                     funcsp.push_back(funcp);
                 }
@@ -3312,7 +3311,7 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
             puts("/// Simulation complete, run final blocks.  Application "
                  "must call on completion.\n");
         }
-        puts("void final();\n");
+        puts("void final() { " + protect("_final") + "(__VlSymsp); }\n");
         if (v3Global.opt.inhibitSim()) {
             puts("/// Disable evaluation of module (e.g. turn off)\n");
             puts("void inhibitSim(bool flag) { __Vm_inhibitSim = flag; }\n");

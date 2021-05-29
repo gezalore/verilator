@@ -8717,7 +8717,6 @@ private:
     VBoolOrUnknown m_isConst;  // Function is declared const (*this not changed)
     VBoolOrUnknown m_isStatic;  // Function is declared static (no this)
     bool m_dontCombine : 1;  // V3Combine shouldn't compare this func tree, it's special
-    bool m_skipDecl : 1;  // Don't declare it
     bool m_declPrivate : 1;  // Declare it private
     bool m_formCallTree : 1;  // Make a global function to call entire tree of functions
     bool m_slow : 1;  // Slow routine, called once or just at init time
@@ -8744,7 +8743,6 @@ public:
         m_name = name;
         m_rtnType = rtnType;
         m_dontCombine = false;
-        m_skipDecl = false;
         m_declPrivate = false;
         m_formCallTree = false;
         m_slow = false;
@@ -8792,9 +8790,7 @@ public:
     string rtnTypeVoid() const { return ((m_rtnType == "") ? "void" : m_rtnType); }
     bool dontCombine() const { return m_dontCombine || funcType() != AstCFuncType::FT_NORMAL; }
     void dontCombine(bool flag) { m_dontCombine = flag; }
-    bool dontInline() const { return dontCombine() || slow() || skipDecl() || funcPublic(); }
-    bool skipDecl() const { return m_skipDecl; }
-    void skipDecl(bool flag) { m_skipDecl = flag; }
+    bool dontInline() const { return dontCombine() || slow() || funcPublic(); }
     bool declPrivate() const { return m_declPrivate; }
     void declPrivate(bool flag) { m_declPrivate = flag; }
     bool formCallTree() const { return m_formCallTree; }
