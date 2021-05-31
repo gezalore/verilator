@@ -2274,6 +2274,7 @@ private:
     string m_name;  // Name of variable
     string m_hiernameToProt;  // Scope converted into name-> for emitting
     string m_hiernameToUnprot;  // Scope converted into name-> for emitting
+    string m_classPrefix;  // Output class prefix (i.e.: the part before ::)
     bool m_hierThis = false;  // Hiername points to "this" function
 
 protected:
@@ -2313,6 +2314,9 @@ public:
     string hiernameProtect() const;
     bool hierThis() const { return m_hierThis; }
     void hierThis(bool flag) { m_hierThis = flag; }
+    string classPrefix() const { return m_classPrefix; }
+    void classPrefix(const string& value) { m_classPrefix = value; }
+    string classPrefixProtect() const;
     AstNodeModule* classOrPackagep() const { return m_classOrPackagep; }
     void classOrPackagep(AstNodeModule* nodep) { m_classOrPackagep = nodep; }
     // Know no children, and hot function, so skip iterator for speed
@@ -2617,6 +2621,7 @@ class AstNodeCCall VL_NOT_FINAL : public AstNodeStmt {
     AstCFunc* m_funcp;
     string m_hiernameToProt;
     string m_hiernameToUnprot;
+    string m_classPrefix;  // Output class prefix (i.e.: the part before ::)
     string m_argTypes;
 
 protected:
@@ -2647,6 +2652,9 @@ public:
     string hiernameToUnprot() const { return m_hiernameToUnprot; }
     void hiernameToUnprot(const string& hn) { m_hiernameToUnprot = hn; }
     string hiernameProtect() const;
+    string classPrefix() const { return m_classPrefix; }
+    void classPrefix(const string& value) { m_classPrefix = value; }
+    string classPrefixProtect() const;
     void argTypes(const string& str) { m_argTypes = str; }
     string argTypes() const { return m_argTypes; }
     // op1p reserved for AstCMethodCall

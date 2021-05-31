@@ -394,6 +394,8 @@ public:
             do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
             UASSERT_OBJ(modp, funcp, "Static method not under module");
             puts(prefixNameProtect(modp) + "::");
+        } else if (!nodep->classPrefix().empty()) {
+            puts(nodep->classPrefixProtect() + "::");
         } else {
             puts(nodep->hiernameProtect());
         }
@@ -1114,7 +1116,11 @@ public:
     virtual void visit(AstInitItem* nodep) override { iterateChildren(nodep); }
     // Terminals
     virtual void visit(AstVarRef* nodep) override {
-        puts(nodep->hiernameProtect());
+        if (!nodep->classPrefix().empty()) {
+            puts(nodep->classPrefixProtect() + "::");
+        } else {
+            puts(nodep->hiernameProtect());
+        }
         puts(nodep->varp()->nameProtect());
     }
     void emitCvtPackStr(AstNode* nodep) {

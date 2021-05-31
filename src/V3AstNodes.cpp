@@ -59,6 +59,10 @@ string AstNodeVarRef::hiernameProtect() const {
     return hiernameToUnprot() + VIdProtect::protectWordsIf(hiernameToProt(), protect());
 }
 
+string AstNodeVarRef::classPrefixProtect() const {
+    return v3Global.opt.modPrefix() + "_" + VIdProtect::protectWordsIf(classPrefix(), protect());
+}
+
 int AstNodeSel::bitConst() const {
     AstConst* constp = VN_CAST(bitp(), Const);
     return (constp ? constp->toSInt() : 0);
@@ -110,6 +114,10 @@ const char* AstNodeCCall::broken() const {
 bool AstNodeCCall::isPure() const { return funcp()->pure(); }
 string AstNodeCCall::hiernameProtect() const {
     return hiernameToUnprot() + VIdProtect::protectWordsIf(hiernameToProt(), protect());
+}
+
+string AstNodeCCall::classPrefixProtect() const {
+    return v3Global.opt.modPrefix() + "_" + VIdProtect::protectWordsIf(classPrefix(), protect());
 }
 
 void AstNodeCond::numberOperate(V3Number& out, const V3Number& lhs, const V3Number& rhs,

@@ -72,7 +72,7 @@ private:
     //
     // Using relative references allows V3Combine'ing
     // code across multiple instances of the same module.
-    string descopedName(string& hierUnprot, const AstScope* scopep) {
+    string descopedSelfPointer(string& hierUnprot, const AstScope* scopep) {
         UASSERT(scopep, "Var/Func not scoped");
 
         // It's possible to disable relative references. This is a concession
@@ -111,8 +111,7 @@ private:
             m_needThis = true;
             return "this->";
         } else if (VN_IS(scopep->modp(), Class)) {
-            hierUnprot = v3Global.opt.modPrefix() + "_";  // Prefix before protected part
-            return scopep->modp()->name() + "::";
+            return "";
         } else if (relativeRefOk && scopep->aboveScopep() == m_scopep) {
             // Reference to scope of instance directly under this module, can just "cell->"
             string name = scopep->name();
@@ -133,6 +132,18 @@ private:
             } else {
                 return scopep->nameVlSym() + ".";
             }
+        }
+    }
+
+    // Construct the class prefix (as in, the part before the :: scope resolution operator) when
+    // referencing an object in 'scopep' from a CFunc in 'm_scopep'.
+    string descopedClassPrefix(const AstScope* scopep) {
+        UASSERT(scopep, "Var/Func not scoped");
+
+        if (VN_IS(scopep->modp(), Class) && scopep != m_scopep) {
+            return scopep->modp()->name();
+        } else {
+            return "";
         }
     }
 
@@ -246,17 +257,16 @@ private:
         // Convert the hierch name
         UINFO(9, "  ref-in " << nodep << endl);
         UASSERT_OBJ(m_scopep, nodep, "Node not under scope");
-        const AstScope* const scopep = nodep->varScopep()->scopep();
         const AstVar* const varp = nodep->varScopep()->varp();
+        const AstScope* const scopep = nodep->varScopep()->scopep();
         if (varp->isFuncLocal()) {
-            nodep->hiernameToProt("");
-            nodep->hiernameToUnprot("");
             nodep->hierThis(true);
         } else {
             string hierUnprot;
-            nodep->hiernameToProt(descopedName(hierUnprot /*ref*/, scopep));
+            nodep->hiernameToProt(descopedSelfPointer(hierUnprot /*ref*/, scopep));
             nodep->hiernameToUnprot(hierUnprot);
             nodep->hierThis(scopep == m_scopep);
+            nodep->classPrefix(descopedClassPrefix(scopep));
         }
         nodep->varScopep(nullptr);
         UINFO(9, "  refout " << nodep << endl);
@@ -266,10 +276,11 @@ private:
         iterateChildren(nodep);
         // Convert the hierch name
         UASSERT_OBJ(m_scopep, nodep, "Node not under scope");
-        UASSERT_OBJ(nodep->funcp()->scopep(), nodep, "CFunc not under scope");
+        const AstScope* const scopep = nodep->funcp()->scopep();
         string hierUnprot;
-        nodep->hiernameToProt(descopedName(hierUnprot /*ref*/, nodep->funcp()->scopep()));
+        nodep->hiernameToProt(descopedSelfPointer(hierUnprot /*ref*/, scopep));
         nodep->hiernameToUnprot(hierUnprot);
+        nodep->classPrefix(descopedClassPrefix(scopep));
         // Can't do this, as we may have more calls later
         // nodep->funcp()->scopep(nullptr);
     }
