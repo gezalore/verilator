@@ -72,8 +72,7 @@ public:
                 AstNode* const argsp
                     = oldp->argsp() ? oldp->argsp()->unlinkFrBackWithNext() : nullptr;
                 AstCCall* const newp = new AstCCall(oldp->fileline(), newfuncp, argsp);
-                newp->hiernameToProt(oldp->hiernameToProt());
-                newp->hiernameToUnprot(oldp->hiernameToUnprot());
+                newp->selfPointer(oldp->selfPointer());
                 newp->classPrefix(oldp->classPrefix());
                 newp->argTypes(oldp->argTypes());
                 addCall(newp);  // Fix the table, in case the newfuncp itself gets replaced

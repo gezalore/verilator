@@ -2272,10 +2272,9 @@ private:
     AstVarScope* m_varScopep = nullptr;  // Varscope for hierarchy
     AstNodeModule* m_classOrPackagep = nullptr;  // Package hierarchy
     string m_name;  // Name of variable
-    string m_hiernameToProt;  // Scope converted into name-> for emitting
-    string m_hiernameToUnprot;  // Scope converted into name-> for emitting
+    string m_selfPointer;  // Output code object pointer (e.g.: 'this')
     string m_classPrefix;  // Output class prefix (i.e.: the part before ::)
-    bool m_hierThis = false;  // Hiername points to "this" function
+    bool m_hierThis = false;  // m_selfPointer points to "this" function
 
 protected:
     AstNodeVarRef(AstType t, FileLine* fl, const string& name, const VAccess& access)
@@ -2307,13 +2306,11 @@ public:
     void varp(AstVar* varp);
     AstVarScope* varScopep() const { return m_varScopep; }
     void varScopep(AstVarScope* varscp) { m_varScopep = varscp; }
-    string hiernameToProt() const { return m_hiernameToProt; }
-    void hiernameToProt(const string& hn) { m_hiernameToProt = hn; }
-    string hiernameToUnprot() const { return m_hiernameToUnprot; }
-    void hiernameToUnprot(const string& hn) { m_hiernameToUnprot = hn; }
-    string hiernameProtect() const;
     bool hierThis() const { return m_hierThis; }
     void hierThis(bool flag) { m_hierThis = flag; }
+    string selfPointer() const { return m_selfPointer; }
+    void selfPointer(const string& value) { m_selfPointer = value; }
+    string selfPointerProtect() const;
     string classPrefix() const { return m_classPrefix; }
     void classPrefix(const string& value) { m_classPrefix = value; }
     string classPrefixProtect() const;
@@ -2619,8 +2616,7 @@ class AstNodeCCall VL_NOT_FINAL : public AstNodeStmt {
     // A call of a C++ function, perhaps a AstCFunc or perhaps globally named
     // Functions are not statements, while tasks are. AstNodeStmt needs isStatement() to deal.
     AstCFunc* m_funcp;
-    string m_hiernameToProt;
-    string m_hiernameToUnprot;
+    string m_selfPointer;  // Output code object pointer (e.g.: 'this')
     string m_classPrefix;  // Output class prefix (i.e.: the part before ::)
     string m_argTypes;
 
@@ -2647,11 +2643,9 @@ public:
     virtual bool isPure() const override;
     virtual bool isOutputter() const override { return !isPure(); }
     AstCFunc* funcp() const { return m_funcp; }
-    string hiernameToProt() const { return m_hiernameToProt; }
-    void hiernameToProt(const string& hn) { m_hiernameToProt = hn; }
-    string hiernameToUnprot() const { return m_hiernameToUnprot; }
-    void hiernameToUnprot(const string& hn) { m_hiernameToUnprot = hn; }
-    string hiernameProtect() const;
+    string selfPointer() const { return m_selfPointer; }
+    void selfPointer(const string& value) { m_selfPointer = value; }
+    string selfPointerProtect() const;
     string classPrefix() const { return m_classPrefix; }
     void classPrefix(const string& value) { m_classPrefix = value; }
     string classPrefixProtect() const;

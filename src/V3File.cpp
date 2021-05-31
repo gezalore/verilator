@@ -1016,7 +1016,7 @@ public:
         }
     }
     string protectWordsIf(const string& old, bool doIt) {
-        // Split at " " (for traces), "." (for scopes), "->" (for scopes)
+        // Split at " " (for traces), "." (for scopes), "->", "(", "&", ")" (for self pointers)
         if (!(doIt && v3Global.opt.protectIds())) return old;
         string out;
         string::size_type start = 0;
@@ -1028,6 +1028,9 @@ public:
             trySep(old, start, " ", pos /*ref*/, separator /*ref*/);
             trySep(old, start, ".", pos /*ref*/, separator /*ref*/);
             trySep(old, start, "->", pos /*ref*/, separator /*ref*/);
+            trySep(old, start, "(", pos /*ref*/, separator /*ref*/);
+            trySep(old, start, "&", pos /*ref*/, separator /*ref*/);
+            trySep(old, start, ")", pos /*ref*/, separator /*ref*/);
             if (pos == string::npos) break;
             out += protectIf(old.substr(start, pos - start), true) + separator;
             start = pos + separator.length();

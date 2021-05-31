@@ -2388,8 +2388,7 @@ public:
         if (varScopep()) {
             return (varScopep() == samep->varScopep() && access() == samep->access());
         } else {
-            return (hiernameToProt() == samep->hiernameToProt()
-                    && hiernameToUnprot() == samep->hiernameToUnprot()
+            return (selfPointer() == samep->selfPointer()
                     && varp()->name() == samep->varp()->name() && access() == samep->access());
         }
     }
@@ -2397,9 +2396,8 @@ public:
         if (varScopep()) {
             return (varScopep() == samep->varScopep());
         } else {
-            return (hiernameToProt() == samep->hiernameToProt()
-                    && hiernameToUnprot() == samep->hiernameToUnprot()
-                    && (!hiernameToProt().empty() || !samep->hiernameToProt().empty())
+            return (selfPointer() == samep->selfPointer()
+                    && (!selfPointer().empty() || !samep->selfPointer().empty())
                     && varp()->name() == samep->varp()->name());
         }
     }
@@ -2439,8 +2437,7 @@ public:
     virtual int instrCount() const override { return widthInstrs(); }
     virtual bool same(const AstNode* samep) const override {
         const AstVarXRef* asamep = static_cast<const AstVarXRef*>(samep);
-        return (hiernameToProt() == asamep->hiernameToProt()
-                && hiernameToUnprot() == asamep->hiernameToUnprot() && varp() == asamep->varp()
+        return (selfPointer() == asamep->selfPointer() && varp() == asamep->varp()
                 && name() == asamep->name() && dotted() == asamep->dotted());
     }
 };

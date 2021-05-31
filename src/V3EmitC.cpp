@@ -396,8 +396,8 @@ public:
             puts(prefixNameProtect(modp) + "::");
         } else if (!nodep->classPrefix().empty()) {
             puts(nodep->classPrefixProtect() + "::");
-        } else {
-            puts(nodep->hiernameProtect());
+        } else if (!nodep->selfPointer().empty()) {
+            puts(nodep->selfPointerProtect() + "->");
         }
         puts(funcp->nameProtect());
         puts("(");
@@ -1118,8 +1118,8 @@ public:
     virtual void visit(AstVarRef* nodep) override {
         if (!nodep->classPrefix().empty()) {
             puts(nodep->classPrefixProtect() + "::");
-        } else {
-            puts(nodep->hiernameProtect());
+        } else if (!nodep->selfPointerProtect().empty()) {
+            puts(nodep->selfPointerProtect() + "->");
         }
         puts(nodep->varp()->nameProtect());
     }
@@ -1184,7 +1184,9 @@ public:
                 if (!assigntop) {
                     puts(assignString);
                 } else if (VN_IS(assigntop, VarRef)) {
-                    puts(assigntop->hiernameProtect());
+                    if (!assigntop->selfPointer().empty()) {
+                        puts(assigntop->selfPointerProtect() + "->");
+                    }
                     puts(assigntop->varp()->nameProtect());
                 } else {
                     iterateAndNextNull(assigntop);
@@ -1207,7 +1209,9 @@ public:
                 if (!assigntop) {
                     puts(assignString);
                 } else if (VN_IS(assigntop, VarRef)) {
-                    puts(assigntop->hiernameProtect());
+                    if (!assigntop->selfPointer().empty()) {
+                        puts(assigntop->selfPointerProtect() + "->");
+                    }
                     puts(assigntop->varp()->nameProtect());
                 } else {
                     iterateAndNextNull(assigntop);
@@ -2092,7 +2096,9 @@ void EmitCStmts::emitOpName(AstNode* nodep, const string& format, AstNode* lhsp,
                     UASSERT_OBJ(m_wideTempRefp, nodep,
                                 "Wide Op w/ no temp, perhaps missing op in V3EmitC?");
                     COMMA;
-                    puts(m_wideTempRefp->hiernameProtect());
+                    if (!m_wideTempRefp->selfPointer().empty()) {
+                        puts(m_wideTempRefp->selfPointerProtect() + "->");
+                    }
                     puts(m_wideTempRefp->varp()->nameProtect());
                     m_wideTempRefp = nullptr;
                     needComma = true;

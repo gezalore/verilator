@@ -199,7 +199,7 @@ private:
                 iterateNull(nodep->varScopep());
             } else {
                 iterateNull(nodep->varp());
-                m_hash += nodep->hiernameToProt();
+                m_hash += nodep->selfPointer();
             }
         });
     }

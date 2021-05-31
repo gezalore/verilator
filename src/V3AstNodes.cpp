@@ -55,8 +55,8 @@ void AstNodeVarRef::cloneRelink() {
     if (m_varp && m_varp->clonep()) m_varp = m_varp->clonep();
 }
 
-string AstNodeVarRef::hiernameProtect() const {
-    return hiernameToUnprot() + VIdProtect::protectWordsIf(hiernameToProt(), protect());
+string AstNodeVarRef::selfPointerProtect() const {
+    return VIdProtect::protectWordsIf(selfPointer(), protect());
 }
 
 string AstNodeVarRef::classPrefixProtect() const {
@@ -112,10 +112,9 @@ const char* AstNodeCCall::broken() const {
     return nullptr;
 }
 bool AstNodeCCall::isPure() const { return funcp()->pure(); }
-string AstNodeCCall::hiernameProtect() const {
-    return hiernameToUnprot() + VIdProtect::protectWordsIf(hiernameToProt(), protect());
+string AstNodeCCall::selfPointerProtect() const {
+    return VIdProtect::protectWordsIf(selfPointer(), protect());
 }
-
 string AstNodeCCall::classPrefixProtect() const {
     return v3Global.opt.modPrefix() + "_" + VIdProtect::protectWordsIf(classPrefix(), protect());
 }

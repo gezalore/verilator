@@ -66,13 +66,12 @@ private:
         return (instances == 1);
     }
 
-    // Construct the best prefix to reference an object in 'scopep'
-    // from a CFunc in 'm_scopep'. Result may be relative
-    // ("this->[...]") or absolute ("vlTOPp->[...]").
+    // Construct the best self pointer to reference an object in 'scopep'  from a CFunc in
+    // 'm_scopep'. Result may be relative ("this->[...]") or absolute ("vlTOPp->[...]").
     //
-    // Using relative references allows V3Combine'ing
-    // code across multiple instances of the same module.
-    string descopedSelfPointer(string& hierUnprot, const AstScope* scopep) {
+    // Using relative references allows V3Combine'ing code across multiple instances of the same
+    // module.
+    string descopedSelfPointer(const AstScope* scopep) {
         UASSERT(scopep, "Var/Func not scoped");
 
         // It's possible to disable relative references. This is a concession
@@ -109,7 +108,7 @@ private:
 
         if (relativeRefOk && scopep == m_scopep) {
             m_needThis = true;
-            return "this->";
+            return "this";
         } else if (VN_IS(scopep->modp(), Class)) {
             return "";
         } else if (relativeRefOk && scopep->aboveScopep() == m_scopep) {
@@ -118,7 +117,7 @@ private:
             string::size_type pos;
             if ((pos = name.rfind('.')) != string::npos) name.erase(0, pos + 1);
             m_needThis = true;
-            return name + "->";
+            return name;
         } else {
             // Reference to something elsewhere, or relative references
             // are disabled. Use global variable
@@ -126,11 +125,11 @@ private:
             UINFO(8, "           to " << scopep->name() << endl);
             UINFO(8, "        under " << m_scopep->name() << endl);
             if (scopep->isTop()) {  // Top
-                // We could also return "vlSymsp->TOPp->" here, but GCC would
+                // We could also return "vlSymsp->TOPp" here, but GCC would
                 // suspect aliases.
-                return "vlTOPp->";
+                return "vlTOPp";
             } else {
-                return scopep->nameVlSym() + ".";
+                return "(&" + scopep->nameVlSym() + ")";
             }
         }
     }
@@ -262,10 +261,8 @@ private:
         if (varp->isFuncLocal()) {
             nodep->hierThis(true);
         } else {
-            string hierUnprot;
-            nodep->hiernameToProt(descopedSelfPointer(hierUnprot /*ref*/, scopep));
-            nodep->hiernameToUnprot(hierUnprot);
             nodep->hierThis(scopep == m_scopep);
+            nodep->selfPointer(descopedSelfPointer(scopep));
             nodep->classPrefix(descopedClassPrefix(scopep));
         }
         nodep->varScopep(nullptr);
@@ -277,9 +274,7 @@ private:
         // Convert the hierch name
         UASSERT_OBJ(m_scopep, nodep, "Node not under scope");
         const AstScope* const scopep = nodep->funcp()->scopep();
-        string hierUnprot;
-        nodep->hiernameToProt(descopedSelfPointer(hierUnprot /*ref*/, scopep));
-        nodep->hiernameToUnprot(hierUnprot);
+        nodep->selfPointer(descopedSelfPointer(scopep));
         nodep->classPrefix(descopedClassPrefix(scopep));
         // Can't do this, as we may have more calls later
         // nodep->funcp()->scopep(nullptr);
