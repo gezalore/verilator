@@ -72,14 +72,8 @@ private:
     //
     // Using relative references allows V3Combine'ing
     // code across multiple instances of the same module.
-    //
-    // Sets 'hierThisr' true if the object is local to this scope
-    // (and could be made into a function-local later in V3Localize),
-    // false if the object is in another scope.
-    string descopedName(bool& hierThisr, string& hierUnprot, const AstScope* scopep,
-                        const AstVar* varp) {
+    string descopedName(string& hierUnprot, const AstScope* scopep) {
         UASSERT(scopep, "Var/Func not scoped");
-        hierThisr = (scopep == m_scopep);
 
         // It's possible to disable relative references. This is a concession
         // to older compilers (gcc < 4.5.x) that don't understand __restrict__
@@ -113,16 +107,13 @@ private:
         // Class methods need relative
         if (m_modp && VN_IS(m_modp, Class)) relativeRefOk = true;
 
-        if (varp && varp->isFuncLocal()) {
-            hierThisr = true;
-            return "";  // Relative to function, not in this
-        } else if (relativeRefOk && scopep == m_scopep) {
+        if (relativeRefOk && scopep == m_scopep) {
             m_needThis = true;
             return "this->";
         } else if (VN_IS(scopep->modp(), Class)) {
             hierUnprot = v3Global.opt.modPrefix() + "_";  // Prefix before protected part
             return scopep->modp()->name() + "::";
-        } else if (relativeRefOk && scopep->aboveScopep() && scopep->aboveScopep() == m_scopep) {
+        } else if (relativeRefOk && scopep->aboveScopep() == m_scopep) {
             // Reference to scope of instance directly under this module, can just "cell->"
             string name = scopep->name();
             string::size_type pos;
@@ -135,7 +126,7 @@ private:
             UINFO(8, "      Descope " << scopep << endl);
             UINFO(8, "           to " << scopep->name() << endl);
             UINFO(8, "        under " << m_scopep->name() << endl);
-            if (!scopep->aboveScopep()) {  // Top
+            if (scopep->isTop()) {  // Top
                 // We could also return "vlSymsp->TOPp->" here, but GCC would
                 // suspect aliases.
                 return "vlTOPp->";
@@ -255,13 +246,18 @@ private:
         // Convert the hierch name
         UINFO(9, "  ref-in " << nodep << endl);
         UASSERT_OBJ(m_scopep, nodep, "Node not under scope");
-        bool hierThis;
-        string hierUnprot;
-        nodep->hiernameToProt(descopedName(hierThis /*ref*/, hierUnprot /*ref*/,
-                                           nodep->varScopep()->scopep(),
-                                           nodep->varScopep()->varp()));
-        nodep->hiernameToUnprot(hierUnprot);
-        nodep->hierThis(hierThis);
+        const AstScope* const scopep = nodep->varScopep()->scopep();
+        const AstVar* const varp = nodep->varScopep()->varp();
+        if (varp->isFuncLocal()) {
+            nodep->hiernameToProt("");
+            nodep->hiernameToUnprot("");
+            nodep->hierThis(true);
+        } else {
+            string hierUnprot;
+            nodep->hiernameToProt(descopedName(hierUnprot /*ref*/, scopep));
+            nodep->hiernameToUnprot(hierUnprot);
+            nodep->hierThis(scopep == m_scopep);
+        }
         nodep->varScopep(nullptr);
         UINFO(9, "  refout " << nodep << endl);
     }
@@ -271,10 +267,8 @@ private:
         // Convert the hierch name
         UASSERT_OBJ(m_scopep, nodep, "Node not under scope");
         UASSERT_OBJ(nodep->funcp()->scopep(), nodep, "CFunc not under scope");
-        bool hierThis;
         string hierUnprot;
-        nodep->hiernameToProt(
-            descopedName(hierThis /*ref*/, hierUnprot /*ref*/, nodep->funcp()->scopep(), nullptr));
+        nodep->hiernameToProt(descopedName(hierUnprot /*ref*/, nodep->funcp()->scopep()));
         nodep->hiernameToUnprot(hierUnprot);
         // Can't do this, as we may have more calls later
         // nodep->funcp()->scopep(nullptr);
