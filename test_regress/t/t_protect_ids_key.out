@@ -35,6 +35,7 @@
   <map from="PScyq8" to="clk"/>
   <map from="PSnRoO" to="secret_inst"/>
   <map from="PSS3Gk" to="secret_sub"/>
+  <map from="self" to="self"/>
   <map from="PSxvlA" to="t"/>
   <map from="PSBSVV" to="t/t_protect_ids.v"/>
   <map from="PSB07q" to="t__DOT__secret_inst2__DOT__secret_cyc"/>

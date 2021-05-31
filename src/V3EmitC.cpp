@@ -269,11 +269,9 @@ public:
                     ofp()->putsPrivate(true);
                     puts("static void ");
                     puts(protect(mtp->cFuncName()));
-                    puts("(bool even_cycle, void* symtab);\n");
+                    puts("(void* selfp, bool even_cycle);\n");
                 }
             }
-            // No AstCFunc for this one, as it's synthetic. Just write it:
-            puts("static void __Vmtask__final(bool even_cycle, void* symtab);\n");
         }
     }
     void ccallIterateArgs(AstNodeCCall* nodep) {
@@ -467,7 +465,7 @@ public:
         iterateChildren(nodep);
     }
     virtual void visit(AstCoverDecl* nodep) override {
-        puts("self->__vlCoverInsert(");  // As Declared in emitCoverageDecl
+        puts("this->__vlCoverInsert(");  // As Declared in emitCoverageDecl
         puts("&(vlSymsp->__Vcoverage[");
         puts(cvtToStr(nodep->dataDeclThisp()->binNum()));
         puts("])");
@@ -1466,7 +1464,7 @@ class EmitCImp final : EmitCStmts {
     void emitMTaskBody(AstMTaskBody* nodep) {
         ExecMTask* curExecMTaskp = nodep->execMTaskp();
         if (packedMTaskMayBlock(curExecMTaskp)) {
-            puts("vlTOPp->__Vm_mt_" + cvtToStr(curExecMTaskp->id())
+            puts("this->__Vm_mt_" + cvtToStr(curExecMTaskp->id())
                  + ".waitUntilUpstreamDone(even_cycle);\n");
         }
 
@@ -1475,9 +1473,9 @@ class EmitCImp final : EmitCStmts {
             recName = "__Vprfthr_" + cvtToStr(curExecMTaskp->id());
             puts("VlProfileRec* " + recName + " = nullptr;\n");
             // Leave this if() here, as don't want to call VL_RDTSC_Q unless profiling
-            puts("if (VL_UNLIKELY(vlTOPp->__Vm_profile_cycle_start)) {\n");
-            puts(recName + " = vlTOPp->__Vm_threadPoolp->profileAppend();\n");
-            puts(recName + "->startRecord(VL_RDTSC_Q() - vlTOPp->__Vm_profile_cycle_start,");
+            puts("if (VL_UNLIKELY(this->__Vm_profile_cycle_start)) {\n");
+            puts(recName + " = this->__Vm_threadPoolp->profileAppend();\n");
+            puts(recName + "->startRecord(VL_RDTSC_Q() - this->__Vm_profile_cycle_start,");
             puts(" " + cvtToStr(curExecMTaskp->id()) + ",");
             puts(" " + cvtToStr(curExecMTaskp->cost()) + ");\n");
             puts("}\n");
@@ -1490,7 +1488,7 @@ class EmitCImp final : EmitCStmts {
         if (v3Global.opt.profThreads()) {
             // Leave this if() here, as don't want to call VL_RDTSC_Q unless profiling
             puts("if (VL_UNLIKELY(" + recName + ")) {\n");
-            puts(recName + "->endRecord(VL_RDTSC_Q() - vlTOPp->__Vm_profile_cycle_start);\n");
+            puts(recName + "->endRecord(VL_RDTSC_Q() - this->__Vm_profile_cycle_start);\n");
             puts("}\n");
         }
 
@@ -1502,7 +1500,7 @@ class EmitCImp final : EmitCStmts {
         for (V3GraphEdge* edgep = curExecMTaskp->outBeginp(); edgep; edgep = edgep->outNextp()) {
             const ExecMTask* nextp = dynamic_cast<ExecMTask*>(edgep->top());
             if (nextp->thread() != curExecMTaskp->thread()) {
-                puts("vlTOPp->__Vm_mt_" + cvtToStr(nextp->id())
+                puts("this->__Vm_mt_" + cvtToStr(nextp->id())
                      + ".signalUpstreamDone(even_cycle);\n");
             }
         }
@@ -1513,7 +1511,7 @@ class EmitCImp final : EmitCStmts {
             emitMTaskBody(nextp->bodyp());
         } else {
             // Unblock the fake "final" mtask
-            puts("vlTOPp->__Vm_mt_final.signalUpstreamDone(even_cycle);\n");
+            puts("this->__Vm_mt_final.signalUpstreamDone(even_cycle);\n");
         }
     }
 
@@ -1525,14 +1523,12 @@ class EmitCImp final : EmitCStmts {
         puts("\n");
         puts("void ");
         puts(prefixNameProtect(m_modp) + "::" + protect(mtp->cFuncName()));
-        puts("(bool even_cycle, void* symtab) {\n");
-
-        // Declare and set vlSymsp
-        puts(EmitCBaseVisitor::symClassVar() + " = (" + EmitCBaseVisitor::symClassName()
-             + "*)symtab;\n");
-        puts(EmitCBaseVisitor::symTopAssign() + "\n");
-
+        puts("(void* selfp, bool even_cycle) {\n ");
+        puts(topClassName() + "*const self = static_cast<" + topClassName() + "*>(selfp);\n");
+        puts(symClassVar() + " = self->vlSymsp;\n");
+        puts("#define this self\n");
         emitMTaskBody(nodep);
+        puts("#undef this\n");
         puts("}\n");
     }
 
@@ -1711,7 +1707,7 @@ class EmitCImp final : EmitCStmts {
         // Don't recurse to children -- this isn't the place to emit
         // function definitions for the nested CFuncs. We'll do that at the
         // end.
-        puts("vlTOPp->__Vm_even_cycle = !vlTOPp->__Vm_even_cycle;\n");
+        puts("__Vm_even_cycle = !__Vm_even_cycle;\n");
 
         // Build the list of initial mtasks to start
         std::vector<const ExecMTask*> execMTasks;
@@ -1727,21 +1723,20 @@ class EmitCImp final : EmitCStmts {
 
         if (!execMTasks.empty()) {
             for (uint32_t i = 0; i < execMTasks.size(); ++i) {
-                bool runInline = (i == execMTasks.size() - 1);
+                const bool runInline = (i == execMTasks.size() - 1);
+                const string protName = protect(execMTasks[i]->cFuncName());
                 if (runInline) {
                     // The thread calling eval() will run this mtask inline,
                     // along with its packed successors.
-                    puts(protect(execMTasks[i]->cFuncName())
-                         + "(vlTOPp->__Vm_even_cycle, vlSymsp);\n");
+                    puts(protName + "(this, __Vm_even_cycle);\n");
                     puts("Verilated::mtaskId(0);\n");
                 } else {
                     // The other N-1 go to the thread pool.
-                    puts("vlTOPp->__Vm_threadPoolp->workerp(" + cvtToStr(i) + ")->addTask("
-                         + protect(execMTasks[i]->cFuncName())
-                         + ", vlTOPp->__Vm_even_cycle, vlSymsp);\n");
+                    puts("__Vm_threadPoolp->workerp(" + cvtToStr(i) + ")->addTask(" + protName
+                         + ", this, __Vm_even_cycle);\n");
                 }
             }
-            puts("vlTOPp->__Vm_mt_final.waitUntilUpstreamDone(vlTOPp->__Vm_even_cycle);\n");
+            puts("__Vm_mt_final.waitUntilUpstreamDone(__Vm_even_cycle);\n");
         }
     }
 
@@ -1771,7 +1766,7 @@ class EmitCImp final : EmitCStmts {
     void emitVarReset(AstVar* varp) {
         AstNodeDType* const dtypep = varp->dtypep()->skipRefp();
         const string varNameProtected
-            = VN_IS(m_modp, Class) ? varp->nameProtect() : "self->" + varp->nameProtect();
+            = VN_IS(m_modp, Class) ? varp->nameProtect() : "this->" + varp->nameProtect();
         if (varp->isIO() && m_modp->isTop() && optSystemC()) {
             // System C top I/O doesn't need loading, as the lower level subinst code does it.}
         } else if (varp->isParam()) {
@@ -2332,7 +2327,8 @@ void EmitCStmts::displayNode(AstNode* nodep, AstScopeName* scopenamep, const str
     bool inPct = false;
     bool ignore = false;
     for (; pos != vformat.end(); ++pos) {
-        // UINFO(1, "Parse '" << *pos << "'  IP" << inPct << " List " << cvtToHex(elistp) << endl);
+        // UINFO(1, "Parse '" << *pos << "'  IP" << inPct << " List " << cvtToHex(elistp) <<
+        // endl);
         if (!inPct && pos[0] == '%') {
             inPct = true;
             ignore = false;
@@ -2501,7 +2497,7 @@ void EmitCImp::emitCtorImp(AstNodeModule* modp) {
         puts("\n");
     }
     putsDecoration("// Reset structure values\n");
-    puts(protect("_ctor_var_reset") + "(this);\n");
+    puts(protect("_ctor_var_reset") + "();\n");
     emitTextSection(AstType::atScCtor);
 
     if (modp->isTop() && v3Global.opt.mtasks()) {
@@ -2542,11 +2538,8 @@ void EmitCImp::emitConfigureImp(AstNodeModule* modp) {
     puts("\nvoid " + prefixNameProtect(modp) + "::" + protect("__Vconfigure") + "("
          + symClassName() + "* vlSymsp, bool first) {\n");
     puts("if (false && first) {}  // Prevent unused\n");
-    puts("this->__VlSymsp = vlSymsp;\n");  // First, as later stuff needs it.
-    puts("if (false && this->__VlSymsp) {}  // Prevent unused\n");
-    if (v3Global.opt.coverage()) {
-        puts(protect("_configure_coverage") + "(this, vlSymsp, first);\n");
-    }
+    puts("this->vlSymsp = vlSymsp;\n");  // First, as later stuff needs it.
+    if (v3Global.opt.coverage()) { puts(protect("_configure_coverage") + "(first);\n"); }
     if (modp->isTop() && !v3Global.rootp()->timeunit().isNone()) {
         puts("vlSymsp->_vm_contextp__->timeunit("
              + cvtToStr(v3Global.rootp()->timeunit().powerOfTen()) + ");\n");
@@ -2567,7 +2560,8 @@ void EmitCImp::emitCoverageImp(AstNodeModule*) {
         puts("void " + prefixNameProtect(m_modp) + "::__vlCoverInsert(");
         puts(v3Global.opt.threads() ? "std::atomic<uint32_t>" : "uint32_t");
         puts("* countp, bool enable, const char* filenamep, int lineno, int column,\n");
-        puts("const char* hierp, const char* pagep, const char* commentp, const char* linescovp) "
+        puts("const char* hierp, const char* pagep, const char* commentp, const char* "
+             "linescovp) "
              "{\n");
         if (v3Global.opt.threads()) {
             puts("assert(sizeof(uint32_t) == sizeof(std::atomic<uint32_t>));\n");
@@ -2580,12 +2574,12 @@ void EmitCImp::emitCoverageImp(AstNodeModule*) {
         // Used for second++ instantiation of identical bin
         puts("if (!enable) count32p = &fake_zero_count;\n");
         puts("*count32p = 0;\n");
-        puts("VL_COVER_INSERT(__VlSymsp->_vm_contextp__->coveragep(), count32p,");
+        puts("VL_COVER_INSERT(vlSymsp->_vm_contextp__->coveragep(), count32p,");
         puts("  \"filename\",filenamep,");
         puts("  \"lineno\",lineno,");
         puts("  \"column\",column,\n");
         // Need to move hier into scopes and back out if do this
-        // puts( "\"hier\",std::string(__VlSymsp->name())+hierp,");
+        // puts( "\"hier\",std::string(vlSymsp->name())+hierp,");
         puts("\"hier\",std::string(name())+hierp,");
         puts("  \"page\",pagep,");
         puts("  \"comment\",commentp,");
@@ -2605,12 +2599,12 @@ void EmitCImp::emitDestructorImp(AstNodeModule* modp) {
         // Call via function in __Trace.cpp as this .cpp file does not have trace header
         if (v3Global.needTraceDumper()) {
             puts("#ifdef VM_TRACE\n");
-            puts("if (VL_UNLIKELY(__VlSymsp->__Vm_dumping)) _traceDumpClose();\n");
+            puts("if (VL_UNLIKELY(vlSymsp->__Vm_dumping)) _traceDumpClose();\n");
             puts("#endif  // VM_TRACE\n");
         }
     }
     emitTextSection(AstType::atScDtor);
-    if (modp->isTop()) puts("VL_DO_CLEAR(delete __VlSymsp, __VlSymsp = nullptr);\n");
+    if (modp->isTop()) puts("VL_DO_CLEAR(delete vlSymsp, vlSymsp = nullptr);\n");
     puts("}\n");
     splitSizeInc(10);
 }
@@ -2647,7 +2641,7 @@ void EmitCImp::emitSavableImp(AstNodeModule* modp) {
             // If multiple models save the same context we'll save it multiple
             // times, but is harmless, and doing it otherwise would break
             // backwards compatibility.
-            puts("os " + op + " __VlSymsp->_vm_contextp__;\n");
+            puts("os " + op + " vlSymsp->_vm_contextp__;\n");
 
             // Save all members
             if (v3Global.opt.inhibitSim()) puts("os" + op + "__Vm_inhibitSim;\n");
@@ -2692,7 +2686,7 @@ void EmitCImp::emitSavableImp(AstNodeModule* modp) {
             }
 
             if (modp->isTop()) {  // Save the children
-                puts("__VlSymsp->" + protect(funcname) + "(os);\n");
+                puts("vlSymsp->" + protect(funcname) + "(os);\n");
             }
             puts("}\n");
         }
@@ -2724,7 +2718,7 @@ void EmitCImp::emitCellCtors(AstNodeModule* modp) {
     if (modp->isTop()) {
         // Must be before other constructors, as __vlCoverInsert calls it
         // Note _vcontextp__ may be nullptr, VerilatedSyms::VerilatedSyms cleans it up
-        puts(EmitCBaseVisitor::symClassVar() + " = __VlSymsp = new " + symClassName() + "("
+        puts(EmitCBaseVisitor::symClassVar() + " = new " + symClassName() + "("
              + (optSystemC() ? "nullptr" : "_vcontextp__") + ", this, name());\n");
         puts(EmitCBaseVisitor::symTopAssign() + "\n");
     }
@@ -2781,7 +2775,7 @@ void EmitCImp::emitSettleLoop(const std::string& eval_call, bool initial) {
     puts("// Note you must run make with OPT=-DVL_DEBUG for debug prints.\n");
     puts("int __Vsaved_debug = Verilated::debug();\n");
     puts("Verilated::debug(1);\n");
-    puts("__Vchange = " + protect("_change_request") + "(vlSymsp);\n");
+    puts("__Vchange = " + protect("_change_request") + "();\n");
     puts("Verilated::debug(__Vsaved_debug);\n");
     puts("VL_FATAL_MT(");
     putsQuoted(protect(m_modp->fileline()->filename()));
@@ -2793,14 +2787,14 @@ void EmitCImp::emitSettleLoop(const std::string& eval_call, bool initial) {
     puts("converge\\n\"\n");
     puts("\"- See https://verilator.org/warn/DIDNOTCONVERGE\");\n");
     puts("} else {\n");
-    puts("__Vchange = " + protect("_change_request") + "(vlSymsp);\n");
+    puts("__Vchange = " + protect("_change_request") + "();\n");
     puts("}\n");
     puts("} while (VL_UNLIKELY(__Vchange));\n");
 }
 
 void EmitCImp::emitWrapFast(AstNodeModule* modp) {
     puts("\nVerilatedContext* " + prefixNameProtect(modp) + "::contextp() {\n");
-    puts(/**/ "return __VlSymsp->_vm_contextp__;\n");
+    puts(/**/ "return vlSymsp->_vm_contextp__;\n");
     puts("}\n");
 }
 
@@ -2808,15 +2802,12 @@ void EmitCImp::emitWrapEval(AstNodeModule* modp) {
     puts("\nvoid " + prefixNameProtect(modp) + "::eval_step() {\n");
     puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+++++TOP Evaluate " + prefixNameProtect(modp)
          + "::eval\\n\"); );\n");
-    puts(EmitCBaseVisitor::symClassVar() + " = this->__VlSymsp;  // Setup global symbol table\n");
-    puts(EmitCBaseVisitor::symTopAssign() + "\n");
     puts("#ifdef VL_DEBUG\n");
     putsDecoration("// Debug assertions\n");
     puts(protect("_eval_debug_assertions") + "();\n");
     puts("#endif  // VL_DEBUG\n");
     putsDecoration("// Initialize\n");
-    puts("if (VL_UNLIKELY(!vlSymsp->__Vm_didInit)) " + protect("_eval_initial_loop")
-         + "(vlSymsp);\n");
+    puts("if (VL_UNLIKELY(!vlSymsp->__Vm_didInit)) " + protect("_eval_initial_loop") + "();\n");
     if (v3Global.opt.inhibitSim()) puts("if (VL_UNLIKELY(__Vm_inhibitSim)) return;\n");
 
     if (v3Global.opt.threads() == 1) {
@@ -2832,44 +2823,44 @@ void EmitCImp::emitWrapEval(AstNodeModule* modp) {
         puts(" && (VL_TIME_Q() > vlSymsp->_vm_contextp__->profThreadsStart())\n");
         puts(" && (vlSymsp->_vm_contextp__->profThreadsWindow() >= 1))) {\n");
         // Within a profile (either starting, middle, or end)
-        puts("if (vlTOPp->__Vm_profile_window_ct == 0) {\n");  // Opening file?
+        puts("if (__Vm_profile_window_ct == 0) {\n");  // Opening file?
         // Start profile on this cycle. We'll capture a window worth, then
         // only analyze the next window worth. The idea is that the first window
         // capture will hit some cache-cold stuff (eg printf) but it'll be warm
         // by the time we hit the second window, we hope.
-        puts("vlTOPp->__Vm_profile_cycle_start = VL_RDTSC_Q();\n");
+        puts("__Vm_profile_cycle_start = VL_RDTSC_Q();\n");
         // "* 2" as first half is warmup, second half is collection
-        puts("vlTOPp->__Vm_profile_window_ct = vlSymsp->_vm_contextp__->profThreadsWindow() * 2 + "
+        puts("__Vm_profile_window_ct = vlSymsp->_vm_contextp__->profThreadsWindow() * 2 "
+             "+ "
              "1;\n");
         puts("}\n");
-        puts("--vlTOPp->__Vm_profile_window_ct;\n");
-        puts("if (vlTOPp->__Vm_profile_window_ct == "
-             "(vlSymsp->_vm_contextp__->profThreadsWindow())) {\n");
+        puts("--__Vm_profile_window_ct;\n");
+        puts("if (__Vm_profile_window_ct == vlSymsp->_vm_contextp__->profThreadsWindow()) "
+             "{\n");
         // This barrier record in every threads' profile demarcates the
         // cache-warm-up cycles before the barrier from the actual profile
         // cycles afterward.
-        puts("vlTOPp->__Vm_threadPoolp->profileAppendAll(");
+        puts("__Vm_threadPoolp->profileAppendAll(");
         puts("VlProfileRec(VlProfileRec::Barrier()));\n");
-        puts("vlTOPp->__Vm_profile_cycle_start = VL_RDTSC_Q();\n");
+        puts("__Vm_profile_cycle_start = VL_RDTSC_Q();\n");
         puts("}\n");
-        puts("else if (vlTOPp->__Vm_profile_window_ct == 0) {\n");
+        puts("else if (__Vm_profile_window_ct == 0) {\n");
         // Ending file.
-        puts("vluint64_t elapsed = VL_RDTSC_Q() - vlTOPp->__Vm_profile_cycle_start;\n");
-        puts(
-            "vlTOPp->__Vm_threadPoolp->profileDump(vlSymsp->_vm_contextp__->profThreadsFilename()."
-            "c_str(), elapsed);\n");
+        puts("vluint64_t elapsed = VL_RDTSC_Q() - __Vm_profile_cycle_start;\n");
+        puts("__Vm_threadPoolp->profileDump(vlSymsp->_vm_contextp__->profThreadsFilename()."
+             "c_str(), elapsed);\n");
         // This turns off the test to enter the profiling code, but still
         // allows the user to collect another profile by changing
         // profThreadsStart
         puts("__Vm_profile_time_finished = vlSymsp->_vm_contextp__->profThreadsStart();\n");
-        puts("vlTOPp->__Vm_profile_cycle_start = 0;\n");
+        puts("__Vm_profile_cycle_start = 0;\n");
         puts("}\n");
         puts("}\n");
     }
 
     emitSettleLoop((string("VL_DEBUG_IF(VL_DBG_MSGF(\"+ Clock loop\\n\"););\n")
                     + (v3Global.opt.trace() ? "vlSymsp->__Vm_activity = true;\n" : "")
-                    + protect("_eval") + "(vlSymsp);"),
+                    + protect("_eval") + "();"),
                    false);
     if (v3Global.opt.threads() == 1) {
         puts("Verilated::endOfThreadMTask(vlSymsp->__Vm_evalMsgQp);\n");
@@ -2884,8 +2875,6 @@ void EmitCImp::emitWrapEval(AstNodeModule* modp) {
         puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+eval_end_step " + prefixNameProtect(modp)
              + "::eval_end_step\\n\"); );\n");
         puts("#ifdef VM_TRACE\n");
-        puts(EmitCBaseVisitor::symClassVar()
-             + " = this->__VlSymsp;  // Setup global symbol table\n");
         puts(EmitCBaseVisitor::symTopAssign() + "\n");
         putsDecoration("// Tracing\n");
         // SystemC's eval loop deals with calling trace, not us
@@ -2895,13 +2884,12 @@ void EmitCImp::emitWrapEval(AstNodeModule* modp) {
     }
 
     //
-    puts("\nvoid " + prefixNameProtect(modp) + "::" + protect("_eval_initial_loop") + "("
-         + EmitCBaseVisitor::symClassVar() + ") {\n");
+    puts("\nvoid " + prefixNameProtect(modp) + "::" + protect("_eval_initial_loop") + "() {\n");
     puts("vlSymsp->__Vm_didInit = true;\n");
-    puts(protect("_eval_initial") + "(vlSymsp);\n");
+    puts(protect("_eval_initial") + "();\n");
     if (v3Global.opt.trace()) puts("vlSymsp->__Vm_activity = true;\n");
-    emitSettleLoop((protect("_eval_settle") + "(vlSymsp);\n"  //
-                    + protect("_eval") + "(vlSymsp);"),
+    emitSettleLoop((protect("_eval_settle") + "();\n"  //
+                    + protect("_eval") + "();"),
                    true);
     puts("}\n");
     splitSizeInc(10);
@@ -3190,7 +3178,8 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
                     putsDecoration("// CELLS\n");
                     if (modp->isTop()) {
                         puts("// Public to allow access to /*verilator_public*/ items;\n");
-                        puts("// otherwise the application code can consider these internals.\n");
+                        puts("// otherwise the application code can consider these "
+                             "internals.\n");
                     }
                 }
                 puts(prefixNameProtect(cellp->modp()) + "* " + cellp->nameProtect() + ";\n");
@@ -3220,7 +3209,7 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
     if (modp->isTop()) puts("// Internals; generally not touched by application code\n");
     if (!VN_IS(modp, Class)) {  // Avoid clang unused error (& don't want in every object)
         ofp()->putsPrivate(!modp->isTop());  // private: unless top
-        puts(symClassName() + "* __VlSymsp;  // Symbol table\n");
+        puts(symClassName() + "* vlSymsp;  // Symbol table\n");
     }
     ofp()->putsPrivate(false);  // public:
     if (modp->isTop()) {
@@ -3262,7 +3251,8 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
         ofp()->putsPrivate(false);  // public:
         if (modp->isTop()) {
             puts("/// Construct the model; called by application code\n");
-            puts("/// If contextp is null, then the model will use the default global context\n");
+            puts("/// If contextp is null, then the model will use the default global "
+                 "context\n");
             puts("/// If name is \"\", then makes a wrapper with a\n");
             puts("/// single model invisible with respect to DPI scope names.\n");
             puts(prefixNameProtect(modp) + "(VerilatedContext* contextp,"
@@ -3330,7 +3320,7 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
             puts("/// Simulation complete, run final blocks.  Application "
                  "must call on completion.\n");
         }
-        puts("void final() { " + protect("_final") + "(__VlSymsp); }\n");
+        puts("void final() { " + protect("_final") + "(); }\n");
         if (v3Global.opt.inhibitSim()) {
             puts("/// Disable evaluation of module (e.g. turn off)\n");
             puts("void inhibitSim(bool flag) { __Vm_inhibitSim = flag; }\n");
@@ -3340,8 +3330,7 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
     puts("\n// INTERNAL METHODS\n");
     if (modp->isTop()) {
         ofp()->putsPrivate(false);  // public: as accessed by another VL_MODULE
-        puts("static void " + protect("_eval_initial_loop") + "(" + EmitCBaseVisitor::symClassVar()
-             + ");\n");
+        puts("void " + protect("_eval_initial_loop") + "();\n");
         if (v3Global.needTraceDumper()) {
             if (!optSystemC()) puts("void _traceDump();\n");
             puts("void _traceDumpOpen();\n");
@@ -3560,29 +3549,29 @@ class EmitCTrace final : EmitCStmts {
         if (v3Global.needTraceDumper() && !optSystemC()) {
             puts("void " + topClassName() + "::_traceDump() {\n");
             // Caller checked for __Vm_dumperp non-nullptr
-            puts("const VerilatedLockGuard lock(__VlSymsp->__Vm_dumperMutex);\n");
-            puts("__VlSymsp->__Vm_dumperp->dump(VL_TIME_Q());\n");
+            puts("const VerilatedLockGuard lock(vlSymsp->__Vm_dumperMutex);\n");
+            puts("vlSymsp->__Vm_dumperp->dump(VL_TIME_Q());\n");
             puts("}\n");
             splitSizeInc(10);
         }
 
         if (v3Global.needTraceDumper()) {
             puts("void " + topClassName() + "::_traceDumpOpen() {\n");
-            puts("const VerilatedLockGuard lock(__VlSymsp->__Vm_dumperMutex);\n");
-            puts("if (VL_UNLIKELY(!__VlSymsp->__Vm_dumperp)) {\n");
-            puts("__VlSymsp->__Vm_dumperp = new " + v3Global.opt.traceClassLang() + "();\n");
-            puts("trace(__VlSymsp->__Vm_dumperp, 0, 0);\n");
-            puts("std::string dumpfile = __VlSymsp->_vm_contextp__->dumpfileCheck();\n");
-            puts("__VlSymsp->__Vm_dumperp->open(dumpfile.c_str());\n");
-            puts("__VlSymsp->__Vm_dumping = true;\n");
+            puts("const VerilatedLockGuard lock(vlSymsp->__Vm_dumperMutex);\n");
+            puts("if (VL_UNLIKELY(!vlSymsp->__Vm_dumperp)) {\n");
+            puts("vlSymsp->__Vm_dumperp = new " + v3Global.opt.traceClassLang() + "();\n");
+            puts("trace(vlSymsp->__Vm_dumperp, 0, 0);\n");
+            puts("std::string dumpfile = vlSymsp->_vm_contextp__->dumpfileCheck();\n");
+            puts("vlSymsp->__Vm_dumperp->open(dumpfile.c_str());\n");
+            puts("vlSymsp->__Vm_dumping = true;\n");
             puts("}\n");
             puts("}\n");
             splitSizeInc(10);
 
             puts("void " + topClassName() + "::_traceDumpClose() {\n");
-            puts("const VerilatedLockGuard lock(__VlSymsp->__Vm_dumperMutex);\n");
-            puts("__VlSymsp->__Vm_dumping = false;\n");
-            puts("VL_DO_CLEAR(delete __VlSymsp->__Vm_dumperp, __VlSymsp->__Vm_dumperp = "
+            puts("const VerilatedLockGuard lock(vlSymsp->__Vm_dumperMutex);\n");
+            puts("vlSymsp->__Vm_dumping = false;\n");
+            puts("VL_DO_CLEAR(delete vlSymsp->__Vm_dumperp, vlSymsp->__Vm_dumperp = "
                  "nullptr);\n");
             puts("}\n");
             splitSizeInc(10);
@@ -3590,7 +3579,7 @@ class EmitCTrace final : EmitCStmts {
 
         puts("void " + topClassName() + "::trace(");
         puts(v3Global.opt.traceClassBase() + "C* tfp, int, int) {\n");
-        puts("tfp->spTrace()->addInitCb(&" + protect("traceInit") + ", __VlSymsp);\n");
+        puts("tfp->spTrace()->addInitCb(&" + protect("traceInit") + ", this);\n");
         puts(protect("traceRegister") + "(tfp->spTrace());\n");
         puts("}\n");
         puts("\n");
@@ -3599,16 +3588,17 @@ class EmitCTrace final : EmitCStmts {
         puts("void " + topClassName() + "::" + protect("traceInit") + "(void* userp, "
              + v3Global.opt.traceClassBase() + "* tracep, uint32_t code) {\n");
         putsDecoration("// Callback from tracep->open()\n");
-        puts(symClassVar() + " = static_cast<" + symClassName() + "*>(userp);\n");
-        puts("if (!vlSymsp->_vm_contextp__->calcUnusedSigs()) {\n");
+        puts(topClassName() + "*const __restrict self = static_cast<" + topClassName()
+             + "*>(userp);\n");
+        puts("if (!self->vlSymsp->_vm_contextp__->calcUnusedSigs()) {\n");
         puts("VL_FATAL_MT(__FILE__, __LINE__, __FILE__,\n");
         puts("            \"Turning on wave traces requires Verilated::traceEverOn(true) call "
              "before time 0.\");\n");
         puts("}\n");
-        puts("vlSymsp->__Vm_baseCode = code;\n");
-        puts("tracep->module(vlSymsp->name());\n");
+        puts("self->vlSymsp->__Vm_baseCode = code;\n");
+        puts("tracep->module(self->vlSymsp->name());\n");
         puts("tracep->scopeEscape(' ');\n");
-        puts(topClassName() + "::" + protect("traceInitTop") + "(vlSymsp, tracep);\n");
+        puts("self->" + protect("traceInitTop") + "(tracep);\n");
         puts("tracep->scopeEscape('.');\n");  // Restore so later traced files won't break
         puts("}\n");
         splitSizeInc(10);
@@ -3869,11 +3859,12 @@ class EmitCTrace final : EmitCStmts {
             puts(" ");
             puts(topClassName() + "::" + nodep->nameProtect() + "(" + cFuncArgs(nodep) + ") {\n");
 
-            if (nodep->funcType() != AstCFuncType::TRACE_REGISTER) {
-                puts(symClassVar() + " = static_cast<" + symClassName() + "*>(userp);\n");
+            if (nodep->isStatic().trueKnown()) {
+                puts(topClassName() + "*const vlTOPp = static_cast<" + topClassName()
+                     + "*>(userp);\n");
+                puts(symClassName() + "*const vlSymsp = vlTOPp->vlSymsp;\n");
+                puts("if (false && vlSymsp) {}  // Prevent unused\n");
             }
-
-            if (nodep->symProlog()) puts(symTopAssign() + "\n");
 
             m_baseCode = -1;
 

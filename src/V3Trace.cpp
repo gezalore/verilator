@@ -485,18 +485,23 @@ private:
         name += cvtToStr(funcNump++);
         FileLine* const flp = m_topScopep->fileline();
         AstCFunc* const funcp = new AstCFunc(flp, name, m_topScopep);
-        const string argTypes("void* userp, " + v3Global.opt.traceClassBase() + "* tracep");
-        funcp->argTypes(argTypes);
+        const bool isTopFunc
+            = type == AstCFuncType::TRACE_FULL || type == AstCFuncType::TRACE_CHANGE;
+        if (isTopFunc) {
+            funcp->argTypes("void* userp, " + v3Global.opt.traceClassBase() + "* tracep");
+        } else {
+            funcp->argTypes(v3Global.opt.traceClassBase() + "* tracep");
+        }
         funcp->funcType(type);
         funcp->slow(type == AstCFuncType::TRACE_FULL || type == AstCFuncType::TRACE_FULL_SUB);
-        funcp->symProlog(true);
+        funcp->isStatic(isTopFunc);
         funcp->declPrivate(true);
         // Add it to top scope
         m_topScopep->addActivep(funcp);
         // Add call to new function
         if (callfromp) {
             AstCCall* callp = new AstCCall(funcp->fileline(), funcp);
-            callp->argTypes("userp, tracep");
+            callp->argTypes("tracep");
             callfromp->addStmtsp(callp);
         }
         // Register function
@@ -509,7 +514,7 @@ private:
             } else {
                 funcp->v3fatalSrc("Don't know how to register this type of function");
             }
-            registration += "Cb(&" + protect(name) + ", __VlSymsp);\n";
+            registration += "Cb(&" + protect(name) + ", this);\n";
             AstCStmt* const stmtp = new AstCStmt(flp, registration);
             regp->addStmtsp(stmtp);
         }
@@ -670,17 +675,17 @@ private:
         cleanupFuncp->argTypes(argTypes);
         cleanupFuncp->funcType(AstCFuncType::TRACE_CLEANUP);
         cleanupFuncp->slow(false);
-        cleanupFuncp->symProlog(true);
+        cleanupFuncp->isStatic(true);
         cleanupFuncp->declPrivate(true);
         m_topScopep->addActivep(cleanupFuncp);
 
         // Register it
         regFuncp->addStmtsp(new AstCStmt(
-            fl, string("tracep->addCleanupCb(&" + protect("traceCleanup") + ", __VlSymsp);\n")));
+            fl, string("tracep->addCleanupCb(&" + protect("traceCleanup") + ", this);\n")));
 
         // Clear global activity flag
-        cleanupFuncp->addStmtsp(
-            new AstCStmt(m_topScopep->fileline(), string("vlSymsp->__Vm_activity = false;\n")));
+        cleanupFuncp->addStmtsp(new AstCStmt(m_topScopep->fileline(),
+                                             string("vlTOPp->vlSymsp->__Vm_activity = false;\n")));
 
         // Clear fine grained activity flags
         for (uint32_t i = 0; i < m_activityNumber; ++i) {

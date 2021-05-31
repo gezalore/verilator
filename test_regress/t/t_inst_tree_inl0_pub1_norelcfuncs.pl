@@ -29,7 +29,10 @@ if ($Self->{vlt_all}) {
     foreach my $file (@files) {
         chomp $file;
         my $text = file_contents($file);
-        $text =~ s/this->__VlSymsp//g;
+        $text =~ s/this->vlSymsp//g;
+        $text =~ s/this->.* = VL_RAND_RESET.*;//g;
+        $text =~ s/this->__Vm_mt_(final|\d+)\.signalUpstreamDone\(even_cycle\);//g;
+        $text =~ s/this->__Vm_mt_(final|\d+)\.waitUntilUpstreamDone\(even_cycle\);//g;
         if ($text =~ m/this->/) {
             error("$file has unexpected this-> refs when --norelative-cfuncs");
         }

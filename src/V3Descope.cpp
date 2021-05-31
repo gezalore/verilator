@@ -86,48 +86,34 @@ private:
         // Static functions can't use this
         if (!m_allowThis) relativeRefOk = false;
         //
-        // Use absolute refs in top-scoped routines, keep them static.
-        // The DPI callback registration depends on representing top-level
-        // static routines as plain function pointers. That breaks if those
-        // become true OO routines.
-        //
-        // V3Combine wouldn't likely be able to combine top-level
-        // routines anyway, so there's no harm in keeping these static.
-        UASSERT_OBJ(m_modp, scopep, "Scope not under module");
-        if (m_modp->isTop()) relativeRefOk = false;
-        //
-        // Use absolute refs if this scope is the only instance of the module.
-        // Saves a bit of overhead on passing the 'this' pointer, and there's no
-        // need to be nice to V3Combine when we have only a single instance.
-        // The risk that this prevents combining identical logic from differently-
-        // named but identical modules seems low.
-        if (m_modSingleton) relativeRefOk = false;
-        //
         // Class methods need relative
         if (m_modp && VN_IS(m_modp, Class)) relativeRefOk = true;
+
+        UINFO(8, "      Descope ref under " << m_scopep << endl);
+        UINFO(8, "              ref to    " << scopep << endl);
+        UINFO(8, "             aboveScope " << scopep->aboveScopep() << endl);
 
         if (relativeRefOk && scopep == m_scopep) {
             m_needThis = true;
             return "this";
         } else if (VN_IS(scopep->modp(), Class)) {
             return "";
-        } else if (relativeRefOk && scopep->aboveScopep() == m_scopep) {
-            // Reference to scope of instance directly under this module, can just "cell->"
+        } else if (relativeRefOk && scopep->aboveScopep() == m_scopep
+                   && VN_IS(scopep->modp(), Module)) {
+            // Reference to scope of instance directly under this module, can just "this->cell"
             string name = scopep->name();
             string::size_type pos;
             if ((pos = name.rfind('.')) != string::npos) name.erase(0, pos + 1);
             m_needThis = true;
-            return name;
+            return "this->" + name;
         } else {
             // Reference to something elsewhere, or relative references
             // are disabled. Use global variable
-            UINFO(8, "      Descope " << scopep << endl);
-            UINFO(8, "           to " << scopep->name() << endl);
-            UINFO(8, "        under " << m_scopep->name() << endl);
             if (scopep->isTop()) {  // Top
                 // We could also return "vlSymsp->TOPp" here, but GCC would
                 // suspect aliases.
-                return "vlTOPp";
+                // TODO: Investigate this aliasing issue
+                return "vlSymsp->TOPp";
             } else {
                 return "(&" + scopep->nameVlSym() + ")";
             }
@@ -165,11 +151,6 @@ private:
                 if (newfuncp->finalsp()) newfuncp->finalsp()->unlinkFrBackWithNext()->deleteTree();
                 newfuncp->name(name);
                 newfuncp->isStatic(false);
-                newfuncp->addInitsp(
-                    new AstCStmt(newfuncp->fileline(),
-                                 EmitCBaseVisitor::symClassVar() + " = this->__VlSymsp;\n"));
-                newfuncp->addInitsp(
-                    new AstCStmt(newfuncp->fileline(), EmitCBaseVisitor::symTopAssign() + "\n"));
                 topFuncp->addNextHere(newfuncp);
                 // In the body, call each function if it matches the given scope
                 for (FuncMmap::iterator eachIt = it;

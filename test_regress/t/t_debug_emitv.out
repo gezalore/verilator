@@ -47,8 +47,6 @@ module Vt_debug_emitv;
     end
 
     ???? // CFUNC '_final_TOP'
-    $_CSTMT(Vt_debug_emitv* const __restrict vlTOPp VL_ATTR_UNUSED = vlSymsp->TOPp;
-    );
     $display("stmt");
     always @(posedge clk)@(negedge clk) begin
         $display("posedge clk");

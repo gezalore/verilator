@@ -5406,9 +5406,9 @@ public:
                        : (m_urandom ? "%f$urandom()" : "%f$random()");
     }
     virtual string emitC() override {
-        return m_reset
-                   ? "VL_RAND_RESET_%nq(%nw, %P)"
-                   : seedp() ? "VL_RANDOM_SEEDED_%nq%lq(%nw, %P, %li)" : "VL_RANDOM_%nq(%nw, %P)";
+        return m_reset   ? "VL_RAND_RESET_%nq(%nw, %P)"
+               : seedp() ? "VL_RANDOM_SEEDED_%nq%lq(%nw, %P, %li)"
+                         : "VL_RANDOM_%nq(%nw, %P)";
     }
     virtual bool cleanOut() const override { return true; }
     virtual bool isGateOptimizable() const override { return false; }
@@ -8842,6 +8842,11 @@ public:
     bool emptyBody() const {
         return argsp() == nullptr && initsp() == nullptr && stmtsp() == nullptr
                && finalsp() == nullptr;
+    }
+    const AstNode* modp() const {  // Module this function is under
+        const AstNode* modp = this;
+        do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
+        return modp;
     }
 };
 

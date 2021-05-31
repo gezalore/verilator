@@ -61,23 +61,20 @@ private:
         const int funcNum = m_newFunctions.size();
         const string funcName = m_basename + "_" + cvtToStr(funcNum);
         AstCFunc* const funcp = new AstCFunc(m_modp->fileline(), funcName, nullptr, "void");
-        funcp->isStatic(!m_type.isClass());  // Class constructors are non static
+        funcp->isStatic(false);  // Class constructors are non static
         funcp->declPrivate(true);
         funcp->slow(!m_type.isClass());  // Only classes construct on fast path
         string preventUnusedStmt;
         if (m_type.isClass()) {
             funcp->argTypes(EmitCBaseVisitor::symClassVar());
-            preventUnusedStmt = "if (false && vlSymsp) {}";
+            preventUnusedStmt = "if (false && vlSymsp) {}  // Prevent unused\n";
         } else if (m_type.isCoverage()) {
-            funcp->argTypes(EmitCBaseVisitor::prefixNameProtect(m_modp) + "* self, "
-                            + EmitCBaseVisitor::symClassVar() + ", bool first");
-            preventUnusedStmt = "if (false && self && vlSymsp && first) {}";
-        } else {  // Module
-            funcp->argTypes(EmitCBaseVisitor::prefixNameProtect(m_modp) + "* self");
-            preventUnusedStmt = "if (false && self) {}";
+            funcp->argTypes("bool first");
+            preventUnusedStmt = "if (false && first) {}  // Prevent unused\n";
         }
-        preventUnusedStmt += "  // Prevent unused\n";
-        funcp->addStmtsp(new AstCStmt(m_modp->fileline(), preventUnusedStmt));
+        if (!preventUnusedStmt.empty()) {
+            funcp->addStmtsp(new AstCStmt(m_modp->fileline(), preventUnusedStmt));
+        }
         m_modp->addStmtp(funcp);
         m_numStmts = 0;
         return funcp;
@@ -114,9 +111,7 @@ public:
                 if (m_type.isClass()) {
                     callp->argTypes("vlSymsp");
                 } else if (m_type.isCoverage()) {
-                    callp->argTypes("self, vlSymsp, first");
-                } else {  // Module
-                    callp->argTypes("self");
+                    callp->argTypes("first");
                 }
                 rootFuncp->addStmtsp(callp);
             }

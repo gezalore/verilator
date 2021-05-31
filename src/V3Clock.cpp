@@ -166,10 +166,8 @@ private:
     }
     AstCFunc* makeTopFunction(const string& name, bool slow = false) {
         AstCFunc* const funcp = new AstCFunc{m_topScopep->fileline(), name, m_topScopep->scopep()};
-        funcp->argTypes(EmitCBaseVisitor::symClassVar());
         funcp->dontCombine(true);
-        funcp->symProlog(true);
-        funcp->isStatic(true);
+        funcp->isStatic(false);
         funcp->entryPoint(true);
         funcp->slow(slow);
         funcp->isConst(false);
@@ -197,15 +195,13 @@ private:
                 // Make a new function
                 funcp = new AstCFunc{ofuncp->fileline(), ofuncp->name() + cvtToStr(++funcnum),
                                      m_topScopep->scopep()};
-                funcp->argTypes(EmitCBaseVisitor::symClassVar());
                 funcp->dontCombine(true);
-                funcp->symProlog(true);
-                funcp->isStatic(true);
+                funcp->symProlog(false);
+                funcp->isStatic(false);
                 funcp->slow(ofuncp->slow());
                 m_topScopep->scopep()->addActivep(funcp);
                 //
                 AstCCall* callp = new AstCCall{funcp->fileline(), funcp};
-                callp->argTypes("vlSymsp");
                 ofuncp->addStmtsp(callp);
                 func_stmts = 0;
             }
@@ -292,7 +288,6 @@ private:
         if (nodep->formCallTree()) {
             UINFO(4, "    formCallTree " << nodep << endl);
             AstCCall* callp = new AstCCall(nodep->fileline(), nodep);
-            callp->argTypes("vlSymsp");
             m_finalFuncp->addStmtsp(callp);
         }
     }
