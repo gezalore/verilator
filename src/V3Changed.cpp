@@ -62,6 +62,7 @@ public:
                 = new AstCFunc(m_scopetopp->fileline(), "_change_request_" + cvtToStr(++m_funcNum),
                                m_scopetopp, "QData");
             m_chgFuncp->isStatic(false);
+            m_chgFuncp->isLoose(true);
             m_chgFuncp->declPrivate(true);
             m_scopetopp->addActivep(m_chgFuncp);
 
@@ -250,6 +251,7 @@ private:
         m_statep->m_tlChgFuncp
             = new AstCFunc(nodep->fileline(), "_change_request", scopep, "QData");
         m_statep->m_tlChgFuncp->isStatic(false);
+        m_statep->m_tlChgFuncp->isLoose(true);
         m_statep->m_tlChgFuncp->declPrivate(true);
         m_statep->m_scopetopp->addActivep(m_statep->m_tlChgFuncp);
         // Each change detection function needs at least one AstChangeDet

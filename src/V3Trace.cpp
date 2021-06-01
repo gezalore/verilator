@@ -485,17 +485,23 @@ private:
         name += cvtToStr(funcNump++);
         FileLine* const flp = m_topScopep->fileline();
         AstCFunc* const funcp = new AstCFunc(flp, name, m_topScopep);
+        funcp->funcType(type);
         const bool isTopFunc
             = type == AstCFuncType::TRACE_FULL || type == AstCFuncType::TRACE_CHANGE;
         if (isTopFunc) {
-            funcp->argTypes("void* userp, " + v3Global.opt.traceClassBase() + "* tracep");
+            funcp->argTypes("void* voidSelf, " + v3Global.opt.traceClassBase() + "* tracep");
+            funcp->isStatic(true);
+            funcp->addInitsp(new AstCStmt(
+                flp, prefixNameProtect(m_topModp) + "* const __restrict self = static_cast<"
+                         + prefixNameProtect(m_topModp) + "*>(voidSelf);\n"));
+            funcp->addInitsp(new AstCStmt(flp, symClassVar() + " = self->vlSymsp;\n"));
+
         } else {
             funcp->argTypes(v3Global.opt.traceClassBase() + "* tracep");
+            funcp->isStatic(false);
         }
-        funcp->funcType(type);
+        funcp->isLoose(true);
         funcp->slow(type == AstCFuncType::TRACE_FULL || type == AstCFuncType::TRACE_FULL_SUB);
-        funcp->isStatic(isTopFunc);
-        funcp->declPrivate(true);
         // Add it to top scope
         m_topScopep->addActivep(funcp);
         // Add call to new function
@@ -514,7 +520,8 @@ private:
             } else {
                 funcp->v3fatalSrc("Don't know how to register this type of function");
             }
-            registration += "Cb(&" + protect(name) + ", this);\n";
+            registration
+                += "Cb(&" + prefixNameProtect(m_topModp) + "__" + protect(name) + ", this);\n";
             AstCStmt* const stmtp = new AstCStmt(flp, registration);
             regp->addStmtsp(stmtp);
         }
@@ -671,21 +678,26 @@ private:
     void createCleanupFunction(AstCFunc* regFuncp) {
         FileLine* const fl = m_topScopep->fileline();
         AstCFunc* const cleanupFuncp = new AstCFunc(fl, "traceCleanup", m_topScopep);
-        const string argTypes("void* userp, " + v3Global.opt.traceClassBase() + "* /*unused*/");
-        cleanupFuncp->argTypes(argTypes);
+        cleanupFuncp->argTypes("void* voidSelf, " + v3Global.opt.traceClassBase()
+                               + "* /*unused*/");
         cleanupFuncp->funcType(AstCFuncType::TRACE_CLEANUP);
         cleanupFuncp->slow(false);
         cleanupFuncp->isStatic(true);
-        cleanupFuncp->declPrivate(true);
+        cleanupFuncp->isLoose(true);
         m_topScopep->addActivep(cleanupFuncp);
+        cleanupFuncp->addInitsp(new AstCStmt(
+            fl, prefixNameProtect(m_topModp) + "* const __restrict self = static_cast<"
+                    + prefixNameProtect(m_topModp) + "*>(voidSelf);\n"));
+        cleanupFuncp->addInitsp(new AstCStmt(fl, symClassVar() + " = self->vlSymsp;\n"));
 
         // Register it
-        regFuncp->addStmtsp(new AstCStmt(
-            fl, string("tracep->addCleanupCb(&" + protect("traceCleanup") + ", this);\n")));
+        regFuncp->addStmtsp(
+            new AstCStmt(fl, string("tracep->addCleanupCb(&" + prefixNameProtect(m_topModp) + "__"
+                                    + protect("traceCleanup") + ", this);\n")));
 
         // Clear global activity flag
-        cleanupFuncp->addStmtsp(new AstCStmt(m_topScopep->fileline(),
-                                             string("vlTOPp->vlSymsp->__Vm_activity = false;\n")));
+        cleanupFuncp->addStmtsp(
+            new AstCStmt(m_topScopep->fileline(), string("vlSymsp->__Vm_activity = false;\n")));
 
         // Clear fine grained activity flags
         for (uint32_t i = 0; i < m_activityNumber; ++i) {
@@ -731,7 +743,7 @@ private:
         regFuncp->funcType(AstCFuncType::TRACE_REGISTER);
         regFuncp->slow(true);
         regFuncp->isStatic(false);
-        regFuncp->declPrivate(true);
+        regFuncp->isLoose(true);
         m_topScopep->addActivep(regFuncp);
 
         const int parallelism = 1;  // Note: will bump this later, code below works for any value

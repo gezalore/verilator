@@ -477,6 +477,7 @@ private:
             m_scopeFinalp->dontCombine(true);
             m_scopeFinalp->formCallTree(true);
             m_scopeFinalp->isStatic(false);
+            m_scopeFinalp->isLoose(true);
             m_scopeFinalp->slow(true);
             m_namer.scopep()->addActivep(m_scopeFinalp);
         }

@@ -61,7 +61,8 @@ private:
         const int funcNum = m_newFunctions.size();
         const string funcName = m_basename + "_" + cvtToStr(funcNum);
         AstCFunc* const funcp = new AstCFunc(m_modp->fileline(), funcName, nullptr, "void");
-        funcp->isStatic(false);  // Class constructors are non static
+        funcp->isStatic(false);
+        funcp->isLoose(!m_type.isClass());
         funcp->declPrivate(true);
         funcp->slow(!m_type.isClass());  // Only classes construct on fast path
         string preventUnusedStmt;
@@ -110,8 +111,9 @@ public:
                 AstCCall* const callp = new AstCCall(m_modp->fileline(), funcp);
                 if (m_type.isClass()) {
                     callp->argTypes("vlSymsp");
-                } else if (m_type.isCoverage()) {
-                    callp->argTypes("first");
+                } else {
+                    if (m_type.isCoverage()) callp->argTypes("first");
+                    callp->selfPointer("this");
                 }
                 rootFuncp->addStmtsp(callp);
             }
@@ -129,6 +131,7 @@ void V3CCtors::evalAsserts() {
     AstCFunc* funcp = new AstCFunc(modp->fileline(), "_eval_debug_assertions", nullptr, "void");
     funcp->declPrivate(true);
     funcp->isStatic(false);
+    funcp->isLoose(true);
     funcp->slow(false);
     funcp->ifdef("VL_DEBUG");
     modp->addStmtp(funcp);
@@ -140,7 +143,11 @@ void V3CCtors::evalAsserts() {
                     int lastWordWidth = varp->width() % storedWidth;
                     if (lastWordWidth != 0) {
                         // if (signal & CONST(upper_non_clean_mask)) { fail; }
-                        AstNode* newp = new AstVarRef(varp->fileline(), varp, VAccess::READ);
+                        AstVarRef* const vrefp
+                            = new AstVarRef(varp->fileline(), varp, VAccess::READ);
+                        vrefp->selfPointer(v3Global.opt.relativeCFuncs() ? "this"
+                                                                         : "vlSymsp->TOPp");
+                        AstNode* newp = vrefp;
                         if (varp->isWide()) {
                             newp = new AstWordSel(
                                 varp->fileline(), newp,

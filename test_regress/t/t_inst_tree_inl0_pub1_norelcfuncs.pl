@@ -31,8 +31,10 @@ if ($Self->{vlt_all}) {
         my $text = file_contents($file);
         $text =~ s/this->vlSymsp//g;
         $text =~ s/this->.* = VL_RAND_RESET.*;//g;
-        $text =~ s/this->__Vm_mt_(final|\d+)\.signalUpstreamDone\(even_cycle\);//g;
-        $text =~ s/this->__Vm_mt_(final|\d+)\.waitUntilUpstreamDone\(even_cycle\);//g;
+        $text =~ s/this->__Vm_even_cycle//g;
+        $text =~ s/this->__Vm_even_cycle//g;
+        $text =~ s/this->__Vm_mt_(final|\d+)//g;
+        $text =~ s/this->__Vm_threadPoolp//g;
         if ($text =~ m/this->/) {
             error("$file has unexpected this-> refs when --norelative-cfuncs");
         }

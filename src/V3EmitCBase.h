@@ -43,6 +43,7 @@ public:
         if (v3Global.opt.decoration()) puts(str);
     }
     void putsQuoted(const string& str) { ofp()->putsQuoted(str); }
+    void ensureNewLine() { ofp()->ensureNewLine(); }
     bool optSystemC() { return v3Global.opt.systemC(); }
     static string protect(const string& name) { return VIdProtect::protectIf(name, true); }
     static string protectIf(const string& name, bool doIt) {
@@ -58,18 +59,25 @@ public:
         return v3Global.opt.prefix() + "* const __restrict vlTOPp VL_ATTR_UNUSED = vlSymsp->TOPp;";
     }
     static string funcNameProtect(const AstCFunc* nodep, const AstNodeModule* modp) {
+        string name;
         if (nodep->isConstructor()) {
-            return prefixNameProtect(modp);
+            name += prefixNameProtect(modp);
         } else if (nodep->isDestructor()) {
-            return string("~") + prefixNameProtect(modp);
+            name += "~";
+            name += prefixNameProtect(modp);
         } else {
-            return nodep->nameProtect();
+            if (nodep->isLoose()) {
+                name += prefixNameProtect(modp);
+                name += "__";
+            }
+            name += nodep->nameProtect();
         }
+        return name;
     }
     static string prefixNameProtect(const AstNode* nodep) {  // C++ name with prefix
         const AstNodeModule* modp = VN_CAST_CONST(nodep, NodeModule);
         if (modp && modp->isTop()) {
-            return v3Global.opt.prefix();
+            return topClassName();
         } else {
             return v3Global.opt.modPrefix() + "_" + protect(nodep->name());
         }
@@ -84,9 +92,19 @@ public:
         v3Global.rootp()->addFilesp(cfilep);
         return cfilep;
     }
-    string cFuncArgs(const AstCFunc* nodep) {
+    string cFuncArgs(const AstCFunc* nodep, const AstNodeModule* modp = nullptr) {
         // Return argument list for given C function
-        string args = nodep->argTypes();
+        string args;
+        if (nodep->isLoose() && nodep->isStatic().falseUnknown()) {
+            UASSERT_OBJ(modp, nodep, "Cannot declare loose method without module");
+            if (nodep->isConst().trueKnown()) args += "const ";
+            args += prefixNameProtect(modp);
+            args += "* self";
+        }
+        if (!nodep->argTypes().empty()) {
+            if (!args.empty()) args += ", ";
+            args += nodep->argTypes();
+        }
         // Might be a user function with argument list.
         for (const AstNode* stmtp = nodep->argsp(); stmtp; stmtp = stmtp->nextp()) {
             if (const AstVar* portp = VN_CAST_CONST(stmtp, Var)) {

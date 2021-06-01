@@ -8721,6 +8721,8 @@ private:
     bool m_isConstructor : 1;  // Is C class constructor
     bool m_isDestructor : 1;  // Is C class destructor
     bool m_isMethod : 1;  // Is inside a class definition
+    bool m_isLoose : 1;  // Semantically this is a method, but is implemented as a function
+                         // with an explicitly passed 'self' pointer as the first argument
     bool m_isInline : 1;  // Inline function
     bool m_isVirtual : 1;  // Virtual function
     bool m_symProlog : 1;  // Setup symbol table for later instructions
@@ -8747,6 +8749,7 @@ public:
         m_isConstructor = false;
         m_isDestructor = false;
         m_isMethod = true;
+        m_isLoose = false;
         m_isInline = false;
         m_isVirtual = false;
         m_symProlog = false;
@@ -8769,6 +8772,7 @@ public:
         const AstCFunc* asamep = static_cast<const AstCFunc*>(samep);
         return ((funcType() == asamep->funcType()) && (rtnTypeVoid() == asamep->rtnTypeVoid())
                 && (argTypes() == asamep->argTypes()) && (ctorInits() == asamep->ctorInits())
+                && isLoose() == asamep->isLoose()
                 && (!(dpiImport() || dpiExport()) || name() == asamep->name()));
     }
     //
@@ -8810,6 +8814,9 @@ public:
     void isDestructor(bool flag) { m_isDestructor = flag; }
     bool isMethod() const { return m_isMethod; }
     void isMethod(bool flag) { m_isMethod = flag; }
+    bool isLoose() const { return m_isLoose; }
+    void isLoose(bool flag) { m_isLoose = flag; }
+    bool isProperMethod() const { return isMethod() && !isLoose(); }
     bool isInline() const { return m_isInline; }
     void isInline(bool flag) { m_isInline = flag; }
     bool isVirtual() const { return m_isVirtual; }

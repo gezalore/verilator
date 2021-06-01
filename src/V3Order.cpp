@@ -1755,6 +1755,7 @@ AstActive* OrderVisitor::processMoveOneLogic(const OrderLogicVertex* lvertexp,
                 const string name = cfuncName(modp, domainp, scopep, nodep);
                 newFuncpr = new AstCFunc(nodep->fileline(), name, scopep);
                 newFuncpr->isStatic(false);
+                newFuncpr->isLoose(true);
                 newStmtsr = 0;
                 if (domainp->hasInitial() || domainp->hasSettle()) newFuncpr->slow(true);
                 scopep->addActivep(newFuncpr);

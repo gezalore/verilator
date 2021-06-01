@@ -168,6 +168,7 @@ private:
         AstCFunc* const funcp = new AstCFunc{m_topScopep->fileline(), name, m_topScopep->scopep()};
         funcp->dontCombine(true);
         funcp->isStatic(false);
+        funcp->isLoose(true);
         funcp->entryPoint(true);
         funcp->slow(slow);
         funcp->isConst(false);
@@ -198,6 +199,7 @@ private:
                 funcp->dontCombine(true);
                 funcp->symProlog(false);
                 funcp->isStatic(false);
+                funcp->isLoose(true);
                 funcp->slow(ofuncp->slow());
                 m_topScopep->scopep()->addActivep(funcp);
                 //

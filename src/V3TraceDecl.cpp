@@ -77,8 +77,8 @@ private:
         funcp->argTypes(argTypes);
         funcp->funcType(type);
         funcp->isStatic(false);
+        funcp->isLoose(true);
         funcp->slow(true);
-        funcp->declPrivate(true);
         m_topScopep->addActivep(funcp);
         UINFO(5, "  Newfunc " << funcp << endl);
         return funcp;

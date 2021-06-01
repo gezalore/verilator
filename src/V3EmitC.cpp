@@ -51,6 +51,9 @@ private:
     int m_splitSize;  // # of cfunc nodes placed into output file
     int m_splitFilenum;  // File number being created, 0 = primary
 
+protected:
+    AstNodeModule* m_modp = nullptr;  // Current module being emitted
+
 public:
     // METHODS
     VL_DEBUG_FUNC;  // Declare debug()
@@ -220,43 +223,56 @@ public:
         if (anyi) puts("\n");
     }
 
+    void emitCFuncHeader(const AstCFunc* funcp, const AstNodeModule* modp, bool withScope) {
+        if (!funcp->isConstructor() && !funcp->isDestructor()) {
+            puts(funcp->rtnTypeVoid());
+            puts(" ");
+        }
+        if (withScope && funcp->isProperMethod()) puts(prefixNameProtect(modp) + "::");
+        puts(funcNameProtect(funcp, modp));
+        puts("(" + cFuncArgs(funcp, modp) + ")");
+        if (funcp->isConst().trueKnown() && funcp->isProperMethod()) puts(" const");
+    }
+
     struct CmpName {
         bool operator()(const AstNode* lhsp, const AstNode* rhsp) const {
             return lhsp->name() < rhsp->name();
         }
     };
-    void emitIntFuncDecls(AstNodeModule* modp, bool methodFuncs) {
+    void emitIntFuncDecls(AstNodeModule* modp, bool inClassBody) {
         std::vector<const AstCFunc*> funcsp;
 
         for (AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
             if (const AstCFunc* funcp = VN_CAST(nodep, CFunc)) {
-                if (funcp->isMethod() == methodFuncs
-                    && !funcp->dpiImport()) {  // DPI is prototyped in __Dpi.h
-                    funcsp.push_back(funcp);
-                }
+                if (funcp->dpiImport())  // DPI import functions are declared in __Dpi.h
+                    continue;
+                if (funcp->isMethod() &&  // True methods go inside class, loose methods go outside
+                    funcp->isLoose() == inClassBody)
+                    continue;
+                if (!funcp->isMethod() && inClassBody)  // Non-methods go outside class
+                    continue;
+                funcsp.push_back(funcp);
             }
         }
 
         stable_sort(funcsp.begin(), funcsp.end(), CmpName());
 
         for (const AstCFunc* funcp : funcsp) {
-            ofp()->putsPrivate(funcp->declPrivate());
+            if (inClassBody) ofp()->putsPrivate(funcp->declPrivate());
             if (!funcp->ifdef().empty()) puts("#ifdef " + funcp->ifdef() + "\n");
-            if (funcp->isStatic().trueUnknown()) puts("static ");
-            if (funcp->isVirtual()) puts("virtual ");
-            if (!funcp->isConstructor() && !funcp->isDestructor()) {
-                puts(funcp->rtnTypeVoid());
-                puts(" ");
+            if (funcp->isStatic().trueUnknown() && funcp->isProperMethod()) puts("static ");
+            if (funcp->isVirtual()) {
+                UASSERT_OBJ(funcp->isProperMethod(), funcp,
+                            "Virtual function is not a proper method");
+                puts("virtual ");
             }
-            puts(funcNameProtect(funcp, modp));
-            puts("(" + cFuncArgs(funcp) + ")");
-            if (funcp->isConst().trueKnown()) puts(" const");
+            emitCFuncHeader(funcp, modp, /* withScope: */ false);
             if (funcp->slow()) puts(" VL_ATTR_COLD");
             puts(";\n");
             if (!funcp->ifdef().empty()) puts("#endif  // " + funcp->ifdef() + "\n");
         }
 
-        if (methodFuncs && modp->isTop() && v3Global.opt.mtasks()) {
+        if (!inClassBody && modp->isTop() && v3Global.opt.mtasks()) {
             // Emit the mtask func prototypes.
             AstExecGraph* execGraphp = v3Global.rootp()->execGraphp();
             UASSERT_OBJ(execGraphp, v3Global.rootp(), "Root should have an execGraphp");
@@ -266,17 +282,27 @@ public:
                 const ExecMTask* mtp = dynamic_cast<const ExecMTask*>(vxp);
                 if (mtp->threadRoot()) {
                     // Emit function declaration for this mtask
-                    ofp()->putsPrivate(true);
-                    puts("static void ");
-                    puts(protect(mtp->cFuncName()));
-                    puts("(void* selfp, bool even_cycle);\n");
+                    puts("void ");
+                    puts(topClassName() + "__" + protect(mtp->cFuncName()));
+                    puts("(void* voidSelf, bool even_cycle);\n");
                 }
             }
         }
     }
+
     void ccallIterateArgs(AstNodeCCall* nodep) {
-        puts(nodep->argTypes());
-        bool comma = (nodep->argTypes() != "");
+        bool comma = false;
+        if (nodep->funcp()->isLoose()) {
+            UASSERT_OBJ(!nodep->selfPointer().empty(), nodep,
+                        "Call to loose function without self pointer");
+            puts(nodep->selfPointerProtect());
+            comma = true;
+        }
+        if (!nodep->argTypes().empty()) {
+            if (comma) puts(", ");
+            puts(nodep->argTypes());
+            comma = true;
+        }
         for (AstNode* subnodep = nodep->argsp(); subnodep; subnodep = subnodep->nextp()) {
             if (comma) puts(", ");
             iterate(subnodep);
@@ -383,21 +409,33 @@ public:
     virtual void visit(AstNodeCCall* nodep) override {
         const AstCFunc* const funcp = nodep->funcp();
         if (AstCMethodCall* ccallp = VN_CAST(nodep, CMethodCall)) {
+            UASSERT_OBJ(!funcp->isLoose(), nodep, "Loose method called via AstCMethodCall");
             // make this a Ast type for future opt
             iterate(ccallp->fromp());
             putbs("->");
-        } else if (funcp->isMethod() && funcp->isStatic().trueUnknown()) {
-            // Find containing module
+            puts(funcp->nameProtect());
+        } else if (funcp->isProperMethod() && funcp->isStatic().trueUnknown()) {
+            // Call static method via the containing class
             const AstNode* modp = funcp;
             do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
             UASSERT_OBJ(modp, funcp, "Static method not under module");
             puts(prefixNameProtect(modp) + "::");
+            puts(funcp->nameProtect());
         } else if (!nodep->classPrefix().empty()) {
+            // Prefix explicitly given
             puts(nodep->classPrefixProtect() + "::");
-        } else if (!nodep->selfPointer().empty()) {
-            puts(nodep->selfPointerProtect() + "->");
+            puts(funcp->nameProtect());
+        } else if (funcp->isLoose()) {
+            // Calling loose method
+            const AstNode* modp = funcp;
+            do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
+            UASSERT_OBJ(modp, funcp, "Method not under module");
+            puts(funcNameProtect(funcp, VN_CAST_CONST(modp, NodeModule)));
+        } else {
+            // Calling regular method/function
+            if (!nodep->selfPointer().empty()) puts(nodep->selfPointerProtect() + "->");
+            puts(funcp->nameProtect());
         }
-        puts(funcp->nameProtect());
         puts("(");
         ccallIterateArgs(nodep);
         if (VN_IS(nodep->backp(), NodeMath) || VN_IS(nodep->backp(), CReturn)) {
@@ -1114,7 +1152,14 @@ public:
     virtual void visit(AstInitItem* nodep) override { iterateChildren(nodep); }
     // Terminals
     virtual void visit(AstVarRef* nodep) override {
-        if (!nodep->classPrefix().empty()) {
+        const AstVar* const varp = nodep->varp();
+        if (varp->isStatic()) {
+            // Access static variable via the containing class
+            const AstNode* modp = varp;
+            do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
+            UASSERT_OBJ(modp, varp, "Static method not under module");
+            puts(prefixNameProtect(modp) + "::");
+        } else if (!nodep->classPrefix().empty()) {
             puts(nodep->classPrefixProtect() + "::");
         } else if (!nodep->selfPointerProtect().empty()) {
             puts(nodep->selfPointerProtect() + "->");
@@ -1356,7 +1401,6 @@ unsigned EmitVarTspSorter::s_serialNext = 0;
 
 class EmitCImp final : EmitCStmts {
     // MEMBERS
-    AstNodeModule* m_modp = nullptr;
     AstNodeModule* m_fileModp = nullptr;  // Files (names, headers) constructed using this module
     std::vector<AstChangeDet*> m_blkChangeDetVec;  // All encountered changes in block
     bool m_slow = false;  // Creating __Slow file
@@ -1522,13 +1566,15 @@ class EmitCImp final : EmitCStmts {
         const ExecMTask* const mtp = nodep->execMTaskp();
         puts("\n");
         puts("void ");
-        puts(prefixNameProtect(m_modp) + "::" + protect(mtp->cFuncName()));
-        puts("(void* selfp, bool even_cycle) {\n ");
-        puts(topClassName() + "*const self = static_cast<" + topClassName() + "*>(selfp);\n");
-        puts(symClassVar() + " = self->vlSymsp;\n");
+        puts(topClassName() + "__" + protect(mtp->cFuncName()));
+        puts("(void* voidSelf, bool even_cycle) {\n");
+        puts(topClassName() + "* const self = static_cast<" + topClassName() + "*>(voidSelf);\n");
         puts("#define this self\n");
+        puts("#define vlSymsp self->vlSymsp\n");
         emitMTaskBody(nodep);
+        ensureNewLine();
         puts("#undef this\n");
+        puts("#undef vlSymsp\n");
         puts("}\n");
     }
 
@@ -1550,28 +1596,28 @@ class EmitCImp final : EmitCStmts {
         puts("\n");
         if (nodep->ifdef() != "") puts("#ifdef " + nodep->ifdef() + "\n");
         if (nodep->isInline()) puts("VL_INLINE_OPT ");
-        if (!nodep->isConstructor() && !nodep->isDestructor()) {
-            puts(nodep->rtnTypeVoid());
-            puts(" ");
-        }
-
-        if (nodep->isMethod()) puts(prefixNameProtect(m_modp) + "::");
-        puts(funcNameProtect(nodep, m_modp));
-        puts("(" + cFuncArgs(nodep) + ")");
-        if (nodep->isConst().trueKnown()) puts(" const");
+        emitCFuncHeader(nodep, m_modp, /* withScope: */ true);
 
         // TODO perhaps better to have a new AstCCtorInit so we can pass arguments
-        // rather than requiring a string here
+        //      rather than requiring a string here
         if (!nodep->ctorInits().empty()) {
             puts(": ");
             puts(nodep->ctorInits());
         }
         puts(" {\n");
 
+        if (nodep->isLoose() && nodep->isStatic().falseUnknown()) {
+            puts("if (false && self) {}  // Prevent unused\n");
+            puts("#define this self\n");
+            if (!VN_IS(m_modp, Class)) puts("#define vlSymsp self->vlSymsp\n");
+        }
+
         // "+" in the debug indicates a print from the model
         puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+  ");
         for (int i = 0; i < m_modp->level(); ++i) { puts("  "); }
-        puts(prefixNameProtect(m_modp) + "::" + nodep->nameProtect() + "\\n\"); );\n");
+        puts(prefixNameProtect(m_modp));
+        puts(nodep->isLoose() ? "__" : "::");
+        puts(nodep->nameProtect() + "\\n\"); );\n");
 
         // Declare and set vlTOPp
         if (nodep->symProlog()) puts(EmitCBaseVisitor::symTopAssign() + "\n");
@@ -1598,7 +1644,11 @@ class EmitCImp final : EmitCStmts {
 
         if (!m_blkChangeDetVec.empty()) puts("return __req;\n");
 
-        // puts("__Vm_activity = true;\n");
+        if (nodep->isLoose() && nodep->isStatic().falseUnknown()) {
+            ensureNewLine();
+            puts("#undef this\n");
+            if (!VN_IS(m_modp, Class)) puts("#undef vlSymsp\n");
+        }
         puts("}\n");
         if (nodep->ifdef() != "") puts("#endif  // " + nodep->ifdef() + "\n");
     }
@@ -1707,7 +1757,7 @@ class EmitCImp final : EmitCStmts {
         // Don't recurse to children -- this isn't the place to emit
         // function definitions for the nested CFuncs. We'll do that at the
         // end.
-        puts("__Vm_even_cycle = !__Vm_even_cycle;\n");
+        puts("this->__Vm_even_cycle = !this->__Vm_even_cycle;\n");
 
         // Build the list of initial mtasks to start
         std::vector<const ExecMTask*> execMTasks;
@@ -1724,19 +1774,20 @@ class EmitCImp final : EmitCStmts {
         if (!execMTasks.empty()) {
             for (uint32_t i = 0; i < execMTasks.size(); ++i) {
                 const bool runInline = (i == execMTasks.size() - 1);
-                const string protName = protect(execMTasks[i]->cFuncName());
+                const string protName
+                    = topClassName() + "__" + protect(execMTasks[i]->cFuncName());
                 if (runInline) {
                     // The thread calling eval() will run this mtask inline,
                     // along with its packed successors.
-                    puts(protName + "(this, __Vm_even_cycle);\n");
+                    puts(protName + "(this, this->__Vm_even_cycle);\n");
                     puts("Verilated::mtaskId(0);\n");
                 } else {
                     // The other N-1 go to the thread pool.
-                    puts("__Vm_threadPoolp->workerp(" + cvtToStr(i) + ")->addTask(" + protName
-                         + ", this, __Vm_even_cycle);\n");
+                    puts("this->__Vm_threadPoolp->workerp(" + cvtToStr(i) + ")->addTask("
+                         + protName + ", this, this->__Vm_even_cycle);\n");
                 }
             }
-            puts("__Vm_mt_final.waitUntilUpstreamDone(__Vm_even_cycle);\n");
+            puts("this->__Vm_mt_final.waitUntilUpstreamDone(this->__Vm_even_cycle);\n");
         }
     }
 
@@ -1890,8 +1941,8 @@ class EmitCImp final : EmitCStmts {
     void emitImpTop();
     void emitImp(AstNodeModule* modp);
     void emitSettleLoop(const std::string& eval_call, bool initial);
-    void emitWrapEval(AstNodeModule* modp);
-    void emitWrapFast(AstNodeModule* modp);
+    void emitWrapEval();
+    void emitWrapFast();
     void emitMTaskState();
     void emitMTaskVertexCtors(bool* firstp);
     void emitIntTop(AstNodeModule* modp);
@@ -2422,7 +2473,7 @@ void EmitCStmts::displayNode(AstNode* nodep, AstScopeName* scopenamep, const str
 
 void EmitCImp::emitCoverageDecl(AstNodeModule*) {
     if (v3Global.opt.coverage()) {
-        ofp()->putsPrivate(true);
+        ofp()->putsPrivate(false);  // Accessed from loose methods
         putsDecoration("// Coverage\n");
         puts("void __vlCoverInsert(");
         puts(v3Global.opt.threads() ? "std::atomic<uint32_t>" : "uint32_t");
@@ -2497,7 +2548,7 @@ void EmitCImp::emitCtorImp(AstNodeModule* modp) {
         puts("\n");
     }
     putsDecoration("// Reset structure values\n");
-    puts(protect("_ctor_var_reset") + "();\n");
+    puts(prefixNameProtect(modp) + "__" + protect("_ctor_var_reset") + "(this);\n");
     emitTextSection(AstType::atScCtor);
 
     if (modp->isTop() && v3Global.opt.mtasks()) {
@@ -2539,7 +2590,9 @@ void EmitCImp::emitConfigureImp(AstNodeModule* modp) {
          + symClassName() + "* vlSymsp, bool first) {\n");
     puts("if (false && first) {}  // Prevent unused\n");
     puts("this->vlSymsp = vlSymsp;\n");  // First, as later stuff needs it.
-    if (v3Global.opt.coverage()) { puts(protect("_configure_coverage") + "(first);\n"); }
+    if (v3Global.opt.coverage()) {
+        puts(prefixNameProtect(modp) + "__" + protect("_configure_coverage") + "(this, first);\n");
+    }
     if (modp->isTop() && !v3Global.rootp()->timeunit().isNone()) {
         puts("vlSymsp->_vm_contextp__->timeunit("
              + cvtToStr(v3Global.rootp()->timeunit().powerOfTen()) + ");\n");
@@ -2768,14 +2821,18 @@ void EmitCImp::emitSettleLoop(const std::string& eval_call, bool initial) {
     putsDecoration("// Evaluate till stable\n");
     puts("int __VclockLoop = 0;\n");
     puts("QData __Vchange = 1;\n");
+    if (v3Global.opt.trace()) puts("vlSymsp->__Vm_activity = true;\n");
     puts("do {\n");
+    puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+ ");
+    puts(initial ? "Initial" : "Clock");
+    puts(" loop\\n\"););\n");
     puts(eval_call + "\n");
     puts("if (VL_UNLIKELY(++__VclockLoop > " + cvtToStr(v3Global.opt.convergeLimit()) + ")) {\n");
     puts("// About to fail, so enable debug to see what's not settling.\n");
     puts("// Note you must run make with OPT=-DVL_DEBUG for debug prints.\n");
     puts("int __Vsaved_debug = Verilated::debug();\n");
     puts("Verilated::debug(1);\n");
-    puts("__Vchange = " + protect("_change_request") + "();\n");
+    puts("__Vchange = " + topClassName() + "__" + protect("_change_request") + "(this);\n");
     puts("Verilated::debug(__Vsaved_debug);\n");
     puts("VL_FATAL_MT(");
     putsQuoted(protect(m_modp->fileline()->filename()));
@@ -2787,27 +2844,46 @@ void EmitCImp::emitSettleLoop(const std::string& eval_call, bool initial) {
     puts("converge\\n\"\n");
     puts("\"- See https://verilator.org/warn/DIDNOTCONVERGE\");\n");
     puts("} else {\n");
-    puts("__Vchange = " + protect("_change_request") + "();\n");
+    puts("__Vchange = " + topClassName() + "__" + protect("_change_request") + "(this);\n");
     puts("}\n");
     puts("} while (VL_UNLIKELY(__Vchange));\n");
 }
 
-void EmitCImp::emitWrapFast(AstNodeModule* modp) {
-    puts("\nVerilatedContext* " + prefixNameProtect(modp) + "::contextp() {\n");
+void EmitCImp::emitWrapFast() {
+    UASSERT_OBJ(m_modp->isTop(), m_modp, "Attempting to emitWrapFast for non-top class");
+    puts("\nVerilatedContext* " + topClassName() + "::contextp() {\n");
     puts(/**/ "return vlSymsp->_vm_contextp__;\n");
     puts("}\n");
 }
 
-void EmitCImp::emitWrapEval(AstNodeModule* modp) {
-    puts("\nvoid " + prefixNameProtect(modp) + "::eval_step() {\n");
-    puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+++++TOP Evaluate " + prefixNameProtect(modp)
-         + "::eval\\n\"); );\n");
+void EmitCImp::emitWrapEval() {
+    UASSERT_OBJ(m_modp->isTop(), m_modp, "Attempting to emitWrapEval for non-top class");
+
+    // _eval_initial_loop
+    puts("\nstatic void " + protect("_eval_initial_loop") + "(" + topClassName() + "* self) {\n");
+    puts("#define this self\n");
+    puts("#define vlSymsp self->vlSymsp\n");
+    puts("vlSymsp->__Vm_didInit = true;\n");
+    puts(topClassName() + "__" + protect("_eval_initial") + "(this);\n");
+    emitSettleLoop(topClassName() + "__" + protect("_eval_settle") + "(this);\n"  //
+                       + topClassName() + "__" + protect("_eval") + "(this);",
+                   true);
+    ensureNewLine();
+    puts("#undef this\n");
+    puts("#undef vlSymsp\n");
+    puts("}\n");
+
+    // ::eval_step
+    puts("\nvoid " + topClassName() + "::eval_step() {\n");
+    puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+++++TOP Evaluate " + topClassName()
+         + "::eval_step\\n\"); );\n");
     puts("#ifdef VL_DEBUG\n");
     putsDecoration("// Debug assertions\n");
-    puts(protect("_eval_debug_assertions") + "();\n");
+    puts(topClassName() + "__" + protect("_eval_debug_assertions") + "(this);\n");
     puts("#endif  // VL_DEBUG\n");
     putsDecoration("// Initialize\n");
-    puts("if (VL_UNLIKELY(!vlSymsp->__Vm_didInit)) " + protect("_eval_initial_loop") + "();\n");
+    puts("if (VL_UNLIKELY(!vlSymsp->__Vm_didInit)) " + protect("_eval_initial_loop")
+         + "(this);\n");
     if (v3Global.opt.inhibitSim()) puts("if (VL_UNLIKELY(__Vm_inhibitSim)) return;\n");
 
     if (v3Global.opt.threads() == 1) {
@@ -2858,10 +2934,7 @@ void EmitCImp::emitWrapEval(AstNodeModule* modp) {
         puts("}\n");
     }
 
-    emitSettleLoop((string("VL_DEBUG_IF(VL_DBG_MSGF(\"+ Clock loop\\n\"););\n")
-                    + (v3Global.opt.trace() ? "vlSymsp->__Vm_activity = true;\n" : "")
-                    + protect("_eval") + "();"),
-                   false);
+    emitSettleLoop(topClassName() + "__" + protect("_eval") + "(this);", false);
     if (v3Global.opt.threads() == 1) {
         puts("Verilated::endOfThreadMTask(vlSymsp->__Vm_evalMsgQp);\n");
     }
@@ -2869,10 +2942,10 @@ void EmitCImp::emitWrapEval(AstNodeModule* modp) {
     puts("}\n");
     splitSizeInc(10);
 
-    //
+    // ::eval_end_step
     if (v3Global.needTraceDumper() && !optSystemC()) {
-        puts("\nvoid " + prefixNameProtect(modp) + "::eval_end_step() {\n");
-        puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+eval_end_step " + prefixNameProtect(modp)
+        puts("\nvoid " + topClassName() + "::eval_end_step() {\n");
+        puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+eval_end_step " + topClassName()
              + "::eval_end_step\\n\"); );\n");
         puts("#ifdef VM_TRACE\n");
         puts(EmitCBaseVisitor::symTopAssign() + "\n");
@@ -2881,16 +2954,12 @@ void EmitCImp::emitWrapEval(AstNodeModule* modp) {
         puts("if (VL_UNLIKELY(vlSymsp->__Vm_dumping)) _traceDump();\n");
         puts("#endif  // VM_TRACE\n");
         puts("}\n");
+        splitSizeInc(10);
     }
 
-    //
-    puts("\nvoid " + prefixNameProtect(modp) + "::" + protect("_eval_initial_loop") + "() {\n");
-    puts("vlSymsp->__Vm_didInit = true;\n");
-    puts(protect("_eval_initial") + "();\n");
-    if (v3Global.opt.trace()) puts("vlSymsp->__Vm_activity = true;\n");
-    emitSettleLoop((protect("_eval_settle") + "();\n"  //
-                    + protect("_eval") + "();"),
-                   true);
+    // ::final
+    puts("\nvoid " + topClassName() + "::final() {\n");
+    puts(topClassName() + "__" + protect("_final") + "(this);\n");
     puts("}\n");
     splitSizeInc(10);
 }
@@ -3085,7 +3154,7 @@ void EmitCStmts::emitSortedVarList(const VarVec& anons, const VarVec& nonanons,
 }
 
 void EmitCImp::emitMTaskState() {
-    ofp()->putsPrivate(true);
+    ofp()->putsPrivate(false);  // Accessed from loose function
     AstExecGraph* execGraphp = v3Global.rootp()->execGraphp();
     UASSERT_OBJ(execGraphp, v3Global.rootp(), "Root should have an execGraphp");
 
@@ -3208,7 +3277,7 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
     puts("\n// INTERNAL VARIABLES\n");
     if (modp->isTop()) puts("// Internals; generally not touched by application code\n");
     if (!VN_IS(modp, Class)) {  // Avoid clang unused error (& don't want in every object)
-        ofp()->putsPrivate(!modp->isTop());  // private: unless top
+        ofp()->putsPrivate(false);  // public: so loose methods can pick it up
         puts(symClassName() + "* vlSymsp;  // Symbol table\n");
     }
     ofp()->putsPrivate(false);  // public:
@@ -3320,7 +3389,7 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
             puts("/// Simulation complete, run final blocks.  Application "
                  "must call on completion.\n");
         }
-        puts("void final() { " + protect("_final") + "(); }\n");
+        puts("void final();\n");
         if (v3Global.opt.inhibitSim()) {
             puts("/// Disable evaluation of module (e.g. turn off)\n");
             puts("void inhibitSim(bool flag) { __Vm_inhibitSim = flag; }\n");
@@ -3329,8 +3398,7 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
 
     puts("\n// INTERNAL METHODS\n");
     if (modp->isTop()) {
-        ofp()->putsPrivate(false);  // public: as accessed by another VL_MODULE
-        puts("void " + protect("_eval_initial_loop") + "();\n");
+        ofp()->putsPrivate(false);  // public: as accessed by loose functions
         if (v3Global.needTraceDumper()) {
             if (!optSystemC()) puts("void _traceDump();\n");
             puts("void _traceDumpOpen();\n");
@@ -3346,11 +3414,6 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
     ofp()->putsPrivate(false);  // public:
     emitIntFuncDecls(modp, true);
 
-    if (v3Global.opt.trace() && !VN_IS(modp, Class)) {
-        ofp()->putsPrivate(true);  // private:
-        puts("static void " + protect("traceInit") + "(void* userp, "
-             + v3Global.opt.traceClassBase() + "* tracep, uint32_t code) VL_ATTR_COLD;\n");
-    }
     if (v3Global.opt.savable()) {
         ofp()->putsPrivate(false);  // public:
         puts("void " + protect("__Vserialize") + "(VerilatedSerialize& os);\n");
@@ -3409,8 +3472,8 @@ void EmitCImp::emitImp(AstNodeModule* modp) {
     if (m_fast) {
         emitTextSection(AstType::atScImp);
         if (modp->isTop()) {
-            emitWrapFast(modp);
-            emitWrapEval(modp);
+            emitWrapFast();
+            emitWrapEval();
         }
     }
 
@@ -3544,10 +3607,10 @@ class EmitCTrace final : EmitCStmts {
     }
 
     void emitTraceSlow() {
-        puts("\n//======================\n\n");
+        puts("\n//======================\n");
 
         if (v3Global.needTraceDumper() && !optSystemC()) {
-            puts("void " + topClassName() + "::_traceDump() {\n");
+            puts("\nvoid " + topClassName() + "::_traceDump() {\n");
             // Caller checked for __Vm_dumperp non-nullptr
             puts("const VerilatedLockGuard lock(vlSymsp->__Vm_dumperMutex);\n");
             puts("vlSymsp->__Vm_dumperp->dump(VL_TIME_Q());\n");
@@ -3556,7 +3619,7 @@ class EmitCTrace final : EmitCStmts {
         }
 
         if (v3Global.needTraceDumper()) {
-            puts("void " + topClassName() + "::_traceDumpOpen() {\n");
+            puts("\nvoid " + topClassName() + "::_traceDumpOpen() {\n");
             puts("const VerilatedLockGuard lock(vlSymsp->__Vm_dumperMutex);\n");
             puts("if (VL_UNLIKELY(!vlSymsp->__Vm_dumperp)) {\n");
             puts("vlSymsp->__Vm_dumperp = new " + v3Global.opt.traceClassLang() + "();\n");
@@ -3568,7 +3631,7 @@ class EmitCTrace final : EmitCStmts {
             puts("}\n");
             splitSizeInc(10);
 
-            puts("void " + topClassName() + "::_traceDumpClose() {\n");
+            puts("\nvoid " + topClassName() + "::_traceDumpClose() {\n");
             puts("const VerilatedLockGuard lock(vlSymsp->__Vm_dumperMutex);\n");
             puts("vlSymsp->__Vm_dumping = false;\n");
             puts("VL_DO_CLEAR(delete vlSymsp->__Vm_dumperp, vlSymsp->__Vm_dumperp = "
@@ -3577,19 +3640,11 @@ class EmitCTrace final : EmitCStmts {
             splitSizeInc(10);
         }
 
-        puts("void " + topClassName() + "::trace(");
-        puts(v3Global.opt.traceClassBase() + "C* tfp, int, int) {\n");
-        puts("tfp->spTrace()->addInitCb(&" + protect("traceInit") + ", this);\n");
-        puts(protect("traceRegister") + "(tfp->spTrace());\n");
-        puts("}\n");
-        puts("\n");
-        splitSizeInc(10);
-
-        puts("void " + topClassName() + "::" + protect("traceInit") + "(void* userp, "
+        puts("\nstatic void " + protect("traceInit") + "(void* voidSelf, "
              + v3Global.opt.traceClassBase() + "* tracep, uint32_t code) {\n");
         putsDecoration("// Callback from tracep->open()\n");
         puts(topClassName() + "*const __restrict self = static_cast<" + topClassName()
-             + "*>(userp);\n");
+             + "*>(voidSelf);\n");
         puts("if (!self->vlSymsp->_vm_contextp__->calcUnusedSigs()) {\n");
         puts("VL_FATAL_MT(__FILE__, __LINE__, __FILE__,\n");
         puts("            \"Turning on wave traces requires Verilated::traceEverOn(true) call "
@@ -3598,8 +3653,15 @@ class EmitCTrace final : EmitCStmts {
         puts("self->vlSymsp->__Vm_baseCode = code;\n");
         puts("tracep->module(self->vlSymsp->name());\n");
         puts("tracep->scopeEscape(' ');\n");
-        puts("self->" + protect("traceInitTop") + "(tracep);\n");
+        puts(topClassName() + "__" + protect("traceInitTop") + "(self, tracep);\n");
         puts("tracep->scopeEscape('.');\n");  // Restore so later traced files won't break
+        puts("}\n");
+        splitSizeInc(10);
+
+        puts("\nvoid " + topClassName() + "::trace(");
+        puts(v3Global.opt.traceClassBase() + "C* tfp, int, int) {\n");
+        puts("tfp->spTrace()->addInitCb(&" + protect("traceInit") + ", this);\n");
+        puts(topClassName() + "__" + protect("traceRegister") + "(this, tfp->spTrace());\n");
         puts("}\n");
         splitSizeInc(10);
 
@@ -3836,7 +3898,11 @@ class EmitCTrace final : EmitCStmts {
         // Top module only
         iterate(nodep->topModulep());
     }
-    virtual void visit(AstNodeModule* nodep) override { iterateChildren(nodep); }
+    virtual void visit(AstNodeModule* nodep) override {
+        m_modp = nodep;
+        iterateChildren(nodep);
+        m_modp = nullptr;
+    }
     virtual void visit(AstCFunc* nodep) override {
         if (nodep->slow() != m_slow) return;
         VL_RESTORER(m_cfuncp);
@@ -3855,15 +3921,19 @@ class EmitCTrace final : EmitCStmts {
             splitSizeInc(nodep);
 
             puts("\n");
-            puts(nodep->rtnTypeVoid());
-            puts(" ");
-            puts(topClassName() + "::" + nodep->nameProtect() + "(" + cFuncArgs(nodep) + ") {\n");
+            emitCFuncHeader(nodep, m_modp, /* withScope: */ true);
+            puts(" {\n");
 
-            if (nodep->isStatic().trueKnown()) {
-                puts(topClassName() + "*const vlTOPp = static_cast<" + topClassName()
-                     + "*>(userp);\n");
-                puts(symClassName() + "*const vlSymsp = vlTOPp->vlSymsp;\n");
-                puts("if (false && vlSymsp) {}  // Prevent unused\n");
+            if (nodep->isLoose() && nodep->isStatic().falseUnknown()) {
+                puts("if (false && self) {}  // Prevent unused\n");
+                puts("#define this self\n");
+                puts("#define vlSymsp self->vlSymsp\n");
+            }
+
+            if (nodep->initsp()) {
+                string section;
+                emitVarList(nodep->initsp(), EVL_FUNC_ALL, "", section /*ref*/);
+                iterateAndNextNull(nodep->initsp());
             }
 
             m_baseCode = -1;
@@ -3893,13 +3963,6 @@ class EmitCTrace final : EmitCStmts {
                 puts("if (false && tracep && c) {}  // Prevent unused\n");
             }
 
-            if (nodep->initsp()) {
-                string section;
-                putsDecoration("// Variables\n");
-                emitVarList(nodep->initsp(), EVL_FUNC_ALL, "", section /*ref*/);
-                iterateAndNextNull(nodep->initsp());
-            }
-
             if (nodep->stmtsp()) {
                 putsDecoration("// Body\n");
                 puts("{\n");
@@ -3910,6 +3973,12 @@ class EmitCTrace final : EmitCStmts {
                 putsDecoration("// Final\n");
                 iterateAndNextNull(nodep->finalsp());
             }
+            if (nodep->isLoose() && nodep->isStatic().falseUnknown()) {
+                ensureNewLine();
+                puts("#undef this\n");
+                puts("#undef vlSymsp\n");
+            }
+
             puts("}\n");
         }
     }
