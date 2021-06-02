@@ -486,6 +486,7 @@ private:
         FileLine* const flp = m_topScopep->fileline();
         AstCFunc* const funcp = new AstCFunc(flp, name, m_topScopep);
         funcp->funcType(type);
+        funcp->dontCombine(true);
         const bool isTopFunc
             = type == AstCFuncType::TRACE_FULL || type == AstCFuncType::TRACE_CHANGE;
         if (isTopFunc) {
@@ -512,18 +513,15 @@ private:
         }
         // Register function
         if (regp) {
-            string registration = "tracep->add";
             if (type == AstCFuncType::TRACE_FULL) {
-                registration += "Full";
+                regp->addStmtsp(new AstText(flp, "tracep->addFullCb(", true));
             } else if (type == AstCFuncType::TRACE_CHANGE) {
-                registration += "Chg";
+                regp->addStmtsp(new AstText(flp, "tracep->addChgCb(", true));
             } else {
                 funcp->v3fatalSrc("Don't know how to register this type of function");
             }
-            registration
-                += "Cb(&" + prefixNameProtect(m_topModp) + "__" + protect(name) + ", this);\n";
-            AstCStmt* const stmtp = new AstCStmt(flp, registration);
-            regp->addStmtsp(stmtp);
+            regp->addStmtsp(new AstAddrOfCFunc(flp, funcp));
+            regp->addStmtsp(new AstText(flp, ", this);\n", true));
         }
         // Add global activity check to TRACE_CHANGE functions
         if (type == AstCFuncType::TRACE_CHANGE) {
@@ -691,9 +689,9 @@ private:
         cleanupFuncp->addInitsp(new AstCStmt(fl, symClassVar() + " = self->vlSymsp;\n"));
 
         // Register it
-        regFuncp->addStmtsp(
-            new AstCStmt(fl, string("tracep->addCleanupCb(&" + prefixNameProtect(m_topModp) + "__"
-                                    + protect("traceCleanup") + ", this);\n")));
+        regFuncp->addStmtsp(new AstText(fl, "tracep->addCleanupCb(", true));
+        regFuncp->addStmtsp(new AstAddrOfCFunc(fl, cleanupFuncp));
+        regFuncp->addStmtsp(new AstText(fl, ", this);\n", true));
 
         // Clear global activity flag
         cleanupFuncp->addStmtsp(

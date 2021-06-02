@@ -223,17 +223,6 @@ public:
         if (anyi) puts("\n");
     }
 
-    void emitCFuncHeader(const AstCFunc* funcp, const AstNodeModule* modp, bool withScope) {
-        if (!funcp->isConstructor() && !funcp->isDestructor()) {
-            puts(funcp->rtnTypeVoid());
-            puts(" ");
-        }
-        if (withScope && funcp->isProperMethod()) puts(prefixNameProtect(modp) + "::");
-        puts(funcNameProtect(funcp, modp));
-        puts("(" + cFuncArgs(funcp, modp) + ")");
-        if (funcp->isConst().trueKnown() && funcp->isProperMethod()) puts(" const");
-    }
-
     struct CmpName {
         bool operator()(const AstNode* lhsp, const AstNode* rhsp) const {
             return lhsp->name() < rhsp->name();
@@ -246,10 +235,9 @@ public:
             if (const AstCFunc* funcp = VN_CAST(nodep, CFunc)) {
                 if (funcp->dpiImport())  // DPI import functions are declared in __Dpi.h
                     continue;
-                if (funcp->isMethod() &&  // True methods go inside class, loose methods go outside
-                    funcp->isLoose() == inClassBody)
+                if (funcp->isMethod() != inClassBody)  // Only methods go inside class
                     continue;
-                if (!funcp->isMethod() && inClassBody)  // Non-methods go outside class
+                if (funcp->isMethod() && funcp->isLoose())  // Loose methods are declared lazily
                     continue;
                 funcsp.push_back(funcp);
             }
@@ -259,34 +247,7 @@ public:
 
         for (const AstCFunc* funcp : funcsp) {
             if (inClassBody) ofp()->putsPrivate(funcp->declPrivate());
-            if (!funcp->ifdef().empty()) puts("#ifdef " + funcp->ifdef() + "\n");
-            if (funcp->isStatic().trueUnknown() && funcp->isProperMethod()) puts("static ");
-            if (funcp->isVirtual()) {
-                UASSERT_OBJ(funcp->isProperMethod(), funcp,
-                            "Virtual function is not a proper method");
-                puts("virtual ");
-            }
-            emitCFuncHeader(funcp, modp, /* withScope: */ false);
-            if (funcp->slow()) puts(" VL_ATTR_COLD");
-            puts(";\n");
-            if (!funcp->ifdef().empty()) puts("#endif  // " + funcp->ifdef() + "\n");
-        }
-
-        if (!inClassBody && modp->isTop() && v3Global.opt.mtasks()) {
-            // Emit the mtask func prototypes.
-            AstExecGraph* execGraphp = v3Global.rootp()->execGraphp();
-            UASSERT_OBJ(execGraphp, v3Global.rootp(), "Root should have an execGraphp");
-            const V3Graph* depGraphp = execGraphp->depGraphp();
-            for (const V3GraphVertex* vxp = depGraphp->verticesBeginp(); vxp;
-                 vxp = vxp->verticesNextp()) {
-                const ExecMTask* mtp = dynamic_cast<const ExecMTask*>(vxp);
-                if (mtp->threadRoot()) {
-                    // Emit function declaration for this mtask
-                    puts("void ");
-                    puts(topClassName() + "__" + protect(mtp->cFuncName()));
-                    puts("(void* voidSelf, bool even_cycle);\n");
-                }
-            }
+            emitCFuncDecl(funcp, modp);
         }
     }
 
@@ -1166,6 +1127,15 @@ public:
         }
         puts(nodep->varp()->nameProtect());
     }
+    virtual void visit(AstAddrOfCFunc* nodep) override {
+        // Note: Can be thought to handle more, but this is all that is needed right now
+        UASSERT_OBJ(nodep->funcp()->isLoose(), nodep, "Cannot take address of non-loose method");
+        const AstNode* modp = nodep->funcp();
+        do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
+        UASSERT_OBJ(modp, nodep->funcp(), "Loose method not under module");
+        puts("&");
+        puts(funcNameProtect(nodep->funcp(), VN_CAST_CONST(modp, NodeModule)));
+    }
     void emitCvtPackStr(AstNode* nodep) {
         if (const AstConst* constp = VN_CAST(nodep, Const)) {
             putbs("std::string(");
@@ -1397,14 +1367,87 @@ public:
 unsigned EmitVarTspSorter::s_serialNext = 0;
 
 //######################################################################
+// Emit lazy forward declarations
+
+class LazyDecls final : public AstNVisitor {
+    // NODE STATE/TYPES
+    //  AstNode::user2() -> bool. Already emitted decl for symbols.
+    AstUser2InUse m_inuser2;
+
+    // MEMBERS
+    std::unordered_set<string> m_emittedManually;  // Set of names already declared manually.
+    EmitCBaseVisitor& m_emitter;  // For access to file output
+    bool m_needsBlankLine;  // Emit blank line if any declarations are emitted (purely cosmetic)
+
+    void lazyDeclare(AstCFunc* funcp) {
+        if (funcp->user2SetOnce()) return;  // Already declared
+        if (!funcp->isMethod() || !funcp->isLoose()) return;  // Not lazily declared
+        if (m_emittedManually.count(funcp->nameProtect())) return;  // Already declared manually
+        const AstNode* modp = funcp;
+        do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
+        UASSERT_OBJ(modp, funcp, "Loose method not under module");
+        m_emitter.emitCFuncDecl(funcp, VN_CAST_CONST(modp, NodeModule));
+        m_needsBlankLine = true;
+    }
+
+    virtual void visit(AstNodeCCall* nodep) override {
+        lazyDeclare(nodep->funcp());
+        // Assume args don't contain calls themselves, which is true for now, so don't iterate ...
+    }
+
+    virtual void visit(AstAddrOfCFunc* nodep) override {  //
+        lazyDeclare(nodep->funcp());
+    }
+
+    virtual void visit(AstExecGraph* nodep) {
+        if (nodep->user2SetOnce()) return;  // Already declared
+        // Build the list of initial mtasks to start
+        for (const ExecMTask* mtp : nodep->rootMTasks()) {
+            m_emitter.puts("void ");
+            m_emitter.puts(EmitCBaseVisitor::topClassName() + "__"
+                           + EmitCBaseVisitor::protect(mtp->cFuncName()));
+            m_emitter.puts("(void* voidSelf, bool even_cycle);\n");
+            m_needsBlankLine = true;
+        }
+    }
+
+    virtual void visit(AstNode* nodep) { iterateChildrenConst(nodep); }
+
+    VL_DEBUG_FUNC;
+
+public:
+    LazyDecls(EmitCBaseVisitor& emitter)
+        : m_emitter(emitter) {}
+    void emit(AstNode* nodep) {
+        m_needsBlankLine = false;
+        iterateChildrenConst(nodep);
+        if (m_needsBlankLine) m_emitter.puts("\n");
+    }
+    void emit(const string& prefix, const string& name, const string& suffix) {
+        m_emittedManually.insert(name);
+        m_emitter.ensureNewLine();
+        m_emitter.puts(prefix);
+        m_emitter.puts(name);
+        m_emitter.puts(suffix);
+        m_emitter.ensureNewLine();
+    }
+    void declared(AstCFunc* nodep) { nodep->user2SetOnce(); }
+    void reset() { AstNode::user2ClearTree(); }
+};
+
+//######################################################################
 // Internal EmitC implementation
 
 class EmitCImp final : EmitCStmts {
+    // NODE STATE/TYPES
+    //  AstNode::user2() -> bool. Used by LazyDecls (already declared)
+
     // MEMBERS
     AstNodeModule* m_fileModp = nullptr;  // Files (names, headers) constructed using this module
     std::vector<AstChangeDet*> m_blkChangeDetVec;  // All encountered changes in block
     bool m_slow = false;  // Creating __Slow file
     bool m_fast = false;  // Creating non __Slow file (or both)
+    LazyDecls m_lazyDecls;  // Visitor for emitting lazy declarations
 
     //---------------------------------------
     // METHODS
@@ -1451,6 +1494,8 @@ class EmitCImp final : EmitCStmts {
     }
 
     V3OutCFile* newOutCFile(bool slow, bool source, int filenum = 0) {
+        m_lazyDecls.reset();  // Need to emit new lazy declarations
+
         string filenameNoExt = v3Global.opt.makeDir() + "/" + prefixNameProtect(m_fileModp);
         if (filenum) filenameNoExt += "__" + cvtToStr(filenum);
         filenameNoExt += (slow ? "__Slow" : "");
@@ -1563,10 +1608,12 @@ class EmitCImp final : EmitCStmts {
         maybeSplit();
         splitSizeInc(10);
 
-        const ExecMTask* const mtp = nodep->execMTaskp();
         puts("\n");
+        for (const ExecMTask* mtp = nodep->execMTaskp(); mtp; mtp = mtp->packNextp()) {
+            m_lazyDecls.emit(mtp->bodyp());
+        }
         puts("void ");
-        puts(topClassName() + "__" + protect(mtp->cFuncName()));
+        puts(topClassName() + "__" + protect(nodep->execMTaskp()->cFuncName()));
         puts("(void* voidSelf, bool even_cycle) {\n");
         puts(topClassName() + "* const self = static_cast<" + topClassName() + "*>(voidSelf);\n");
         puts("#define this self\n");
@@ -1594,6 +1641,7 @@ class EmitCImp final : EmitCStmts {
         splitSizeInc(nodep);
 
         puts("\n");
+        m_lazyDecls.emit(nodep);
         if (nodep->ifdef() != "") puts("#ifdef " + nodep->ifdef() + "\n");
         if (nodep->isInline()) puts("VL_INLINE_OPT ");
         emitCFuncHeader(nodep, m_modp, /* withScope: */ true);
@@ -1606,10 +1654,13 @@ class EmitCImp final : EmitCStmts {
         }
         puts(" {\n");
 
-        if (nodep->isLoose() && nodep->isStatic().falseUnknown()) {
-            puts("if (false && self) {}  // Prevent unused\n");
-            puts("#define this self\n");
-            if (!VN_IS(m_modp, Class)) puts("#define vlSymsp self->vlSymsp\n");
+        if (nodep->isLoose()) {
+            m_lazyDecls.declared(nodep);  // Defined here, so no longer needs declaration
+            if (nodep->isStatic().falseUnknown()) {  // Standard prologue
+                puts("if (false && self) {}  // Prevent unused\n");
+                puts("#define this self\n");
+                if (!VN_IS(m_modp, Class)) puts("#define vlSymsp self->vlSymsp\n");
+            }
         }
 
         // "+" in the debug indicates a print from the model
@@ -1760,16 +1811,7 @@ class EmitCImp final : EmitCStmts {
         puts("this->__Vm_even_cycle = !this->__Vm_even_cycle;\n");
 
         // Build the list of initial mtasks to start
-        std::vector<const ExecMTask*> execMTasks;
-
-        // Start each root mtask
-        for (const V3GraphVertex* vxp = nodep->depGraphp()->verticesBeginp(); vxp;
-             vxp = vxp->verticesNextp()) {
-            const ExecMTask* etp = dynamic_cast<const ExecMTask*>(vxp);
-            if (etp->threadRoot()) execMTasks.push_back(etp);
-        }
-        UASSERT_OBJ(execMTasks.size() <= static_cast<unsigned>(v3Global.opt.threads()), nodep,
-                    "More root mtasks than available threads");
+        std::vector<const ExecMTask*> execMTasks = nodep->rootMTasks();
 
         if (!execMTasks.empty()) {
             for (uint32_t i = 0; i < execMTasks.size(); ++i) {
@@ -1950,7 +1992,8 @@ class EmitCImp final : EmitCStmts {
     void maybeSplit();
 
 public:
-    EmitCImp() = default;
+    EmitCImp()
+        : m_lazyDecls(*this) {}
     virtual ~EmitCImp() override = default;
     void mainImp(AstNodeModule* modp, bool slow);
     void mainInt(AstNodeModule* modp);
@@ -2521,18 +2564,24 @@ void EmitCImp::emitCtorImp(AstNodeModule* modp) {
     string section;
     emitParams(modp, true, &first, section /*ref*/);
 
+    const string modName = prefixNameProtect(modp);
+
+    puts("\n");
+    m_lazyDecls.emit("void " + modName + "__", protect("_ctor_var_reset"),
+                     "(" + modName + "* self);");
+    puts("\n");
+
     if (VN_IS(modp, Class)) {
         modp->v3fatalSrc("constructors should be AstCFuncs instead");
     } else if (optSystemC() && modp->isTop()) {
-        puts(prefixNameProtect(modp) + "::" + prefixNameProtect(modp) + "(sc_module_name)");
+        puts(modName + "::" + modName + "(sc_module_name)");
     } else if (modp->isTop()) {
-        puts(prefixNameProtect(modp) + "::" + prefixNameProtect(modp)
+        puts(modName + "::" + modName
              + "(VerilatedContext* _vcontextp__, const char* _vcname__)\n");
         puts("    : VerilatedModule{_vcname__}\n");
         first = false;  // printed the first ':'
     } else {
-        puts(prefixNameProtect(modp) + "::" + prefixNameProtect(modp)
-             + "(const char* _vcname__)\n");
+        puts(modName + "::" + modName + "(const char* _vcname__)\n");
         puts("    : VerilatedModule(_vcname__)\n");
     }
     emitVarCtors(&first);
@@ -2548,7 +2597,7 @@ void EmitCImp::emitCtorImp(AstNodeModule* modp) {
         puts("\n");
     }
     putsDecoration("// Reset structure values\n");
-    puts(prefixNameProtect(modp) + "__" + protect("_ctor_var_reset") + "(this);\n");
+    puts(modName + "__" + protect("_ctor_var_reset") + "(this);\n");
     emitTextSection(AstType::atScCtor);
 
     if (modp->isTop() && v3Global.opt.mtasks()) {
@@ -2586,12 +2635,20 @@ void EmitCImp::emitCtorImp(AstNodeModule* modp) {
 }
 
 void EmitCImp::emitConfigureImp(AstNodeModule* modp) {
-    puts("\nvoid " + prefixNameProtect(modp) + "::" + protect("__Vconfigure") + "("
-         + symClassName() + "* vlSymsp, bool first) {\n");
+    const string modName = prefixNameProtect(modp);
+
+    if (v3Global.opt.coverage()) {
+        puts("\n");
+        m_lazyDecls.emit("void " + modName + "__", protect("_configure_coverage"),
+                         "(" + modName + "* self, bool first);");
+    }
+
+    puts("\nvoid " + modName + "::" + protect("__Vconfigure") + "(" + symClassName()
+         + "* vlSymsp, bool first) {\n");
     puts("if (false && first) {}  // Prevent unused\n");
     puts("this->vlSymsp = vlSymsp;\n");  // First, as later stuff needs it.
     if (v3Global.opt.coverage()) {
-        puts(prefixNameProtect(modp) + "__" + protect("_configure_coverage") + "(this, first);\n");
+        puts(modName + "__" + protect("_configure_coverage") + "(this, first);\n");
     }
     if (modp->isTop() && !v3Global.rootp()->timeunit().isNone()) {
         puts("vlSymsp->_vm_contextp__->timeunit("
@@ -2859,8 +2916,22 @@ void EmitCImp::emitWrapFast() {
 void EmitCImp::emitWrapEval() {
     UASSERT_OBJ(m_modp->isTop(), m_modp, "Attempting to emitWrapEval for non-top class");
 
+    const string selfDecl = "(" + topClassName() + "* self)";
+
+    // Forward declarations
+    puts("\n");
+    m_lazyDecls.emit("void " + topClassName() + "__", protect("_eval_initial"), selfDecl + ";");
+    m_lazyDecls.emit("void " + topClassName() + "__", protect("_eval_settle"), selfDecl + ";");
+    m_lazyDecls.emit("void " + topClassName() + "__", protect("_eval"), selfDecl + ";");
+    m_lazyDecls.emit("QData " + topClassName() + "__", protect("_change_request"), selfDecl + ";");
+    puts("#ifdef VL_DEBUG\n");
+    m_lazyDecls.emit("void " + topClassName() + "__", protect("_eval_debug_assertions"),
+                     selfDecl + ";");
+    puts("#endif  // VL_DEBUG\n");
+    m_lazyDecls.emit("void " + topClassName() + "__", protect("_final"), selfDecl + ";");
+
     // _eval_initial_loop
-    puts("\nstatic void " + protect("_eval_initial_loop") + "(" + topClassName() + "* self) {\n");
+    puts("\nstatic void " + protect("_eval_initial_loop") + selfDecl + " {\n");
     puts("#define this self\n");
     puts("#define vlSymsp self->vlSymsp\n");
     puts("vlSymsp->__Vm_didInit = true;\n");
@@ -3566,7 +3637,8 @@ void EmitCImp::mainImp(AstNodeModule* modp, bool slow) {
 class EmitCTrace final : EmitCStmts {
     // NODE STATE/TYPES
     // Cleared on netlist
-    //  AstNode::user1()        -> int.  Enum number
+    //  AstNode::user1() -> int.  Enum number
+    //  AstNode::user2() -> bool. Used by LazyDecls (already declared)
     AstUser1InUse m_inuser1;
 
     // MEMBERS
@@ -3574,9 +3646,12 @@ class EmitCTrace final : EmitCStmts {
     bool m_slow;  // Making slow file
     int m_enumNum = 0;  // Enumeration number (whole netlist)
     int m_baseCode = -1;  // Code of first AstTraceInc in this function
+    LazyDecls m_lazyDecls;  // Visitor for emitting lazy declarations
 
     // METHODS
     void newOutCFile(int filenum) {
+        m_lazyDecls.reset();  // Need to emit new lazy declarations
+
         string filename
             = (v3Global.opt.makeDir() + "/" + topClassName() + "_" + protect("_Trace"));
         if (filenum) filename += "__" + cvtToStr(filenum);
@@ -3640,6 +3715,11 @@ class EmitCTrace final : EmitCStmts {
             splitSizeInc(10);
         }
 
+        puts("\n");
+        m_lazyDecls.emit("void " + topClassName() + "__", protect("traceInitTop"),
+                         "(" + topClassName() + "* self, " + v3Global.opt.traceClassBase()
+                             + "* tracep);");
+
         puts("\nstatic void " + protect("traceInit") + "(void* voidSelf, "
              + v3Global.opt.traceClassBase() + "* tracep, uint32_t code) {\n");
         putsDecoration("// Callback from tracep->open()\n");
@@ -3657,6 +3737,11 @@ class EmitCTrace final : EmitCStmts {
         puts("tracep->scopeEscape('.');\n");  // Restore so later traced files won't break
         puts("}\n");
         splitSizeInc(10);
+
+        puts("\n");
+        m_lazyDecls.emit("void " + topClassName() + "__", protect("traceRegister"),
+                         "(" + topClassName() + "* self, " + v3Global.opt.traceClassBase()
+                             + "* tracep);");
 
         puts("\nvoid " + topClassName() + "::trace(");
         puts(v3Global.opt.traceClassBase() + "C* tfp, int, int) {\n");
@@ -3921,13 +4006,17 @@ class EmitCTrace final : EmitCStmts {
             splitSizeInc(nodep);
 
             puts("\n");
+            m_lazyDecls.emit(nodep);
             emitCFuncHeader(nodep, m_modp, /* withScope: */ true);
             puts(" {\n");
 
-            if (nodep->isLoose() && nodep->isStatic().falseUnknown()) {
-                puts("if (false && self) {}  // Prevent unused\n");
-                puts("#define this self\n");
-                puts("#define vlSymsp self->vlSymsp\n");
+            if (nodep->isLoose()) {
+                m_lazyDecls.declared(nodep);  // Defined here, so no longer needs declaration
+                if (nodep->isStatic().falseUnknown()) {  // Standard prologue
+                    puts("if (false && self) {}  // Prevent unused\n");
+                    puts("#define this self\n");
+                    puts("#define vlSymsp self->vlSymsp\n");
+                }
             }
 
             if (nodep->initsp()) {
@@ -4008,7 +4097,8 @@ class EmitCTrace final : EmitCStmts {
 
 public:
     explicit EmitCTrace(bool slow)
-        : m_slow{slow} {}
+        : m_slow{slow}
+        , m_lazyDecls(*this) {}
     virtual ~EmitCTrace() override = default;
     void main() {
         // Put out the file

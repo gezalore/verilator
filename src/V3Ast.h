@@ -1687,6 +1687,7 @@ public:
     AstNodeDType* findSigned32DType() { return findBasicDType(AstBasicDTypeKwd::INTEGER); }
     AstNodeDType* findUInt32DType() { return findBasicDType(AstBasicDTypeKwd::UINT32); }
     AstNodeDType* findUInt64DType() { return findBasicDType(AstBasicDTypeKwd::UINT64); }
+    AstNodeDType* findCHandleDType() { return findBasicDType(AstBasicDTypeKwd::CHANDLE); }
     AstNodeDType* findVoidDType() const;
     AstNodeDType* findQueueIndexDType() const;
     AstNodeDType* findBitDType(int width, int widthMin, VSigning numeric) const;

@@ -2442,6 +2442,28 @@ public:
     }
 };
 
+class AstAddrOfCFunc final : public AstNodeMath {
+    // Get address of CFunc
+private:
+    AstCFunc* m_funcp;  // Pointer to function itself
+
+public:
+    AstAddrOfCFunc(FileLine* fl, AstCFunc* funcp)
+        : ASTGEN_SUPER_AddrOfCFunc(fl)
+        , m_funcp{funcp} {
+        dtypep(findCHandleDType());
+    }
+
+public:
+    ASTNODE_NODE_FUNCS(AddrOfCFunc)
+    virtual void cloneRelink() override;
+    virtual const char* broken() const override;
+    virtual string emitVerilog() override { V3ERROR_NA_RETURN(""); }
+    virtual string emitC() override { V3ERROR_NA_RETURN(""); }
+    virtual bool cleanOut() const override { return true; }
+    AstCFunc* funcp() const { return m_funcp; }
+};
+
 class AstPin final : public AstNode {
     // A pin on a cell
 private:
@@ -9044,6 +9066,7 @@ public:
     const V3Graph* depGraphp() const { return m_depGraphp; }
     V3Graph* mutableDepGraphp() { return m_depGraphp; }
     void addMTaskBody(AstMTaskBody* bodyp) { addOp1p(bodyp); }
+    std::vector<const ExecMTask*> rootMTasks();
 };
 
 class AstSplitPlaceholder final : public AstNode {

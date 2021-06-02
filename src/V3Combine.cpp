@@ -48,6 +48,8 @@ protected:
 
 class CombCallVisitor final : CombBaseVisitor {
     // Find all CCALLS of each CFUNC, so that we can later rename them
+    // WARNING: This does not handle references via AstAddrOfCFunc, but currently those are
+    // only used in tracing functions, which are not combined.
 private:
     // NODE STATE
     std::multimap<AstCFunc*, AstCCall*> m_callMmap;  // Associative array of {function}{call}

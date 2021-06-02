@@ -123,6 +123,31 @@ public:
         return args;
     }
 
+    void emitCFuncHeader(const AstCFunc* funcp, const AstNodeModule* modp, bool withScope) {
+        if (!funcp->isConstructor() && !funcp->isDestructor()) {
+            puts(funcp->rtnTypeVoid());
+            puts(" ");
+        }
+        if (withScope && funcp->isProperMethod()) puts(prefixNameProtect(modp) + "::");
+        puts(funcNameProtect(funcp, modp));
+        puts("(" + cFuncArgs(funcp, modp) + ")");
+        if (funcp->isConst().trueKnown() && funcp->isProperMethod()) puts(" const");
+    }
+
+    void emitCFuncDecl(const AstCFunc* funcp, const AstNodeModule* modp) {
+        ensureNewLine();
+        if (!funcp->ifdef().empty()) puts("#ifdef " + funcp->ifdef() + "\n");
+        if (funcp->isStatic().trueUnknown() && funcp->isProperMethod()) puts("static ");
+        if (funcp->isVirtual()) {
+            UASSERT_OBJ(funcp->isProperMethod(), funcp, "Virtual function is not a proper method");
+            puts("virtual ");
+        }
+        emitCFuncHeader(funcp, modp, /* withScope: */ false);
+        if (funcp->slow()) puts(" VL_ATTR_COLD");
+        puts(";\n");
+        if (!funcp->ifdef().empty()) puts("#endif  // " + funcp->ifdef() + "\n");
+    }
+
     // CONSTRUCTORS
     EmitCBaseVisitor() = default;
     virtual ~EmitCBaseVisitor() override = default;
