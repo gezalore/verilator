@@ -1399,7 +1399,7 @@ class LazyDecls final : public AstNVisitor {
         lazyDeclare(nodep->funcp());
     }
 
-    virtual void visit(AstExecGraph* nodep) {
+    virtual void visit(AstExecGraph* nodep) override {
         if (nodep->user2SetOnce()) return;  // Already declared
         // Build the list of initial mtasks to start
         for (const ExecMTask* mtp : nodep->rootMTasks()) {
@@ -1411,7 +1411,7 @@ class LazyDecls final : public AstNVisitor {
         }
     }
 
-    virtual void visit(AstNode* nodep) { iterateChildrenConst(nodep); }
+    virtual void visit(AstNode* nodep) override { iterateChildrenConst(nodep); }
 
     VL_DEBUG_FUNC;
 
