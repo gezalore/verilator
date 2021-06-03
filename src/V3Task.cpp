@@ -888,10 +888,9 @@ private:
         }
         AstCFunc* dpip = new AstCFunc(nodep->fileline(), nodep->cname(), m_scopep,
                                       (rtnvarp ? rtnvarp->dpiArgType(true, true)
-                                       // Tasks (but not void functions)
-                                       // return bool indicating disabled
-                                       : nodep->dpiTask() ? "int"
-                                                          : ""));
+                                               // Tasks (but not void functions)
+                                               // return bool indicating disabled
+                                               : nodep->dpiTask() ? "int" : ""));
         dpip->dontCombine(true);
         dpip->entryPoint(false);
         dpip->funcPublic(true);
