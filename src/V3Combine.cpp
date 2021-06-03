@@ -48,8 +48,6 @@ protected:
 
 class CombCallVisitor final : CombBaseVisitor {
     // Find all CCALLS of each CFUNC, so that we can later rename them
-    // WARNING: This does not handle references via AstAddrOfCFunc, but currently those are
-    // only used in tracing functions, which are not combined.
 private:
     // NODE STATE
     std::multimap<AstCFunc*, AstCCall*> m_callMmap;  // Associative array of {function}{call}
@@ -88,14 +86,23 @@ public:
         }
     }
     // METHODS
-    void addCall(AstCCall* nodep) {
-        if (nodep->funcp()->dontCombine()) return;
-        m_callMmap.emplace(nodep->funcp(), nodep);
-    }
+    void addCall(AstCCall* nodep) { m_callMmap.emplace(nodep->funcp(), nodep); }
 
 private:
     // VISITORS
-    virtual void visit(AstCCall* nodep) override { addCall(nodep); }
+    virtual void visit(AstCCall* nodep) override {
+        if (nodep->funcp()->dontCombine()) return;
+        addCall(nodep);
+    }
+    // LCOV_EXCL_START
+    virtual void visit(AstAddrOfCFunc* nodep) override {
+        // We cannot yet handle references via AstAddrOfCFunc, but currently those are
+        // only used in tracing functions, which are not combined. Blow up in case this changes.
+        if (nodep->funcp()->dontCombine()) return;
+        nodep->v3fatalSrc(
+            "Don't know how to combine functions that are referenced via AstAddrOfCFunc");
+    }
+    // LCOV_EXCL_END
     // Speed things up
     virtual void visit(AstNodeAssign*) override {}
     virtual void visit(AstNodeMath*) override {}
