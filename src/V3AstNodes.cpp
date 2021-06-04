@@ -55,8 +55,11 @@ void AstNodeVarRef::cloneRelink() {
     if (m_varp && m_varp->clonep()) m_varp = m_varp->clonep();
 }
 
-string AstNodeVarRef::selfPointerProtect() const {
-    return VIdProtect::protectWordsIf(selfPointer(), protect());
+string AstNodeVarRef::selfPointerProtect(bool useSelfForThis) const {
+    const string& sp = useSelfForThis
+                           ? EmitCBaseVisitor::replaceWord(selfPointer(), "this", "self")
+                           : selfPointer();
+    return VIdProtect::protectWordsIf(sp, protect());
 }
 
 string AstNodeVarRef::classPrefixProtect() const {
@@ -121,8 +124,11 @@ const char* AstNodeCCall::broken() const {
     return nullptr;
 }
 bool AstNodeCCall::isPure() const { return funcp()->pure(); }
-string AstNodeCCall::selfPointerProtect() const {
-    return VIdProtect::protectWordsIf(selfPointer(), protect());
+string AstNodeCCall::selfPointerProtect(bool useSelfForThis) const {
+    const string& sp = useSelfForThis
+                           ? EmitCBaseVisitor::replaceWord(selfPointer(), "this", "self")
+                           : selfPointer();
+    return VIdProtect::protectWordsIf(sp, protect());
 }
 string AstNodeCCall::classPrefixProtect() const {
     return v3Global.opt.modPrefix() + "_" + VIdProtect::protectWordsIf(classPrefix(), protect());

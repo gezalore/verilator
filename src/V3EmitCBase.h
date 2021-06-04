@@ -152,6 +152,24 @@ public:
         if (!funcp->ifdef().empty()) puts("#endif  // " + funcp->ifdef() + "\n");
     }
 
+private:
+    static bool isWordChar(char c) { return isalnum(c) || c == '_'; }
+
+public:
+    static string replaceWord(string str, const string& from, const string& to) {
+        const size_t len = from.size();
+        UASSERT_STATIC(len > 0, "Cannot replace empty string");
+        for (size_t pos = 0; (pos = str.find(from, pos)) != string::npos; pos += len) {
+            // Only replace whole words
+            if (((pos > 0) && isWordChar(str[pos - 1])) ||  //
+                ((pos + len < str.size()) && isWordChar(str[pos + len]))) {
+                continue;
+            }
+            str.replace(pos, len, to);
+        }
+        return str;
+    }
+
     // CONSTRUCTORS
     EmitCBaseVisitor() = default;
     virtual ~EmitCBaseVisitor() override = default;

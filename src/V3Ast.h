@@ -2311,7 +2311,7 @@ public:
     void hierThis(bool flag) { m_hierThis = flag; }
     string selfPointer() const { return m_selfPointer; }
     void selfPointer(const string& value) { m_selfPointer = value; }
-    string selfPointerProtect() const;
+    string selfPointerProtect(bool useSelfForThis) const;
     string classPrefix() const { return m_classPrefix; }
     void classPrefix(const string& value) { m_classPrefix = value; }
     string classPrefixProtect() const;
@@ -2646,7 +2646,7 @@ public:
     AstCFunc* funcp() const { return m_funcp; }
     string selfPointer() const { return m_selfPointer; }
     void selfPointer(const string& value) { m_selfPointer = value; }
-    string selfPointerProtect() const;
+    string selfPointerProtect(bool useSelfForThis) const;
     string classPrefix() const { return m_classPrefix; }
     void classPrefix(const string& value) { m_classPrefix = value; }
     string classPrefixProtect() const;

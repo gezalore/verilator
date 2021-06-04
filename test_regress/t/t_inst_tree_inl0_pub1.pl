@@ -26,9 +26,7 @@ sub checkRelativeRefs {
     my $file = "$Self->{obj_dir}/V$Self->{name}_${mod}.cpp";
     my $text = file_contents($file);
 
-    # Remove "this->__VlSymsp" which is noise
-    $text =~ s/this->__VlSymsp//g;
-    if ($text =~ m/this->/) {
+    if ($text =~ m/this->/ || $text =~ m/self->/) {
         $found_relative = 1;
     }
 

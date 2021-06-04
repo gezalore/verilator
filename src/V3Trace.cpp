@@ -521,7 +521,7 @@ private:
                 funcp->v3fatalSrc("Don't know how to register this type of function");
             }
             regp->addStmtsp(new AstAddrOfCFunc(flp, funcp));
-            regp->addStmtsp(new AstText(flp, ", this);\n", true));
+            regp->addStmtsp(new AstText(flp, ", self);\n", true));
         }
         // Add global activity check to TRACE_CHANGE functions
         if (type == AstCFuncType::TRACE_CHANGE) {
@@ -691,7 +691,7 @@ private:
         // Register it
         regFuncp->addStmtsp(new AstText(fl, "tracep->addCleanupCb(", true));
         regFuncp->addStmtsp(new AstAddrOfCFunc(fl, cleanupFuncp));
-        regFuncp->addStmtsp(new AstText(fl, ", this);\n", true));
+        regFuncp->addStmtsp(new AstText(fl, ", self);\n", true));
 
         // Clear global activity flag
         cleanupFuncp->addStmtsp(
