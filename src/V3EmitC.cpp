@@ -250,7 +250,6 @@ public:
             emitCFuncDecl(funcp, modp);
         }
     }
-
     void ccallIterateArgs(AstNodeCCall* nodep) {
         bool comma = false;
         if (nodep->funcp()->isLoose()) {
@@ -1647,7 +1646,7 @@ class EmitCImp final : EmitCStmts {
         emitCFuncHeader(nodep, m_modp, /* withScope: */ true);
 
         // TODO perhaps better to have a new AstCCtorInit so we can pass arguments
-        //      rather than requiring a string here
+        // rather than requiring a string here
         if (!nodep->ctorInits().empty()) {
             puts(": ");
             puts(nodep->ctorInits());
@@ -2421,8 +2420,7 @@ void EmitCStmts::displayNode(AstNode* nodep, AstScopeName* scopenamep, const str
     bool inPct = false;
     bool ignore = false;
     for (; pos != vformat.end(); ++pos) {
-        // UINFO(1, "Parse '" << *pos << "'  IP" << inPct << " List " << cvtToHex(elistp) <<
-        // endl);
+        // UINFO(1, "Parse '" << *pos << "'  IP" << inPct << " List " << cvtToHex(elistp) << endl);
         if (!inPct && pos[0] == '%') {
             inPct = true;
             ignore = false;
@@ -2670,8 +2668,7 @@ void EmitCImp::emitCoverageImp(AstNodeModule*) {
         puts("void " + prefixNameProtect(m_modp) + "::__vlCoverInsert(");
         puts(v3Global.opt.threads() ? "std::atomic<uint32_t>" : "uint32_t");
         puts("* countp, bool enable, const char* filenamep, int lineno, int column,\n");
-        puts("const char* hierp, const char* pagep, const char* commentp, const char* "
-             "linescovp) "
+        puts("const char* hierp, const char* pagep, const char* commentp, const char* linescovp) "
              "{\n");
         if (v3Global.opt.threads()) {
             puts("assert(sizeof(uint32_t) == sizeof(std::atomic<uint32_t>));\n");
@@ -3318,8 +3315,7 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
                     putsDecoration("// CELLS\n");
                     if (modp->isTop()) {
                         puts("// Public to allow access to /*verilator_public*/ items;\n");
-                        puts("// otherwise the application code can consider these "
-                             "internals.\n");
+                        puts("// otherwise the application code can consider these internals.\n");
                     }
                 }
                 puts(prefixNameProtect(cellp->modp()) + "* " + cellp->nameProtect() + ";\n");
@@ -3391,8 +3387,7 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
         ofp()->putsPrivate(false);  // public:
         if (modp->isTop()) {
             puts("/// Construct the model; called by application code\n");
-            puts("/// If contextp is null, then the model will use the default global "
-                 "context\n");
+            puts("/// If contextp is null, then the model will use the default global context\n");
             puts("/// If name is \"\", then makes a wrapper with a\n");
             puts("/// single model invisible with respect to DPI scope names.\n");
             puts(prefixNameProtect(modp) + "(VerilatedContext* contextp,"
