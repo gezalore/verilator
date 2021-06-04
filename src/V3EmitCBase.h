@@ -61,7 +61,8 @@ public:
     static string symTopAssign() {
         return v3Global.opt.prefix() + "* const __restrict vlTOPp VL_ATTR_UNUSED = vlSymsp->TOPp;";
     }
-    static string funcNameProtect(const AstCFunc* nodep, const AstNodeModule* modp) {
+    static string funcNameProtect(const AstCFunc* nodep) {
+        AstNodeModule* modp = VN_CAST(nodep->user4p(), NodeModule);
         string name;
         if (nodep->isConstructor()) {
             name += prefixNameProtect(modp);
@@ -95,12 +96,12 @@ public:
         v3Global.rootp()->addFilesp(cfilep);
         return cfilep;
     }
-    string cFuncArgs(const AstCFunc* nodep, const AstNodeModule* modp = nullptr) {
+    string cFuncArgs(const AstCFunc* nodep) {
         // Return argument list for given C function
         string args;
         if (nodep->isLoose() && nodep->isStatic().falseUnknown()) {
-            UASSERT_OBJ(modp, nodep, "Cannot declare loose method without module");
             if (nodep->isConst().trueKnown()) args += "const ";
+            AstNodeModule* modp = VN_CAST(nodep->user4p(), NodeModule);
             args += prefixNameProtect(modp);
             args += "* self";
         }
@@ -132,8 +133,8 @@ public:
             puts(" ");
         }
         if (withScope && funcp->isProperMethod()) puts(prefixNameProtect(modp) + "::");
-        puts(funcNameProtect(funcp, modp));
-        puts("(" + cFuncArgs(funcp, modp) + ")");
+        puts(funcNameProtect(funcp));
+        puts("(" + cFuncArgs(funcp) + ")");
         if (funcp->isConst().trueKnown() && funcp->isProperMethod()) puts(" const");
     }
 

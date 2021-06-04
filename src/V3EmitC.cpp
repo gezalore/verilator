@@ -376,9 +376,7 @@ public:
             puts(funcp->nameProtect());
         } else if (funcp->isProperMethod() && funcp->isStatic().trueUnknown()) {
             // Call static method via the containing class
-            const AstNode* modp = funcp;
-            do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
-            UASSERT_OBJ(modp, funcp, "Static method not under module");
+            AstNodeModule* modp = VN_CAST(funcp->user4p(), NodeModule);
             puts(prefixNameProtect(modp) + "::");
             puts(funcp->nameProtect());
         } else if (!nodep->classPrefix().empty()) {
@@ -387,10 +385,7 @@ public:
             puts(funcp->nameProtect());
         } else if (funcp->isLoose()) {
             // Calling loose method
-            const AstNode* modp = funcp;
-            do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
-            UASSERT_OBJ(modp, funcp, "Method not under module");
-            puts(funcNameProtect(funcp, VN_CAST_CONST(modp, NodeModule)));
+            puts(funcNameProtect(funcp));
         } else {
             // Calling regular method/function
             if (!nodep->selfPointer().empty()) puts(nodep->selfPointerProtect() + "->");
@@ -1115,10 +1110,7 @@ public:
         const AstVar* const varp = nodep->varp();
         if (varp->isStatic()) {
             // Access static variable via the containing class
-            const AstNode* modp = varp;
-            do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
-            UASSERT_OBJ(modp, varp, "Static method not under module");
-            puts(prefixNameProtect(modp) + "::");
+            puts(prefixNameProtect(varp->user4p()) + "::");
         } else if (!nodep->classPrefix().empty()) {
             puts(nodep->classPrefixProtect() + "::");
         } else if (!nodep->selfPointerProtect().empty()) {
@@ -1128,12 +1120,10 @@ public:
     }
     virtual void visit(AstAddrOfCFunc* nodep) override {
         // Note: Can be thought to handle more, but this is all that is needed right now
-        UASSERT_OBJ(nodep->funcp()->isLoose(), nodep, "Cannot take address of non-loose method");
-        const AstNode* modp = nodep->funcp();
-        do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
-        UASSERT_OBJ(modp, nodep->funcp(), "Loose method not under module");
+        AstCFunc* const funcp = nodep->funcp();
+        UASSERT_OBJ(funcp->isLoose(), nodep, "Cannot take address of non-loose method");
         puts("&");
-        puts(funcNameProtect(nodep->funcp(), VN_CAST_CONST(modp, NodeModule)));
+        puts(funcNameProtect(funcp));
     }
     void emitCvtPackStr(AstNode* nodep) {
         if (const AstConst* constp = VN_CAST(nodep, Const)) {
@@ -1382,10 +1372,7 @@ class LazyDecls final : public AstNVisitor {
         if (funcp->user2SetOnce()) return;  // Already declared
         if (!funcp->isMethod() || !funcp->isLoose()) return;  // Not lazily declared
         if (m_emittedManually.count(funcp->nameProtect())) return;  // Already declared manually
-        const AstNode* modp = funcp;
-        do { modp = modp->backp(); } while (!VN_IS(modp, NodeModule) && modp);
-        UASSERT_OBJ(modp, funcp, "Loose method not under module");
-        m_emitter.emitCFuncDecl(funcp, VN_CAST_CONST(modp, NodeModule));
+        m_emitter.emitCFuncDecl(funcp, VN_CAST_CONST(funcp->user4p(), NodeModule));
         m_needsBlankLine = true;
     }
 
@@ -4106,8 +4093,20 @@ public:
 //######################################################################
 // EmitC class functions
 
+static void selfParentClassPointers() {
+    // Set user4p in all CFunc and Var to point to the containing AstNodeModule
+    for (AstNode* modp = v3Global.rootp()->modulesp(); modp; modp = modp->nextp()) {
+        for (AstNode* nodep = VN_CAST(modp, NodeModule)->stmtsp(); nodep; nodep = nodep->nextp()) {
+            if (VN_IS(nodep, CFunc) || VN_IS(nodep, Var)) nodep->user4p(modp);
+        }
+    }
+}
+
 void V3EmitC::emitc() {
     UINFO(2, __FUNCTION__ << ": " << endl);
+    // Set user4 to parent module
+    AstUser4InUse user4InUse;
+    selfParentClassPointers();
     // Process each module in turn
     for (AstNodeModule* nodep = v3Global.rootp()->modulesp(); nodep;
          nodep = VN_CAST(nodep->nextp(), NodeModule)) {
@@ -4127,6 +4126,9 @@ void V3EmitC::emitc() {
 void V3EmitC::emitcTrace() {
     UINFO(2, __FUNCTION__ << ": " << endl);
     if (v3Global.opt.trace()) {
+        // Set user4 to parent module
+        AstUser4InUse user4InUse;
+        selfParentClassPointers();
         {
             EmitCTrace slow(true);
             slow.main();
