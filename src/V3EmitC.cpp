@@ -1616,11 +1616,10 @@ class EmitCImp final : EmitCStmts {
         puts("(void* voidSelf, bool even_cycle) {\n");
         puts(topClassName() + "* const self = static_cast<" + topClassName() + "*>(voidSelf);\n");
         puts("#define this self\n");
-        puts("#define vlSymsp self->vlSymsp\n");
+        puts(symClassAssign());
         emitMTaskBody(nodep);
         ensureNewLine();
         puts("#undef this\n");
-        puts("#undef vlSymsp\n");
         puts("}\n");
     }
 
@@ -1658,7 +1657,7 @@ class EmitCImp final : EmitCStmts {
             if (nodep->isStatic().falseUnknown()) {  // Standard prologue
                 puts("if (false && self) {}  // Prevent unused\n");
                 puts("#define this self\n");
-                if (!VN_IS(m_modp, Class)) puts("#define vlSymsp self->vlSymsp\n");
+                if (!VN_IS(m_modp, Class)) puts(symClassAssign());
             }
         }
 
@@ -1697,7 +1696,6 @@ class EmitCImp final : EmitCStmts {
         if (nodep->isLoose() && nodep->isStatic().falseUnknown()) {
             ensureNewLine();
             puts("#undef this\n");
-            if (!VN_IS(m_modp, Class)) puts("#undef vlSymsp\n");
         }
         puts("}\n");
         if (nodep->ifdef() != "") puts("#endif  // " + nodep->ifdef() + "\n");
@@ -2930,7 +2928,7 @@ void EmitCImp::emitWrapEval() {
     // _eval_initial_loop
     puts("\nstatic void " + protect("_eval_initial_loop") + selfDecl + " {\n");
     puts("#define this self\n");
-    puts("#define vlSymsp self->vlSymsp\n");
+    puts(symClassAssign());
     puts("vlSymsp->__Vm_didInit = true;\n");
     puts(topClassName() + "__" + protect("_eval_initial") + "(this);\n");
     emitSettleLoop(topClassName() + "__" + protect("_eval_settle") + "(this);\n"  //
@@ -2938,7 +2936,6 @@ void EmitCImp::emitWrapEval() {
                    true);
     ensureNewLine();
     puts("#undef this\n");
-    puts("#undef vlSymsp\n");
     puts("}\n");
 
     // ::eval_step
@@ -4010,7 +4007,7 @@ class EmitCTrace final : EmitCStmts {
                 if (nodep->isStatic().falseUnknown()) {  // Standard prologue
                     puts("if (false && self) {}  // Prevent unused\n");
                     puts("#define this self\n");
-                    puts("#define vlSymsp self->vlSymsp\n");
+                    puts(symClassAssign());
                 }
             }
 
@@ -4060,7 +4057,6 @@ class EmitCTrace final : EmitCStmts {
             if (nodep->isLoose() && nodep->isStatic().falseUnknown()) {
                 ensureNewLine();
                 puts("#undef this\n");
-                puts("#undef vlSymsp\n");
             }
 
             puts("}\n");

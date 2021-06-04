@@ -495,7 +495,7 @@ private:
             funcp->addInitsp(new AstCStmt(
                 flp, prefixNameProtect(m_topModp) + "* const __restrict self = static_cast<"
                          + prefixNameProtect(m_topModp) + "*>(voidSelf);\n"));
-            funcp->addInitsp(new AstCStmt(flp, symClassVar() + " = self->vlSymsp;\n"));
+            funcp->addInitsp(new AstCStmt(flp, symClassAssign()));
 
         } else {
             funcp->argTypes(v3Global.opt.traceClassBase() + "* tracep");
@@ -686,7 +686,7 @@ private:
         cleanupFuncp->addInitsp(new AstCStmt(
             fl, prefixNameProtect(m_topModp) + "* const __restrict self = static_cast<"
                     + prefixNameProtect(m_topModp) + "*>(voidSelf);\n"));
-        cleanupFuncp->addInitsp(new AstCStmt(fl, symClassVar() + " = self->vlSymsp;\n"));
+        cleanupFuncp->addInitsp(new AstCStmt(fl, symClassAssign()));
 
         // Register it
         regFuncp->addStmtsp(new AstText(fl, "tracep->addCleanupCb(", true));

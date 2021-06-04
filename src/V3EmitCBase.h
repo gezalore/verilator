@@ -55,6 +55,9 @@ public:
     static string ifNoProtect(const string& in) { return v3Global.opt.protectIds() ? "" : in; }
     static string symClassName() { return v3Global.opt.prefix() + "_" + protect("_Syms"); }
     static string symClassVar() { return symClassName() + "* __restrict vlSymsp"; }
+    static string symClassAssign() {
+        return symClassName() + "* const __restrict vlSymsp VL_ATTR_UNUSED = self->vlSymsp;\n";
+    }
     static string symTopAssign() {
         return v3Global.opt.prefix() + "* const __restrict vlTOPp VL_ATTR_UNUSED = vlSymsp->TOPp;";
     }
