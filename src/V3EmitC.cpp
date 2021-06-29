@@ -123,7 +123,7 @@ class EmitCImp final : EmitCFunc {
             }
         }
     }
-    void emitParams(AstNodeModule* modp, bool init, bool* firstp, string& sectionr) {
+    void emitParams(AstNodeModule* modp, bool init, string& sectionr) {
         bool anyi = false;
         for (AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
             if (const AstVar* varp = VN_CAST(nodep, Var)) {
@@ -250,7 +250,7 @@ void EmitCImp::emitCtorImp(AstNodeModule* modp) {
     puts("\n");
     bool first = true;
     string section;
-    emitParams(modp, true, &first, section /*ref*/);
+    emitParams(modp, true, section);
 
     const string modName = prefixNameProtect(modp);
 
@@ -504,15 +504,8 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
 
     emitTypedefs(modp->stmtsp());
 
-    string section;
-    section = "\n// PORTS\n";
-    emitVarList(modp->stmtsp(), EVL_CLASS_IO, "", section /*ref*/);
-
-    section = "\n// LOCAL SIGNALS\n";
-    emitVarList(modp->stmtsp(), EVL_CLASS_SIG, "", section /*ref*/);
-
-    section = "\n// LOCAL VARIABLES\n";
-    emitVarList(modp->stmtsp(), EVL_CLASS_TEMP, "", section /*ref*/);
+    puts("\n// DESIGN SPECIFIC STATE\n");
+    emitVarDecls(modp->stmtsp());
 
     puts("\n// INTERNAL VARIABLES\n");
     if (!VN_IS(modp, Class)) {  // Avoid clang unused error (& don't want in every object)
@@ -522,12 +515,10 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
     ofp()->putsPrivate(false);  // public:
     emitCoverageDecl(modp);  // may flip public/private
 
-    section = "\n// PARAMETERS\n";
-    ofp()->putsPrivate(false);  // public:
-    emitVarList(modp->stmtsp(), EVL_CLASS_PAR, "",
-                section /*ref*/);  // Only those that are non-CONST
-    bool first = true;
-    emitParams(modp, false, &first, section /*ref*/);
+    {
+        string section = "\n// PARAMETERS\n";
+        emitParams(modp, false, section);
+    }
 
     if (!VN_IS(modp, Class)) {
         puts("\n// CONSTRUCTORS\n");
@@ -592,8 +583,18 @@ void EmitCImp::emitImpTop() {
 void EmitCImp::emitImp(AstNodeModule* modp) {
     puts("\n//==========\n");
     if (m_slow) {
-        string section;
-        emitVarList(modp->stmtsp(), EVL_CLASS_ALL, prefixNameProtect(modp), section /*ref*/);
+        // Emit static variable definitions
+        {
+            const string prefix = prefixNameProtect(modp);
+            for (const AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
+                if (const AstVar* const varp = VN_CAST_CONST(nodep, Var)) {
+                    if (varp->isStatic()) {
+                        puts(varp->vlArgType(true, false, false, prefix));
+                        puts(";\n");
+                    }
+                }
+            }
+        }
         if (!VN_IS(modp, Class)) emitCtorImp(modp);
         if (!VN_IS(modp, Class)) emitConfigureImp(modp);
         if (!VN_IS(modp, Class)) emitDestructorImp(modp);

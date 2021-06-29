@@ -155,16 +155,7 @@ public:
     void displayArg(AstNode* dispp, AstNode** elistp, bool isScan, const string& vfmt, bool ignore,
                     char fmtLetter);
 
-    enum EisWhich : uint8_t {
-        EVL_CLASS_IO,
-        EVL_CLASS_SIG,
-        EVL_CLASS_TEMP,
-        EVL_CLASS_PAR,
-        EVL_CLASS_ALL
-    };
-    void emitVarList(AstNode* firstp, EisWhich which, const string& prefixIfImp, string& sectionr);
-    static void emitVarSort(const VarSortMap& vmap, VarVec* sortedp);
-    void emitSortedVarList(const VarVec& anons, const VarVec& nonanons, const string& prefixIfImp);
+    void emitVarDecls(AstNode* firstp);
     void emitVarCtors(bool* firstp);
     void emitCtorSep(bool* firstp);
     bool emitSimpleOk(AstNodeMath* nodep);
@@ -243,7 +234,7 @@ public:
 
         for (AstNode* subnodep = nodep->argsp(); subnodep; subnodep = subnodep->nextp()) {
             if (AstVar* varp = VN_CAST(subnodep, Var)) {
-                if (varp->isFuncReturn()) emitVarDecl(varp, "");
+                if (varp->isFuncReturn()) emitVarDecl(varp);
             }
         }
 
@@ -272,7 +263,7 @@ public:
 
     virtual void visit(AstVar* nodep) override {
         UASSERT_OBJ(m_cfuncp, nodep, "Cannot emit non-local variable");
-        emitVarDecl(nodep, "");
+        emitVarDecl(nodep);
     }
 
     virtual void visit(AstNodeAssign* nodep) override {
