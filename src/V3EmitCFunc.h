@@ -114,12 +114,8 @@ public:
 
 class EmitCFunc VL_NOT_FINAL : public EmitCBaseVisitor {
 private:
-    using VarVec = std::vector<const AstVar*>;
-    using VarSortMap = std::map<int, VarVec>;  // Map size class to VarVec
-
     bool m_suppressSemi;
     AstVarRef* m_wideTempRefp;  // Variable that _WW macros should be setting
-    VarVec m_ctorVarsVec;  // All variables in constructor order
     int m_labelNum;  // Next label number
     int m_splitSize;  // # of cfunc nodes placed into output file
     int m_splitFilenum;  // File number being created, 0 = primary
@@ -129,7 +125,7 @@ private:
 protected:
     EmitCLazyDecls m_lazyDecls;  // Visitor for emitting lazy declarations
     bool m_useSelfForThis = false;  // Replace "this" with "vlSelf"
-    AstNodeModule* m_modp = nullptr;  // Current module being emitted
+    const AstNodeModule* m_modp = nullptr;  // Current module being emitted
     AstCFunc* m_cfuncp = nullptr;  // Current function being emitted
 
 public:
@@ -139,7 +135,7 @@ public:
     // ACCESSORS
     int splitFilenumInc() {
         m_splitSize = 0;
-        return ++m_splitFilenum;
+        return m_splitFilenum++;
     }
     int splitSize() const { return m_splitSize; }
     void splitSizeInc(int count) { m_splitSize += count; }
@@ -155,9 +151,6 @@ public:
     void displayArg(AstNode* dispp, AstNode** elistp, bool isScan, const string& vfmt, bool ignore,
                     char fmtLetter);
 
-    void emitVarDecls(AstNode* firstp);
-    void emitVarCtors(bool* firstp);
-    void emitCtorSep(bool* firstp);
     bool emitSimpleOk(AstNodeMath* nodep);
     void emitIQW(AstNode* nodep) {
         // Other abbrevs: "C"har, "S"hort, "F"loat, "D"ouble, stri"N"g
