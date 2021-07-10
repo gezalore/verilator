@@ -24,6 +24,7 @@
 #include "V3FileLine.h"
 #include "V3Number.h"
 #include "V3Global.h"
+#include "V3Broken.h"
 
 #include <cmath>
 #include <type_traits>
@@ -1316,14 +1317,11 @@ public:
 // The if() makes it faster, even though prefetch won't fault on null pointers
 #define ASTNODE_PREFETCH(nodep) \
     do { \
-        if (nodep) { \
-            VL_PREFETCH_RD(&((nodep)->m_nextp)); \
-            VL_PREFETCH_RD(&((nodep)->m_type)); \
-        } \
+        if (nodep) { nodep->prefetch(); } \
     } while (false)
 
 class AstNode VL_NOT_FINAL {
-    // v ASTNODE_PREFETCH depends on below ordering of members
+    // v AstNode::prefetch() depends on below ordering of members
     AstNode* m_nextp;  // Next peer in the parent's list
     AstNode* m_backp;  // Node that points to this one (via next/op1/op2/...)
     AstNode* m_op1p;  // Generic pointer 1
@@ -1332,24 +1330,34 @@ class AstNode VL_NOT_FINAL {
     AstNode* m_op4p;  // Generic pointer 4
     AstNode** m_iterpp;  // Pointer to node iterating on, change it if we replace this node.
     const AstType m_type;  // Node sub-type identifier
-    // ^ ASTNODE_PREFETCH depends on above ordering of members
+    // ^ AstNode::prefetch() depends on above ordering of members
 
     // AstType is 2 bytes, so we can stick another 6 bytes after it to utilize what would
-    // otherwise be padding (on a 64-bit system). We stick the attribute flags and the clone
-    // count here.
+    // otherwise be padding (on a 64-bit system). We stick the attribute flags, broken state,
+    // and the clone count here.
 
     struct {
         bool didWidth : 1;  // Did V3Width computation
         bool doingWidth : 1;  // Inside V3Width
         bool protect : 1;  // Protect name if protection is on
-        uint16_t unused : 13;  // Space for more flags here (there must be 16 bits in total)
+        // Space for more flags here (there must be 8 bits in total)
+        uint8_t unused : 5;
     } m_flags;  // Attribute flags
+
+    // State variable used by V3Broken for consistency checking. This is hot when --debug-checks,
+    // so store it in an individually addressable byte.
+    enum class BrokenState : uint8_t {
+        CLEAR = 0,
+        IN_TREE = 1, // Node known to be under the netlist
+        UNDER = 2 // Current checking is under this node (implies IN_TREE)
+    } m_brokenState = BrokenState::CLEAR;
 
     int m_cloneCnt;  // Sequence number for when last clone was made
 
 #if defined(__x86_64__) && defined(__gnu_linux__)
     // Only assert this on known platforms, as it only affects performance, not correctness
-    static_assert(sizeof(m_type) + sizeof(m_flags) + sizeof(m_cloneCnt) <= sizeof(void*),
+    static_assert(sizeof(m_type) + sizeof(m_flags) + sizeof(m_brokenState) + sizeof(m_cloneCnt)
+                      <= sizeof(void*),
                   "packing requires padding");
 #endif
 
@@ -1466,9 +1474,6 @@ public:
     AstNode* firstAbovep() const {  // Returns nullptr when second or later in list
         return ((backp() && backp()->nextp() != this) ? backp() : nullptr);
     }
-    bool brokeExists() const;
-    bool brokeExistsAbove() const;
-    bool brokeExistsBelow() const;
 
     // CONSTRUCTORS
     virtual ~AstNode() = default;
@@ -1686,6 +1691,18 @@ public:
     AstNodeDType* findBasicDType(AstBasicDTypeKwd kwd) const;
     AstBasicDType* findInsertSameDType(AstBasicDType* nodep);
 
+    // METHODS - V3Broken state (consistency checking) management
+    void brokenStateSetClear() { m_brokenState = BrokenState::CLEAR; }
+    void brokenStateSetInTree() { m_brokenState = BrokenState::IN_TREE; }
+    void brokenStateSetUnder() { m_brokenState = BrokenState::UNDER; }
+    bool brokenStateIsClear() const { return m_brokenState == BrokenState::CLEAR; }
+
+    // Used by AstNode::broken()
+    bool brokeExists() const { return V3Broken::isLinkable(this); }
+    bool brokeExistsAbove() const { return brokeExists() && m_brokenState == BrokenState::UNDER; }
+    bool brokeExistsBelow() const { return brokeExists() && m_brokenState != BrokenState::UNDER; }
+    // Note: brokeExistsBelow is not quite precise, as it is true for sibling nodes as well
+
     // METHODS - dump and error
     void v3errorEnd(std::ostringstream& str) const;
     void v3errorEndFatal(std::ostringstream& str) const VL_ATTR_NORETURN;
@@ -1786,6 +1803,12 @@ public:
 
     // INVOKERS
     virtual void accept(AstNVisitor& v) = 0;
+
+    // PREFETCH
+    inline void prefetch() const {  // Prefetch THIS node
+        VL_PREFETCH_RD(&m_nextp);
+        VL_PREFETCH_RD(&m_type);
+    }
 
 protected:
     // All AstNVisitor related functions are called as methods off the visitor
