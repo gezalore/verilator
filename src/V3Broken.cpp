@@ -37,6 +37,23 @@
 #include <unordered_set>
 
 //######################################################################
+// Table of AstNode pointers that can be linked to via member pointers
+
+static class LinkableTable final {
+private:
+    // MEMBERS
+    std::unordered_set<const AstNode*> m_linkable;  // Set of all nodes allocated but not freed
+
+public:
+    // METHODS
+    void reset() { m_linkable.clear(); }
+    inline bool addLinkable(const AstNode* nodep) { return m_linkable.emplace(nodep).second; }
+    inline bool isLinkable(const AstNode* nodep) const { return m_linkable.count(nodep) != 0; }
+} s_linkableTable;
+
+bool V3Broken::isLinkable(const AstNode* nodep) { return s_linkableTable.isLinkable(nodep); }
+
+//######################################################################
 // Table of allocated AstNode pointers
 
 static class AllocTable final {
@@ -71,7 +88,7 @@ public:
             for (const AstNode* const nodep : m_allocated) {
                 // LCOV_EXCL_START
                 // Most likely not leaked, so check that first
-                if (VL_UNCOVERABLE(nodep->brokenStateIsClear())) {
+                if (VL_UNCOVERABLE(s_linkableTable.isLinkable(nodep))) {
                     const bool hasBack = nodep->backp() != nullptr;
                     if (hasBack != withBack) continue;
                     // Use only AstNode::dump instead of the virtual one, as there
@@ -96,49 +113,26 @@ void V3Broken::addNewed(const AstNode* nodep) { s_allocTable.addNewed(nodep); }
 void V3Broken::deleted(const AstNode* nodep) { s_allocTable.deleted(nodep); }
 
 //######################################################################
-// Table of AstNode pointers that can be linked to via member pointers
-
-static class LinkableTable final {
-private:
-    // MEMBERS
-    std::unordered_set<const AstNode*> m_linkable;  // Set of all nodes allocated but not freed
-
-public:
-    // METHODS
-    void reset() { m_linkable.clear(); }
-    inline void addLinkable(const AstNode* nodep) { m_linkable.emplace(nodep); }
-    inline bool isLinkable(const AstNode* nodep) const { return m_linkable.count(nodep) != 0; }
-} s_linkableTable;
-
-bool V3Broken::isLinkable(const AstNode* nodep) { return s_linkableTable.isLinkable(nodep); }
-
-//######################################################################
 // Mark every node in the tree
 
 class BrokenMarkVisitor final : public AstNVisitor {
 private:
-    std::vector<AstNode*>& m_visitedNodeps;
-
     // VISITORS
     virtual void visit(AstNode* nodep) override {
 #ifdef VL_LEAK_CHECKS
         UASSERT_OBJ(s_allocTable.isAllocated(nodep), nodep,
                     "AstNode is in tree, but not allocated");
 #endif
-        UASSERT_OBJ(nodep->brokenStateIsClear(), nodep,
-                    "AstNode is already in tree at another location");
-        m_visitedNodeps.push_back(nodep);  // Remember so we can clear flags later
-        if (nodep->maybePointedTo()) s_linkableTable.addLinkable(nodep);
-        nodep->brokenStateSetInTree();
+        if (nodep->maybePointedTo()) {
+            const bool first = s_linkableTable.addLinkable(nodep);
+            UASSERT_OBJ(first, nodep, "AstNode is already in tree at another location");
+        }
         iterateChildrenConst(nodep);
     }
 
 public:
     // CONSTRUCTORS
-    explicit BrokenMarkVisitor(AstNetlist* nodep, std::vector<AstNode*>& visitedNodeps)
-        : m_visitedNodeps{visitedNodeps} {
-        iterate(nodep);
-    }
+    explicit BrokenMarkVisitor(AstNetlist* nodep) { iterate(nodep); }
     virtual ~BrokenMarkVisitor() override = default;
 };
 
@@ -147,11 +141,6 @@ public:
 
 class BrokenCheckVisitor final : public AstNVisitor {
     bool m_inScope = false;  // Under AstScope
-
-    // State/constants for prefetching
-    static constexpr size_t PREFETCH_DISTANCE = 16;
-    const AstNode* const* m_prefetchpp;  // Next node to prefetch
-    const AstNode* const* m_prefetchpEndp;  // End of prefetch buffer (exclusive)
 
     // Current CFunc, if any
     const AstCFunc* m_cfuncp = nullptr;
@@ -170,15 +159,7 @@ private:
     }
 
     void processEnter(AstNode* nodep) {
-        if (VL_LIKELY(m_prefetchpp < m_prefetchpEndp)) {
-#ifdef VL_DEBUG  // Only when debug, as hot
-            UASSERT(
-                nodep == m_prefetchpp[-PREFETCH_DISTANCE],
-                "BrokenMarkVisitor and BrokenCheckVisitor must both perform pre-order traversals");
-#endif
-            (*m_prefetchpp++)->prefetch();
-        }
-        nodep->brokenStateSetUnder();
+        nodep->brokenUnder(true);
         const char* whyp = nodep->broken();
         UASSERT_OBJ(!whyp, nodep,
                     "Broken link in node (or something without maybePointedTo): " << whyp);
@@ -202,7 +183,7 @@ private:
         }
         checkWidthMin(nodep);
     }
-    void processExit(AstNode* nodep) { nodep->brokenStateSetInTree(); }
+    void processExit(AstNode* nodep) { nodep->brokenUnder(false); }
     void processAndIterate(AstNode* nodep) {
         processEnter(nodep);
         iterateChildrenConst(nodep);
@@ -315,11 +296,7 @@ private:
 
 public:
     // CONSTRUCTORS
-    explicit BrokenCheckVisitor(AstNetlist* nodep, const std::vector<AstNode*>& prefetchpps)
-        : m_prefetchpp{prefetchpps.data() + PREFETCH_DISTANCE}
-        , m_prefetchpEndp{prefetchpps.data() + prefetchpps.size()} {
-        iterate(nodep);
-    }
+    explicit BrokenCheckVisitor(AstNetlist* nodep) { iterate(nodep); }
     virtual ~BrokenCheckVisitor() override = default;
 };
 
@@ -334,17 +311,10 @@ void V3Broken::brokenAll(AstNetlist* nodep) {
         UINFO(1, "Broken called under broken, skipping recursion.\n");  // LCOV_EXCL_LINE
     } else {
         inBroken = true;
-        // Note: We need to store the node pointers we encountered in BrokenMarkVisitor, as we need
-        // to clear the broken state at the end of the check. But as BrokenCheckVisitor performs
-        // the traversal in the same order (that is: in pre-order), we might as well utilize this
-        // pre-order enumeration of the nodes to prefetch nodes in the second traversal.
-        std::vector<AstNode*> visitedNodepsInPreOrder;
-        s_linkableTable.reset();
-        BrokenMarkVisitor mvisitor(nodep, visitedNodepsInPreOrder);
-        BrokenCheckVisitor cvisitor(nodep, visitedNodepsInPreOrder);
+        BrokenMarkVisitor mvisitor(nodep);
+        BrokenCheckVisitor cvisitor(nodep);
         s_allocTable.checkForLeaks();
-        // Reset the BrokenState on nodes we encountered
-        for (AstNode* const nodep : visitedNodepsInPreOrder) { nodep->brokenStateSetClear(); }
+        s_linkableTable.reset();
         inBroken = false;
     }
 }

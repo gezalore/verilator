@@ -1345,18 +1345,15 @@ class AstNode VL_NOT_FINAL {
     } m_flags;  // Attribute flags
 
     // State variable used by V3Broken for consistency checking. This is hot when --debug-checks,
-    // so store it in an individually addressable byte.
-    enum class BrokenState : uint8_t {
-        CLEAR = 0,
-        IN_TREE = 1, // Node known to be under the netlist
-        UNDER = 2 // Current checking is under this node (implies IN_TREE)
-    } m_brokenState = BrokenState::CLEAR;
+    // so store it in an individually addressable byte. If we ran out of flags above, this could
+    // be reduced to a bit in the flags at the cost of some performance when debugging.
+    bool m_brokenUnder = false;
 
     int m_cloneCnt;  // Sequence number for when last clone was made
 
 #if defined(__x86_64__) && defined(__gnu_linux__)
     // Only assert this on known platforms, as it only affects performance, not correctness
-    static_assert(sizeof(m_type) + sizeof(m_flags) + sizeof(m_brokenState) + sizeof(m_cloneCnt)
+    static_assert(sizeof(m_type) + sizeof(m_flags) + sizeof(m_brokenUnder) + sizeof(m_cloneCnt)
                       <= sizeof(void*),
                   "packing requires padding");
 #endif
@@ -1692,15 +1689,12 @@ public:
     AstBasicDType* findInsertSameDType(AstBasicDType* nodep);
 
     // METHODS - V3Broken state (consistency checking) management
-    void brokenStateSetClear() { m_brokenState = BrokenState::CLEAR; }
-    void brokenStateSetInTree() { m_brokenState = BrokenState::IN_TREE; }
-    void brokenStateSetUnder() { m_brokenState = BrokenState::UNDER; }
-    bool brokenStateIsClear() const { return m_brokenState == BrokenState::CLEAR; }
+    void brokenUnder(bool flag) { m_brokenUnder = flag; }
 
     // Used by AstNode::broken()
     bool brokeExists() const { return V3Broken::isLinkable(this); }
-    bool brokeExistsAbove() const { return brokeExists() && m_brokenState == BrokenState::UNDER; }
-    bool brokeExistsBelow() const { return brokeExists() && m_brokenState != BrokenState::UNDER; }
+    bool brokeExistsAbove() const { return brokeExists() && m_brokenUnder; }
+    bool brokeExistsBelow() const { return brokeExists() && !m_brokenUnder; }
     // Note: brokeExistsBelow is not quite precise, as it is true for sibling nodes as well
 
     // METHODS - dump and error
