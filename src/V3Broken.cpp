@@ -117,6 +117,8 @@ void V3Broken::deleted(const AstNode* nodep) { s_allocTable.deleted(nodep); }
 
 class BrokenMarkVisitor final : public AstNVisitor {
 private:
+    std::vector<AstNode*>& m_visitedNodeps;
+
     // VISITORS
     virtual void visit(AstNode* nodep) override {
 #ifdef VL_LEAK_CHECKS
@@ -127,12 +129,16 @@ private:
             const bool first = s_linkableTable.addLinkable(nodep);
             UASSERT_OBJ(first, nodep, "AstNode is already in tree at another location");
         }
+        m_visitedNodeps.push_back(nodep);
         iterateChildrenConst(nodep);
     }
 
 public:
     // CONSTRUCTORS
-    explicit BrokenMarkVisitor(AstNetlist* nodep) { iterate(nodep); }
+    explicit BrokenMarkVisitor(AstNetlist* nodep, std::vector<AstNode*>& visitedNodeps)
+        : m_visitedNodeps{visitedNodeps} {
+        iterate(nodep);
+    }
     virtual ~BrokenMarkVisitor() override = default;
 };
 
@@ -141,6 +147,11 @@ public:
 
 class BrokenCheckVisitor final : public AstNVisitor {
     bool m_inScope = false;  // Under AstScope
+
+    // State/constants for prefetching
+    static constexpr size_t PREFETCH_DISTANCE = 16;
+    const AstNode* const* m_prefetchpp;  // Next node to prefetch
+    const AstNode* const* m_prefetchpEndp;  // End of prefetch buffer (exclusive)
 
     // Current CFunc, if any
     const AstCFunc* m_cfuncp = nullptr;
@@ -159,6 +170,14 @@ private:
     }
 
     void processEnter(AstNode* nodep) {
+        if (VL_LIKELY(m_prefetchpp < m_prefetchpEndp)) {
+#ifdef VL_DEBUG  // Only when debug, as hot
+            UASSERT(
+                nodep == m_prefetchpp[-PREFETCH_DISTANCE],
+                "BrokenMarkVisitor and BrokenCheckVisitor must both perform pre-order traversals");
+#endif
+            (*m_prefetchpp++)->prefetch();
+        }
         nodep->brokenUnder(true);
         const char* whyp = nodep->broken();
         UASSERT_OBJ(!whyp, nodep,
@@ -296,7 +315,11 @@ private:
 
 public:
     // CONSTRUCTORS
-    explicit BrokenCheckVisitor(AstNetlist* nodep) { iterate(nodep); }
+    explicit BrokenCheckVisitor(AstNetlist* nodep, const std::vector<AstNode*>& prefetchpps)
+        : m_prefetchpp{prefetchpps.data() + PREFETCH_DISTANCE}
+        , m_prefetchpEndp{prefetchpps.data() + prefetchpps.size()} {
+        iterate(nodep);
+    }
     virtual ~BrokenCheckVisitor() override = default;
 };
 
@@ -311,8 +334,13 @@ void V3Broken::brokenAll(AstNetlist* nodep) {
         UINFO(1, "Broken called under broken, skipping recursion.\n");  // LCOV_EXCL_LINE
     } else {
         inBroken = true;
-        BrokenMarkVisitor mvisitor(nodep);
-        BrokenCheckVisitor cvisitor(nodep);
+        // Note: We need to store the node pointers we encountered in BrokenMarkVisitor, as we need
+        // to clear the broken state at the end of the check. But as BrokenCheckVisitor performs
+        // the traversal in the same order (that is: in pre-order), we might as well utilize this
+        // pre-order enumeration of the nodes to prefetch nodes in the second traversal.
+        std::vector<AstNode*> visitedNodepsInPreOrder;
+        BrokenMarkVisitor mvisitor(nodep, visitedNodepsInPreOrder);
+        BrokenCheckVisitor cvisitor(nodep, visitedNodepsInPreOrder);
         s_allocTable.checkForLeaks();
         s_linkableTable.reset();
         inBroken = false;
