@@ -859,27 +859,11 @@ void EmitCSyms::emitSymImp() {
             std::string varName;
             varName += (protectIf(scopep->nameDotless(), scopep->protect()) + ".");
 
-            if (varp->isParam()) {
-                varName += protect("var_" + varp->name());
-            } else {
-                varName += protect(varp->name());
-            }
+            varName += protect(varp->name());
 
-            if (varp->isParam()) {
-                if (varp->vlEnumType() == "VLVT_STRING") {
-                    puts(", const_cast<void*>(static_cast<const void*>(");
-                    puts(varName);
-                    puts(".c_str())), ");
-                } else {
-                    puts(", const_cast<void*>(static_cast<const void*>(&(");
-                    puts(varName);
-                    puts("))), ");
-                }
-            } else {
-                puts(", &(");
-                puts(varName);
-                puts("), ");
-            }
+            puts(", &(");
+            puts(varName);
+            puts("), ");
 
             puts(varp->isParam() ? "true" : "false");
             puts(", ");

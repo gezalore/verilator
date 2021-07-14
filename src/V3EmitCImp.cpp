@@ -74,35 +74,24 @@ class EmitCImp final : EmitCFunc {
     }
 
     void emitParamDefns(const AstNodeModule* modp) {
+        const string modName = prefixNameProtect(modp);
+        bool first = true;
         for (const AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
             if (const AstVar* const varp = VN_CAST_CONST(nodep, Var)) {
                 if (varp->isParam() && (varp->isUsedParam() || varp->isSigPublic())) {
-                    UASSERT_OBJ(varp->valuep(), nodep, "No init for a param?");
-                    // These should be static const values, however older MSVC++ did't
-                    // support them; should be ok now under C++11, need to refactor.
-                    if (varp->isWide()) {  // Unsupported for output
-                    } else if (varp->isString()) {
-                        puts("const std::string ");
-                        puts(prefixNameProtect(modp) + "::" + protect("var_" + varp->name())
-                             + "(");
-                        iterateAndNextNull(varp->valuep());
-                        puts(");\n");
-                    } else if (!VN_IS(varp->valuep(), Const)) {  // Unsupported for output
-                        // putsDecoration("// enum ..... "+varp->nameProtect()
-                        //               +"not simple value, see variable above instead");
-                    } else if (VN_IS(varp->dtypep(), BasicDType)
-                               && VN_CAST(varp->dtypep(), BasicDType)
-                                      ->isOpaque()) {  // Can't put out e.g. doubles
-                    } else {
-                        puts(varp->isQuad() ? "const QData " : "const IData ");
-                        puts(prefixNameProtect(modp) + "::" + protect("var_" + varp->name())
-                             + "(");
-                        iterateAndNextNull(varp->valuep());
-                        puts(");\n");
+                    if (first) {
+                        puts("\n");
+                        putsDecoration("// Parameter definitions for " + modName + "\n");
+                        first = false;
                     }
+                    puts("constexpr ");
+                    puts(
+                        varp->dtypep()->cType(modName + "::" + varp->nameProtect(), false, false));
+                    puts(";");
                 }
             }
         }
+        if (!first) puts("\n");
     }
     void emitCtorImp(const AstNodeModule* modp) {
         const string modName = prefixNameProtect(modp);
