@@ -18,7 +18,6 @@
 #include "verilatedos.h"
 
 #include "V3EmitCBase.h"
-#include "V3Task.h"
 
 //######################################################################
 // EmitCParentModule implementation
@@ -202,17 +201,7 @@ void EmitCBaseVisitor::emitVarDecl(const AstVar* nodep, bool asRef) {
         if (nodep->isWide()) puts("," + cvtToStr(nodep->widthWords()));
         puts(");\n");
     } else {
-        // strings and other fundamental c types
-        if (nodep->isFuncLocal() && nodep->isString()) {
-            const string name = nodep->name();
-            const string suffix = V3Task::dpiTemporaryVarSuffix();
-            // string temporary variable for DPI-C needs to be static because c_str() will be
-            // passed to C code and the lifetime of the variable must be long enough. See also
-            // Issue 2622.
-            const bool beStatic = name.size() >= suffix.size()
-                                  && name.substr(name.size() - suffix.size()) == suffix;
-            if (beStatic) puts("static VL_THREAD_LOCAL ");
-        }
+        UASSERT_OBJ(!nodep->isFuncLocal(), nodep, "Function locals are emitted by EmitCFunc");
         puts(nodep->vlArgType(true, false, false, "", asRef));
         puts(";\n");
     }

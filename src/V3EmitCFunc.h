@@ -22,6 +22,7 @@
 
 #include "V3Global.h"
 #include "V3EmitCConstInit.h"
+#include "V3Task.h"
 
 #include <algorithm>
 #include <map>
@@ -259,7 +260,31 @@ public:
 
     virtual void visit(AstVar* nodep) override {
         UASSERT_OBJ(m_cfuncp, nodep, "Cannot emit non-local variable");
-        emitVarDecl(nodep);
+        //        UASSERT_OBJ(nodep->isFuncLocal(), nodep, "AstVar under AstCFunc not marked as
+        //        local");
+        if (nodep->isString()) {
+            const string name = nodep->name();
+            const string suffix = V3Task::dpiTemporaryVarSuffix();
+            // string temporary variable for DPI-C needs to be static because c_str() will be
+            // passed to C code and the lifetime of the variable must be long enough. See also
+            // Issue 2622.
+            const bool beStatic = name.size() >= suffix.size()
+                                  && name.substr(name.size() - suffix.size()) == suffix;
+            if (beStatic) puts("static VL_THREAD_LOCAL ");
+        }
+        if (nodep->isConst() && nodep->valuep()) {
+            puts(VN_IS(nodep->valuep(), Const) ? "constexpr " : "const ");
+        }
+        puts(nodep->dtypep()->cType(nodep->nameProtect(), false, false));
+        if (nodep->valuep()) {
+            puts(" = ");
+            if (VN_IS(nodep->valuep(), Const) || VN_IS(nodep->valuep(), InitArray)) {
+                emitConstInit(nodep->valuep());
+            } else {
+                iterate(nodep->valuep());
+            }
+        }
+        puts(";\n");
     }
 
     virtual void visit(AstNodeAssign* nodep) override {

@@ -32,6 +32,8 @@
 #include "V3Expand.h"
 #include "V3Stats.h"
 #include "V3Ast.h"
+#include "V3Hasher.h"
+#include "V3UniqueNames.h"
 
 #include <algorithm>
 
@@ -43,12 +45,15 @@ private:
     // NODE STATE
     //  AstNode::user1()        -> bool.  Processed
     AstUser1InUse m_inuser1;
+    //  Ast*::user4()                   // Used by V3Hasher
 
     // STATE
     AstNode* m_stmtp = nullptr;  // Current statement
     VDouble0 m_statWides;  // Statistic tracking
     VDouble0 m_statWideWords;  // Statistic tracking
     VDouble0 m_statWideLimited;  // Statistic tracking
+    V3Hasher m_hasher;  // For variable names
+    V3UniqueNames m_uniqueNames;  // For variable names
 
     // METHODS
     VL_DEBUG_FUNC;  // Declare debug()
@@ -164,6 +169,41 @@ private:
         return newp;
     }
 
+    AstVar* createTempForSubExpression(AstNode* nodep) {
+        UASSERT_OBJ(m_stmtp, nodep, "Cannot create temporary outside statement");
+        UASSERT_OBJ(VN_IS(nodep, NodeMath), nodep, "Not an expression (AstNodeMath)");
+        const string name = "tmp_expand_" + m_uniqueNames.get(cvtToHex(m_hasher(nodep).value()));
+        AstVar* const varp
+            = new AstVar{nodep->fileline(), AstVarType::STMTTEMP, name, nodep->dtypep()};
+        varp->funcLocal(true);
+        varp->isConst(true);
+        varp->valuep(nodep->cloneTree(false));
+        m_stmtp->addHereThisAsNext(varp);
+        return varp;
+    }
+
+    static AstVarRef* mkReadRef(AstVar* varp) {
+        return new AstVarRef{varp->fileline(), varp, VAccess::READ};
+    }
+
+    static const AstConst* getConstValue(AstNode* nodep) {
+        if (AstVar* const varp = VN_CAST(nodep, Var)) {
+            return varp->isConst() ? VN_CAST(varp->valuep(), Const) : nullptr;
+        } else {
+            return VN_CAST(nodep, Const);
+        }
+    }
+
+    static AstNodeMath* mkValueExpr(AstNode* nodep) {
+        if (AstVar* const varp = VN_CAST(nodep, Var)) {
+            return mkReadRef(varp);
+        } else {
+            AstNodeMath* const exprp = VN_CAST(nodep, NodeMath);
+            UASSERT_OBJ(exprp, nodep, "Not an expression");
+            return exprp->cloneTree(false);
+        }
+    }
+
     static AstNode* newWordSel(FileLine* fl, AstNode* fromp, AstNode* lsbp,
                                uint32_t wordOffset = 0) {
         // Return equation to get the VL_BITWORD of a constant or non-constant
@@ -175,16 +215,15 @@ private:
             // AstCondBound is protecting above this node.
             return new AstConst{fl, AstConst::SizedEData(), 0};
         } else {
-            AstNode* wordp;
             FileLine* const lfl = lsbp->fileline();
-            if (VN_IS(lsbp, Const)) {
-                wordp
-                    = new AstConst{lfl, wordOffset + VL_BITWORD_E(VN_CAST(lsbp, Const)->toUInt())};
+            AstNode* wordp;
+            if (const AstConst* const constp = getConstValue(lsbp)) {
+                wordp = new AstConst{lfl, VL_BITWORD_E(constp->toUInt()) + wordOffset};
             } else {
-                wordp = new AstShiftR{lfl, lsbp->cloneTree(true),
-                                      new AstConst{lfl, VL_EDATASIZE_LOG2}, VL_EDATASIZE};
-                if (wordOffset
-                    != 0) {  // This is indexing a arraysel, so a 32 bit constant is fine
+                wordp = new AstShiftR{lfl, mkValueExpr(lsbp), new AstConst{lfl, VL_EDATASIZE_LOG2},
+                                      VL_EDATASIZE};
+                if (wordOffset != 0) {
+                    // This is indexing a arraysel, so a 32 bit constant is fine
                     wordp = new AstAdd{lfl, new AstConst{lfl, wordOffset}, wordp};
                 }
             }
@@ -206,11 +245,10 @@ private:
     static AstNode* newSelBitBit(AstNode* lsbp) {
         // Return equation to get the VL_BITBIT of a constant or non-constant
         FileLine* const fl = lsbp->fileline();
-        if (VN_IS(lsbp, Const)) {
-            return new AstConst{fl, VL_BITBIT_E(VN_CAST(lsbp, Const)->toUInt())};
+        if (const AstConst* const constp = getConstValue(lsbp)) {
+            return new AstConst{fl, VL_BITBIT_E(constp->toUInt())};
         } else {
-            return new AstAnd{fl, new AstConst{fl, VL_EDATASIZE - 1},
-                              dropCondBound(lsbp)->cloneTree(true)};
+            return new AstAnd{fl, new AstConst{fl, VL_EDATASIZE - 1}, mkValueExpr(lsbp)};
         }
     }
 
@@ -354,19 +392,21 @@ private:
             FileLine* const nfl = nodep->fileline();
             FileLine* const lfl = nodep->lsbp()->fileline();
             FileLine* const ffl = nodep->fromp()->fileline();
-            AstNode* lowwordp = newWordSel(ffl, nodep->fromp()->cloneTree(true), nodep->lsbp());
+            AstVar* const lsbVarp = createTempForSubExpression(nodep->lsbp());
+            AstNode* lowwordp
+                = newWordSel(nodep->fromp()->fileline(), nodep->fromp()->cloneTree(true), lsbVarp);
             if (nodep->isQuad() && !lowwordp->isQuad()) {
                 lowwordp = new AstCCast{nfl, lowwordp, nodep};
             }
             AstNode* const lowp
-                = new AstShiftR{nfl, lowwordp, newSelBitBit(nodep->lsbp()), nodep->width()};
+                = new AstShiftR{nfl, lowwordp, newSelBitBit(lsbVarp), nodep->width()};
             // If > 1 bit, we might be crossing the word boundary
             AstNode* midp = nullptr;
             if (nodep->widthConst() > 1) {
                 const uint32_t midMsbOffset
                     = std::min<uint32_t>(nodep->widthConst(), VL_EDATASIZE) - 1;
-                AstNode* const midMsbp = new AstAdd{lfl, new AstConst{lfl, midMsbOffset},
-                                                    nodep->lsbp()->cloneTree(false)};
+                AstNode* const midMsbp
+                    = new AstAdd{lfl, new AstConst{lfl, midMsbOffset}, mkReadRef(lsbVarp)};
                 AstNode* midwordp =  // SEL(from,[midwordnum])
                     newWordSel(ffl, nodep->fromp()->cloneTree(true), midMsbp, 0);
                 // newWordSel clones the index, so delete it
@@ -374,27 +414,25 @@ private:
                 if (nodep->isQuad() && !midwordp->isQuad()) {
                     midwordp = new AstCCast{nfl, midwordp, nodep};
                 }
-                AstNode* const midshiftp = new AstSub{lfl, new AstConst{lfl, VL_EDATASIZE},
-                                                      newSelBitBit(nodep->lsbp())};
+                AstNode* const midshiftp
+                    = new AstSub{lfl, new AstConst{lfl, VL_EDATASIZE}, newSelBitBit(lsbVarp)};
                 // If we're selecting bit zero, then all 32 bits in the mid word
                 // get shifted << by 32 bits, so ignore them.
                 const V3Number zero{nodep, longOrQuadWidth(nodep)};
-                midp = new AstCond{
-                    nfl,
-                    // lsb % VL_EDATASIZE == 0 ?
-
-                    new AstEq{nfl, new AstConst{nfl, 0}, newSelBitBit(nodep->lsbp())},
-                    // 0 :
-                    new AstConst{nfl, zero},
-                    //  midword >> (VL_EDATASIZE - (lbs % VL_EDATASIZE))
-                    new AstShiftL{nfl, midwordp, midshiftp, nodep->width()}};
+                midp = new AstCond{nfl,
+                                   // lsb % VL_EDATASIZE == 0 ?
+                                   new AstEq{nfl, new AstConst{nfl, 0}, newSelBitBit(lsbVarp)},
+                                   // 0 :
+                                   new AstConst{nfl, zero},
+                                   //  midword >> (VL_EDATASIZE - (lbs % VL_EDATASIZE))
+                                   new AstShiftL{nfl, midwordp, midshiftp, nodep->width()}};
             }
             // If > 32 bits, we might be crossing the second word boundary
             AstNode* hip = nullptr;
             if (nodep->widthConst() > VL_EDATASIZE) {
                 const uint32_t hiMsbOffset = nodep->widthConst() - 1;
-                AstNode* const hiMsbp = new AstAdd{lfl, new AstConst{lfl, hiMsbOffset},
-                                                   nodep->lsbp()->cloneTree(false)};
+                AstNode* const hiMsbp
+                    = new AstAdd{lfl, new AstConst{lfl, hiMsbOffset}, mkReadRef(lsbVarp)};
                 AstNode* hiwordp =  // SEL(from,[hiwordnum])
                     newWordSel(ffl, nodep->fromp()->cloneTree(true), hiMsbp);
                 // newWordSel clones the index, so delete it
@@ -402,17 +440,16 @@ private:
                 if (nodep->isQuad() && !hiwordp->isQuad()) {
                     hiwordp = new AstCCast{nfl, hiwordp, nodep};
                 }
-                AstNode* const hishiftp = new AstCond{
-                    nfl,
-                    // lsb % VL_EDATASIZE == 0 ?
-                    new AstEq{nfl, new AstConst{nfl, 0}, newSelBitBit(nodep->lsbp())},
-                    // VL_EDATASIZE :
-                    new AstConst{lfl, VL_EDATASIZE},
-                    // 64 - (lbs % VL_EDATASIZE)
-                    new AstSub{lfl, new AstConst{lfl, 64}, newSelBitBit(nodep->lsbp())}};
+                AstNode* const hishiftp
+                    = new AstCond{nfl,
+                                  // lsb % VL_EDATASIZE == 0 ?
+                                  new AstEq{nfl, new AstConst{nfl, 0}, newSelBitBit(lsbVarp)},
+                                  // VL_EDATASIZE :
+                                  new AstConst{lfl, VL_EDATASIZE},
+                                  // 64 - (lbs % VL_EDATASIZE)
+                                  new AstSub{lfl, new AstConst{lfl, 64}, newSelBitBit(lsbVarp)}};
                 hip = new AstShiftL{nfl, hiwordp, hishiftp, nodep->width()};
             }
-
             AstNode* newp = lowp;
             if (midp) newp = new AstOr{nfl, midp, newp};
             if (hip) newp = new AstOr{nfl, hip, newp};
@@ -449,22 +486,23 @@ private:
             FileLine* const rfl = rhsp->fileline();
             FileLine* const ffl = rhsp->fromp()->fileline();
             FileLine* const lfl = rhsp->lsbp()->fileline();
+            AstVar* const lsbVarp = createTempForSubExpression(rhsp->lsbp());
             for (uint32_t w = 0; w < nodep->widthWords(); ++w) {
                 // Grab lowest bits
                 AstNode* const lowwordp
-                    = newWordSel(rfl, rhsp->fromp()->cloneTree(true), rhsp->lsbp(), w);
+                    = newWordSel(rfl, rhsp->fromp()->cloneTree(true), lsbVarp, w);
                 AstNode* const lowp
-                    = new AstShiftR{rfl, lowwordp, newSelBitBit(rhsp->lsbp()), VL_EDATASIZE};
+                    = new AstShiftR{rfl, lowwordp, newSelBitBit(lsbVarp), VL_EDATASIZE};
                 // Upper bits
                 const V3Number zero{nodep, VL_EDATASIZE, 0};
                 AstNode* const midwordp =  // SEL(from,[1+wordnum])
-                    newWordSel(ffl, rhsp->fromp()->cloneTree(true), rhsp->lsbp(), w + 1);
+                    newWordSel(ffl, rhsp->fromp()->cloneTree(true), lsbVarp, w + 1);
                 AstNode* const midshiftp
-                    = new AstSub{lfl, new AstConst{lfl, VL_EDATASIZE}, newSelBitBit(rhsp->lsbp())};
+                    = new AstSub{lfl, new AstConst{lfl, VL_EDATASIZE}, newSelBitBit(lsbVarp)};
                 AstNode* const midmayp = new AstShiftL{rfl, midwordp, midshiftp, VL_EDATASIZE};
-                AstNode* const midp = new AstCond{
-                    rfl, new AstEq{rfl, new AstConst{rfl, 0}, newSelBitBit(rhsp->lsbp())},
-                    new AstConst{rfl, zero}, midmayp};
+                AstNode* const midp
+                    = new AstCond{rfl, new AstEq{rfl, new AstConst{rfl, 0}, newSelBitBit(lsbVarp)},
+                                  new AstConst{rfl, zero}, midmayp};
                 AstNode* const newp = new AstOr{nfl, midp, lowp};
                 addWordAssign(nodep, w, newp);
             }
@@ -551,7 +589,8 @@ private:
                 UINFO(8, "    ASSIGNSEL(varlsb,wide,1bit) " << nodep << endl);
                 AstNode* const rhsp = nodep->rhsp()->unlinkFrBack();
                 AstNode* const destp = lhsp->fromp()->unlinkFrBack();
-                AstNode* oldvalp = newWordSel(lfl, destp->cloneTree(true), lhsp->lsbp());
+                AstVar* const lsbVarp = createTempForSubExpression(lhsp->lsbp());
+                AstNode* oldvalp = newWordSel(lfl, destp->cloneTree(true), lsbVarp);
                 fixCloneLvalue(oldvalp);
                 if (!ones) {
                     oldvalp = new AstAnd{
@@ -561,14 +600,14 @@ private:
                                                // newSelBitBit may exceed the MSB of this variable.
                                                // That's ok as we'd just AND with a larger value,
                                                // but oldval would clip the upper bits to sanity
-                                               newSelBitBit(lhsp->lsbp()), VL_EDATASIZE}},
+                                               newSelBitBit(lsbVarp), VL_EDATASIZE}},
                         oldvalp};
                 }
                 // Restrict the shift amount to 0-31, see bug804.
-                AstNode* const shiftp = new AstAnd{nfl, lhsp->lsbp()->cloneTree(true),
-                                                   new AstConst{nfl, VL_EDATASIZE - 1}};
+                AstNode* const shiftp
+                    = new AstAnd{nfl, mkReadRef(lsbVarp), new AstConst{nfl, VL_EDATASIZE - 1}};
                 AstNode* const newp = new AstAssign{
-                    nfl, newWordSel(nfl, destp, lhsp->lsbp()),
+                    nfl, newWordSel(nfl, destp, lsbVarp),
                     new AstOr{lfl, oldvalp, new AstShiftL{lfl, rhsp, shiftp, VL_EDATASIZE}}};
                 insertBefore(nodep, newp);
                 return true;
@@ -589,6 +628,7 @@ private:
                 // nodep->dumpTree(cout, "-  old: ");
                 AstNode* rhsp = nodep->rhsp()->unlinkFrBack();
                 AstNode* const destp = lhsp->fromp()->unlinkFrBack();
+                AstVar* const lsbVarp = createTempForSubExpression(lhsp->lsbp());
                 AstNode* oldvalp = destp->cloneTree(true);
                 fixCloneLvalue(oldvalp);
 
@@ -599,9 +639,8 @@ private:
                 if (!ones) {
                     oldvalp = new AstAnd{
                         lfl,
-                        new AstNot{lfl,
-                                   new AstShiftL{lfl, new AstConst{nfl, maskwidth},
-                                                 lhsp->lsbp()->cloneTree(true), destp->width()}},
+                        new AstNot{lfl, new AstShiftL{lfl, new AstConst{nfl, maskwidth},
+                                                      mkReadRef(lsbVarp), destp->width()}},
                         oldvalp};
                 }
                 AstNode* newp
@@ -882,6 +921,11 @@ private:
         // Cleanup common code
         if (did) VL_DO_DANGLING(nodep->unlinkFrBack()->deleteTree(), nodep);
         m_stmtp = nullptr;
+    }
+
+    virtual void visit(AstCFunc* nodep) override {
+        m_uniqueNames.reset();
+        iterateChildren(nodep);
     }
 
     //--------------------

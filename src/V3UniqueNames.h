@@ -34,6 +34,8 @@ public:
         const unsigned num = m_multiplicity.emplace(name, 0).first->second++;
         return name + "__" + cvtToStr(num);
     }
+
+    void reset() { m_multiplicity.clear(); }
 };
 
 #endif  // Guard

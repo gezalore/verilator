@@ -2067,8 +2067,7 @@ public:
     // (Slow) recurse down to find basic data type (Note don't need virtual -
     // AstVar isn't a NodeDType)
     AstBasicDType* basicp() const { return subDTypep()->basicp(); }
-    // op3 = Initial value that never changes (static const), or constructor argument for
-    // MTASKSTATE variables
+    // op3 = Initial value, or constructor argument for MTASKSTATE variables
     AstNode* valuep() const { return op3p(); }
     // It's valuep(), not constp(), as may be more complicated than an AstConst
     void valuep(AstNode* nodep) { setOp3p(nodep); }
