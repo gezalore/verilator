@@ -19,6 +19,8 @@
 //   Each cell:
 //      Create CUse for cell forward declaration
 //   Search for dtypes referencing class, and create CUse for forward declaration
+//   Each CFunc:
+//      Create CUse for include files
 //
 //*************************************************************************
 
@@ -28,15 +30,128 @@
 #include "V3Global.h"
 #include "V3CUse.h"
 #include "V3Ast.h"
+#include "V3EmitCBase.h"
 
 #include <set>
 
 //######################################################################
 
+// Visit within a CFunc to gather dependencies
+class CUseFuncVisitor final : public AstNVisitor {
+    // MEMBERS
+    const AstNodeModule* const m_modp;  // Current module
+    std::set<string> m_dependencies;  // Headers to include. Ordered set for deterministic output.
+
+    // METHODS
+    void addSymsDependency() { m_dependencies.insert(EmitCBaseVisitor::symClassName()); }
+    void addModDependency(const AstNodeModule* modp) {
+        if (const AstClass* const classp = VN_CAST_CONST(modp, Class)) {
+            m_dependencies.insert(classp->classOrPackagep()->name());
+        } else {
+            m_dependencies.insert(modp->name());
+        }
+    }
+    void addDTypeDependency(const AstNodeDType* nodep) {
+        if (const AstClassRefDType* const dtypep = VN_CAST_CONST(nodep, ClassRefDType)) {
+            m_dependencies.insert(dtypep->classp()->classOrPackagep()->name());
+        }
+    }
+    void addSelfDependency(const string& selfPointer) {
+        if (selfPointer.empty()) {
+            // No self pointer (e.g.: function locals, const pool values, or static loose methods),
+            // so no dependency required
+        } else if (VString::startsWith(selfPointer, "this")) {
+            // Dereferencing 'this', we need the definition of this module
+            addModDependency(m_modp);
+        } else {
+            // Must be an absolute reference
+            UASSERT(VString::startsWith(selfPointer, "(&vlSymsp->"),
+                    "Unknown self pointer: '" << selfPointer << "'");
+            // Dereferencing vlSymsp, so we need it's definition...
+            m_dependencies.insert(EmitCBaseVisitor::symClassName());
+        }
+    }
+
+    // VISITORS
+    virtual void visit(AstCCall* nodep) override {
+        addSelfDependency(nodep->selfPointer());
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstCNew* nodep) override {
+        addDTypeDependency(nodep->dtypep());
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstCMethodCall* nodep) override {
+        addDTypeDependency(nodep->fromp()->dtypep());
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstNewCopy* nodep) override {
+        addDTypeDependency(nodep->dtypep());
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstMemberSel* nodep) override {
+        addDTypeDependency(nodep->fromp()->dtypep());
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstNodeVarRef* nodep) override {
+        addSelfDependency(nodep->selfPointer());
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstCoverDecl* nodep) override {
+        addSymsDependency();
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstCoverInc* nodep) override {
+        addSymsDependency();
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstDumpCtl* nodep) override {
+        addSymsDependency();
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstScopeName* nodep) override {
+        addSymsDependency();
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstPrintTimeScale* nodep) override {
+        addSymsDependency();
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstTimeFormat* nodep) override {
+        addSymsDependency();
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstNodeSimpleText* nodep) override {
+        if (nodep->text().find("vlSymsp") != string::npos) {
+            m_dependencies.insert(EmitCBaseVisitor::symClassName());
+        }
+        iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstNode* nodep) override { iterateChildrenConst(nodep); }
+
+public:
+    // CONSTRUCTORS
+    explicit CUseFuncVisitor(AstNodeModule* modp, AstCFunc* funcp)
+        : m_modp{modp} {
+        // Strictly speaking, for loose methods, we could get away with just a forward
+        // declaration of the receiver class, but their body very likely includes at least one
+        // relative reference, so we are probably not loosing much.
+        addModDependency(modp);
+        iterate(funcp);
+        for (const string& dependency : m_dependencies) {
+            AstCUse* const newp
+                = new AstCUse{funcp->fileline(), VUseType::IMP_INCLUDE, dependency};
+            funcp->addInitsp(newp);
+        }
+    }
+    virtual ~CUseFuncVisitor() override = default;
+    VL_UNCOPYABLE(CUseFuncVisitor);
+};
+
 // Visit within a module all nodes and data types they reference, finding
 // any classes so we can make sure they are defined when Verilated code
 // compiles
-class CUseVisitor final : public AstNVisitor {
+class CUseModVisitor final : public AstNVisitor {
     // NODE STATE
     //  AstNode::user1()     -> bool.  True if already visited
     AstUser1InUse m_inuser1;
@@ -82,15 +197,22 @@ class CUseVisitor final : public AstNVisitor {
         addNewUse(nodep, VUseType::INT_FWD_CLASS, nodep->modp()->name());
         iterateChildren(nodep);
     }
+    virtual void visit(AstCFunc* nodep) override {
+        if (!(nodep->isMethod() && nodep->isLoose())) {
+            // Non-loose methods are declared in the module, hence we need their argument types
+            iterateAndNextConstNull(nodep->argsp());
+        }
+        CUseFuncVisitor{m_modp, nodep};
+    }
 
 public:
     // CONSTRUCTORS
-    explicit CUseVisitor(AstNodeModule* modp)
+    explicit CUseModVisitor(AstNodeModule* modp)
         : m_modp(modp) {
         iterate(modp);
     }
-    virtual ~CUseVisitor() override = default;
-    VL_UNCOPYABLE(CUseVisitor);
+    virtual ~CUseModVisitor() override = default;
+    VL_UNCOPYABLE(CUseModVisitor);
 };
 
 //######################################################################
@@ -103,7 +225,7 @@ void V3CUse::cUseAll() {
          modp = VN_CAST(modp->nextp(), NodeModule)) {
         // Insert under this module; someday we should e.g. make Ast
         // for each output file and put under that
-        CUseVisitor{modp};
+        CUseModVisitor{modp};
     }
     V3Global::dumpCheckGlobalTree("cuse", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 }
