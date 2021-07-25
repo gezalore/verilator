@@ -1203,6 +1203,7 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc, char
             fl->v3error("--output-split-ctrace must be >= 0: " << valp);
         }
     });
+    DECL_OPTION("-output-split-depset", OnOff, &m_outputSplitDepSet);
 
     DECL_OPTION("-P", Set, &m_preprocNoLine);
     DECL_OPTION("-pvalue+", CbPartialMatch,
