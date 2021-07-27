@@ -303,13 +303,15 @@ private:
     bool expandWide(AstNodeAssign* nodep, AstNodeCond* rhsp) {
         UINFO(8, "    Wordize ASSIGN(COND) " << nodep << endl);
         if (!doExpand(nodep)) return false;
-        FileLine* const fl = nodep->fileline();
+        AstIf* const ifp
+            = new AstIf{nodep->fileline(), rhsp->condp()->cloneTree(false), nullptr, nullptr};
         for (int w = 0; w < nodep->widthWords(); ++w) {
-            addWordAssign(nodep, w,
-                          new AstCond{fl, rhsp->condp()->cloneTree(true),
-                                      newAstWordSelClone(rhsp->expr1p(), w),
-                                      newAstWordSelClone(rhsp->expr2p(), w)});
+            ifp->addIfsp(
+                newWordAssign(nodep, w, nodep->lhsp(), newAstWordSelClone(rhsp->expr1p(), w)));
+            ifp->addElsesp(
+                newWordAssign(nodep, w, nodep->lhsp(), newAstWordSelClone(rhsp->expr2p(), w)));
         }
+        insertBefore(nodep, ifp);
         return true;
     }
 
