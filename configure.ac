@@ -387,6 +387,7 @@ _MY_CXX_CHECK_OPT(CFG_CXXFLAGS_SRC,-Qunused-arguments)
 _MY_CXX_CHECK_OPT(CFG_CXXFLAGS_SRC,-faligned-new)
 _MY_CXX_CHECK_OPT(CFG_CXXFLAGS_SRC,-Wno-unused-parameter)
 _MY_CXX_CHECK_OPT(CFG_CXXFLAGS_SRC,-Wno-shadow)
+_MY_CXX_CHECK_OPT(CFG_CXXFLAGS_SRC,-fno-stack-protector)
 AC_SUBST(CFG_CXXFLAGS_SRC)
 
 # Flags for compiling Verilator parser always (in addition to above CFG_CXXFLAGS_SRC)
@@ -421,6 +422,7 @@ CFG_CXX_FLAGS_CMAKE="-faligned-new"
 m4_foreach([cflag],[
         [-fbracket-depth=4096],
         [-fcf-protection=none],
+        [-fno-stack-protector],
         [-mno-cet],
         [-Qunused-arguments],
         [-Wno-bool-operation],
