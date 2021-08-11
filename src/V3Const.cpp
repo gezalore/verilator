@@ -556,7 +556,7 @@ public:
         if (frozensp) resultp = visitor.combineTree(resultp, frozensp);
 
         if (visitor.isXorTree()) {
-            // VL_REDXOR_N functions don't guarantee to return only 0/1
+            // VL_REDXOR_N functions don't guarantee to return only 0/1.
             const int width = resultp->width();
             FileLine* fl = nodep->fileline();
             resultp = new AstAnd{fl, new AstConst{fl, V3Number{nodep, width, 1}}, resultp};
@@ -564,6 +564,17 @@ public:
                 resultp = new AstEq{fl, new AstConst{fl, V3Number{nodep, width, 0}}, resultp};
                 resultp->dtypep()->widthForce(1, 1);
             }
+        } else if (visitor.isOrTree()) {
+            // An OR tree with terms like NOT(<bit>) don't guarantee to return only 0/1 due to the
+            // bitwise NOT setting high bits. First cast to target width to avoid thinking the
+            // masking is redundant in rule:
+            //  TREEOP ("AstAnd   {$lhsp.isAllOnes, $rhsp}",        "replaceWRhs(nodep)");
+            if (resultp->width() != nodep->width()) {
+                resultp = new AstCCast{resultp->fileline(), resultp, nodep};
+            }
+            const int width = resultp->width();
+            FileLine* fl = nodep->fileline();
+            resultp = new AstAnd{fl, new AstConst{fl, V3Number{nodep, width, 1}}, resultp};
         }
         if (resultp->width() != nodep->width()) {
             resultp = new AstCCast{resultp->fileline(), resultp, nodep};
