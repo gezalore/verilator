@@ -521,20 +521,24 @@ public:
         if (visitor.m_failed || visitor.m_varInfos.size() == 1) return nullptr;
 
         // Two ops for each varInfo. (And and Eq)
-        const int vars = visitor.m_varInfos.size() - 1;
+        int vars = 0;
         int constTerms = 0;
         for (auto&& v : visitor.m_varInfos) {
-            if (v && v->hasConstantResult()) ++constTerms;
+            if (!v) continue;
+            ++vars;
+            if (v->hasConstantResult()) ++constTerms;
         }
         // Expected number of ops after this simplification
         // e.g. (comp0 == (mask0 & var0)) & (comp1 == (mask1 & var1)) & ....
         // e.g. redXor(mask1 & var0) ^ redXor(mask1 & var1)
         //  2 ops per variables, numVars - 1 ops among variables
         int expOps = 2 * (vars - constTerms) + vars - 1;
-        expOps += 2 * visitor.m_frozenNodes.size();
+        expOps += visitor.m_frozenNodes.size();
         if (visitor.isXorTree()) {
             ++expOps;  // AstRedXor::cleanOut() == false, so need 1 & redXor
             if (!visitor.m_polarity) ++expOps;  // comparison with 0
+        } else if (visitor.isOrTree() && !visitor.m_frozenNodes.empty()) {
+            ++expOps;  // Will add And(1, resultp) to make the result clean
         }
         if (visitor.m_ops <= expOps) return nullptr;  // Unless benefitial, return
 
@@ -564,7 +568,7 @@ public:
                 resultp = new AstEq{fl, new AstConst{fl, V3Number{nodep, width, 0}}, resultp};
                 resultp->dtypep()->widthForce(1, 1);
             }
-        } else if (visitor.isOrTree()) {
+        } else if (visitor.isOrTree() && !visitor.m_frozenNodes.empty()) {
             // An OR tree with terms like NOT(<bit>) don't guarantee to return only 0/1 due to the
             // bitwise NOT setting high bits. First cast to target width to avoid thinking the
             // masking is redundant in rule:
