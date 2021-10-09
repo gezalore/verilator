@@ -40,7 +40,7 @@
 #ifdef __GNUC__
 # define VL_ATTR_ALIGNED(alignment) __attribute__((aligned(alignment)))
 # define VL_ATTR_ALWINLINE __attribute__((always_inline))
-# define VL_ATTR_COLD __attribute__((cold))
+# define VL_ATTR_COLD __attribute__((cold)) __attribute__((section(".text.cold")))
 # define VL_ATTR_HOT __attribute__((hot))
 # define VL_ATTR_NORETURN __attribute__((noreturn))
 // clang and gcc-8.0+ support no_sanitize("string") style attribute
