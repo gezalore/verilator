@@ -114,6 +114,7 @@ vnum    {vnum1}|{vnum2}|{vnum3}|{vnum4}|{vnum5}
   "coverage_on"         { FL; return yVLT_COVERAGE_ON; }
   "forceable"           { FL; return yVLT_FORCEABLE; }
   "full_case"           { FL; return yVLT_FULL_CASE; }
+  "no_dfg"              { FL; return yVLT_NO_DFG; }
   "hier_block"          { FL; return yVLT_HIER_BLOCK; }
   "inline"              { FL; return yVLT_INLINE; }
   "isolate_assignments" { FL; return yVLT_ISOLATE_ASSIGNMENTS; }

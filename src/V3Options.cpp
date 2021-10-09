@@ -1057,8 +1057,11 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc, char
     DECL_OPTION("-debug-self-test", OnOff, &m_debugSelfTest).undocumented();
     DECL_OPTION("-debug-sigsegv", CbCall, throwSigsegv).undocumented();  // See also --debug-abort
     DECL_OPTION("-decoration", OnOff, &m_decoration);
+    DECL_OPTION("-dfg-opt", OnOff, &m_dfgOpt);
     DECL_OPTION("-dpi-hdr-only", OnOff, &m_dpiHdrOnly);
     DECL_OPTION("-dump-defines", OnOff, &m_dumpDefines);
+    DECL_OPTION("-dump-dfg", CbOnOff, [this](bool flag) { m_dumpDfg = static_cast<int>(flag); });
+    DECL_OPTION("-dump-dfgi", Set, &m_dumpDfg);
     DECL_OPTION("-dump-tree", CbOnOff,
                 [this](bool flag) { m_dumpTree = flag ? 3 : 0; });  // Also see --dump-treei
     DECL_OPTION("-dump-tree-addrids", OnOff, &m_dumpTreeAddrids);

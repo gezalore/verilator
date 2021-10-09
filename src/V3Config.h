@@ -35,6 +35,7 @@ public:
     static void addIgnore(V3ErrorCode code, bool on, const string& filename, int min, int max);
     static void addInline(FileLine* fl, const string& module, const string& ftask, bool on);
     static void addModulePragma(const string& module, VPragmaType pragma);
+    static void addNoDfg(const string& module);
     static void addProfileData(FileLine* fl, const string& model, const string& key,
                                uint64_t cost);
     static void addScopeTraceOn(bool on, const string& scope, int levels);

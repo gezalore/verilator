@@ -4,6 +4,7 @@
 
 import argparse
 import glob
+import json
 import re
 import sys
 # from pprint import pprint, pformat
@@ -13,6 +14,8 @@ Classes = {}
 Children = {}
 ClassRefs = {}
 Stages = {}
+DfgVertexClasses = {}
+DfgProps = None
 
 
 class Cpt:
@@ -413,6 +416,21 @@ def read_refs(filename):
                 ClassRefs[ref]['used'][basename] = 1
 
 
+def read_dfg_props(filename):
+    with open(filename) as fh:
+        for line in fh:
+            if re.match(r'^/\*\s+@@@\s+DFG\s+START\s+.*', line):
+                break
+        buf = []
+        for line in fh:
+            if re.match(r'^\s*@@@\s+DFG\s+END\s+\*/.*', line):
+                break
+            buf.append(re.sub(r'//.*$', '', line.strip()))
+        text = "\n".join(buf)
+        props = json.loads(text)
+        return props
+
+
 def open_file(filename):
     fh = open(filename, "w")
     if re.search(r'\.txt$', filename):
@@ -640,6 +658,86 @@ def write_macros(filename):
                         sys.exit(1)
 
 
+def write_dfg_vertex_classes(filename):
+    with open_file(filename) as fh:
+        fh.write("\n")
+        for typen, arity in sorted(DfgVertexClasses.items(), key=lambda _: _[0]):
+            fh.write("class Dfg{} final : public DfgVertexWithArity<{}> {{\n".format(typen,arity))
+            fh.write("    friend class DfgVVisitor;\n")
+            fh.write("    void accept(DfgVVisitor& visitor) override;\n")
+            fh.write("public:\n")
+            fh.write("    static constexpr DfgType dfgType() {{ return DfgType::at{t}; }};\n".format(t=typen))
+            fh.write("    Dfg{t}(DfgGraph& dfg, FileLine* flp, uint32_t width) : DfgVertexWithArity<{a}>{{dfg, flp, width, dfgType()}} {{}}\n".format(t=typen, a=arity))
+            # Accessors
+            operandNames = DfgProps["operands"].get(typen, [])
+            assert not operandNames or len(operandNames) == arity
+            for i, n in enumerate(operandNames):
+                fh.write("    DfgVertex* {n}() const {{ return source<{i}>(); }}\n".format(n=n, i=i))
+            for i, n in enumerate(operandNames):
+                fh.write("    void {n}(DfgVertex* vtxp) {{ relinkSource<{i}>(vtxp); }}\n".format(n=n, i=i))
+            if operandNames:
+                names = ", ".join(map(lambda _: '"' + _ + '"', operandNames))
+                fh.write("    const string srcName(size_t idx) const override {\n")
+                fh.write("        static const char* names[{a}] = {{ {ns} }};\n".format(a=arity, ns=names))
+                fh.write("        return names[idx];\n")
+                fh.write("    }\n")
+            fh.write("};\n")
+            fh.write("\n")
+
+
+def write_dfg_visitor_decls(filename):
+    with open_file(filename) as fh:
+        fh.write("\n")
+        fh.write("virtual void visit(DfgVertex*) = 0;\n")
+        for typen, arity in sorted(DfgVertexClasses.items(), key=lambda _: _[0]):
+            fh.write("virtual void visit(Dfg{}*);\n".format(typen))
+
+
+def write_dfg_definitions(filename):
+    with open_file(filename) as fh:
+        fh.write("\n")
+        for typen, _ in sorted(DfgVertexClasses.items(), key=lambda _: _[0]):
+            fh.write("void Dfg{}::accept(DfgVVisitor& visitor) {{ visitor.visit(this); }}\n".format(typen))
+        fh.write("\n")
+        for typen, _ in sorted(DfgVertexClasses.items(), key=lambda _: _[0]):
+            fh.write("void DfgVVisitor::visit(Dfg{}* vtxp) {{ visit(static_cast<DfgVertex*>(vtxp)); }}\n".format(typen))
+
+
+def write_dfg_ast_to_dfg(filename):
+    with open_file(filename) as fh:
+        fh.write("\n")
+        for typen, arity in sorted(DfgVertexClasses.items(), key=lambda _: _[0]):
+            fh.write("void visit(Ast{t}* nodep) override {{\n".format(t=typen))
+            fh.write('    UASSERT_OBJ(!nodep->user1p(), nodep, "Already has Dfg vertex");\n')
+            fh.write("    Dfg{t}* const vtxp = makeVertex<Dfg{t}>(nodep, *m_dfgp);\n".format(t=typen));
+            fh.write("    if (VL_UNLIKELY(!vtxp)) {\n")
+            fh.write("        m_foundUnhandled = true;\n")
+            fh.write("        return;\n")
+            fh.write("    }\n")
+            fh.write("    m_uncommittedVertices.push_back(vtxp);\n\n")
+            for i in range(arity):
+                fh.write("    iterate(nodep->op{j}p());\n".format(j=i+1))
+                fh.write("    if (VL_UNLIKELY(m_foundUnhandled)) return;\n")
+                fh.write('    UASSERT_OBJ(nodep->op{j}p()->user1p(), nodep, "Child {j} missing Dfg vertex");\n'.format(j=i+1))
+                fh.write("    vtxp->relinkSource<{i}>(nodep->op{j}p()->user1u().to<DfgVertex*>());\n\n".format(i=i, j=i+1))
+            fh.write("    nodep->user1p(vtxp);\n")
+            fh.write("}\n")
+
+
+def write_dfg_dfg_to_ast(filename):
+    with open_file(filename) as fh:
+        fh.write("\n")
+        for typen, arity in sorted(DfgVertexClasses.items(), key=lambda _: _[0]):
+            fh.write("void visit(Dfg{t}* vtxp) override {{\n".format(t=typen))
+            for i in range(arity):
+                fh.write("    AstNodeMath* const op{j}p = convertSource(vtxp->source<{i}>());\n".format(i=i, j=i+1))
+            fh.write("    m_resultp = makeNode<Ast{t}>(vtxp".format(t=typen))
+            for i in range(arity):
+                fh.write(", op{j}p".format(j=i+1))
+            fh.write(");\n")
+            fh.write("}\n")
+
+
 ######################################################################
 # main
 
@@ -681,6 +779,24 @@ for typen in sorted(Classes.keys()):
                 "%Error: Non-final AstNode subclasses must be named AstNode*: Ast"
                 + typen)
 
+for typen in Classes.keys():
+    if "Node" in typen:
+        continue
+    bases = subclasses_of(typen)
+    if "NodeMath" not in bases:
+        continue
+    elif "NodeUniop" in bases:
+        arity = 1
+    elif "NodeBiop" in bases:
+        arity = 2
+    elif "NodeTriop" in bases:
+        arity = 3
+    elif "NodeQuadop" in bases:
+        arity = 4
+    else:
+        continue
+    DfgVertexClasses[typen] = arity
+
 read_stages(Args.I + "/Verilator.cpp")
 
 source_files = glob.glob(Args.I + "/*.y")
@@ -688,6 +804,8 @@ source_files.extend(glob.glob(Args.I + "/*.h"))
 source_files.extend(glob.glob(Args.I + "/*.cpp"))
 for filename in source_files:
     read_refs(filename)
+
+DfgProps = read_dfg_props(Args.I + "/V3Dfg.h")
 
 if Args.classes:
     write_report("V3Ast__gen_report.txt")
@@ -697,6 +815,11 @@ if Args.classes:
     write_types("V3Ast__gen_types.h")
     write_yystype("V3Ast__gen_yystype.h")
     write_macros("V3AstNodes__gen_macros.h")
+    write_dfg_vertex_classes("V3Dfg__gen_vertex_classes.h")
+    write_dfg_visitor_decls("V3Dfg__gen_visitor_decls.h")
+    write_dfg_definitions("V3Dfg__gen_definitions.h")
+    write_dfg_ast_to_dfg("V3Dfg__gen_ast_to_dfg.h")
+    write_dfg_dfg_to_ast("V3Dfg__gen_dfg_to_ast.h")
 
 for cpt in Args.infiles:
     if not re.search(r'.cpp$', cpt):

@@ -246,6 +246,10 @@ public:
         init(nullptr, width);
         m_fileline = nump->fileline();
     }
+    explicit V3Number(FileLine* flp, uint32_t width = 1) {
+        init(nullptr, width);
+        m_fileline = flp;
+    }
     V3Number(const V3Number* nump, int width, uint32_t value) {
         init(nullptr, width);
         m_value[0].m_value = value;

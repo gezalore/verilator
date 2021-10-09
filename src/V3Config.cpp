@@ -159,6 +159,7 @@ class V3ConfigModule final {
     std::set<VPragmaType> m_modPragmas;  // List of Pragmas for modules
     bool m_inline = false;  // Whether to force the inline
     bool m_inlineValue = false;  // The inline value (on/off)
+    bool m_noDfg = false;  // Disable DFG optimizer for this module
 
 public:
     V3ConfigModule() = default;
@@ -171,6 +172,7 @@ public:
             m_inline = m.m_inline;
             m_inlineValue = m.m_inlineValue;
         }
+        if (m.m_noDfg) m_noDfg = true;
         for (auto it = m.m_modPragmas.cbegin(); it != m.m_modPragmas.cend(); ++it) {
             m_modPragmas.insert(*it);
         }
@@ -184,6 +186,7 @@ public:
         m_inline = true;
         m_inlineValue = set;
     }
+    void setNoDfg() { m_noDfg = true; }
     void addModulePragma(VPragmaType pragma) { m_modPragmas.insert(pragma); }
 
     void apply(AstNodeModule* modp) {
@@ -191,6 +194,10 @@ public:
             const VPragmaType type
                 = m_inlineValue ? VPragmaType::INLINE_MODULE : VPragmaType::NO_INLINE_MODULE;
             AstNode* const nodep = new AstPragma(modp->fileline(), type);
+            modp->addStmtp(nodep);
+        }
+        if (m_noDfg) {
+            AstNode* const nodep = new AstPragma(modp->fileline(), VPragmaType::NO_DFG);
             modp->addStmtp(nodep);
         }
         for (const auto& itr : m_modPragmas) {
@@ -519,6 +526,10 @@ void V3Config::addInline(FileLine* fl, const string& module, const string& ftask
 
 void V3Config::addModulePragma(const string& module, VPragmaType pragma) {
     V3ConfigResolver::s().modules().at(module).addModulePragma(pragma);
+}
+
+void V3Config::addNoDfg(const string& module) {
+    V3ConfigResolver::s().modules().at(module).setNoDfg();
 }
 
 void V3Config::addProfileData(FileLine* fl, const string& model, const string& key,

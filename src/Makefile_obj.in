@@ -176,11 +176,17 @@ RAW_OBJS = \
 	V3Const__gen.o \
 	V3Coverage.o \
 	V3CoverageJoin.o \
+	V3Dataflow.o \
 	V3Dead.o \
 	V3Delayed.o \
 	V3Depth.o \
 	V3DepthBlock.o \
 	V3Descope.o \
+	V3Dfg.o \
+	V3DfgAstToDfg.o \
+	V3DfgDfgToAst.o \
+	V3DfgPasses.o \
+	V3DfgPeephole.o \
 	V3DupFinder.o \
 	V3EmitCBase.o \
 	V3EmitCConstPool.o \
@@ -301,7 +307,7 @@ V3Number_test: V3Number_test.o
 
 #### Modules
 
-%__gen.cpp:	%.cpp $(ASTGEN) V3Ast.h V3AstNodes.h
+%__gen.cpp:	%.cpp $(ASTGEN) V3Ast.h V3AstNodes.h V3Dfg.h
 	$(PYTHON3) $(ASTGEN) -I $(srcdir) $*.cpp
 
 %.o:	%.cpp
@@ -332,7 +338,7 @@ vlcovgen.d: $(VLCOVGEN) $(srcdir)/../include/verilated_cov_key.h
 	$(PYTHON3) $(VLCOVGEN) --srcdir $(srcdir)
 	touch $@
 
-V3Ast__gen_classes.h : $(ASTGEN) V3Ast.h V3AstNodes.h
+V3Ast__gen_classes.h : $(ASTGEN) V3Ast.h V3AstNodes.h V3Dfg.h
 	$(PYTHON3) $(ASTGEN) -I $(srcdir)  --classes
 
 V3ParseBison.h: V3ParseBison.c

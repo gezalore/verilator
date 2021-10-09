@@ -235,6 +235,7 @@ private:
     bool m_debugProtect = false;    // main switch: --debug-protect
     bool m_debugSelfTest = false;   // main switch: --debug-self-test
     bool m_decoration = true;       // main switch: --decoration
+    bool m_dfgOpt = false;          // main switch: --dfg-opt
     bool m_dpiHdrOnly = false;      // main switch: --dpi-hdr-only
     bool m_dumpDefines = false;     // main switch: --dump-defines
     bool m_dumpTreeAddrids = false; // main switch: --dump-tree-addrids
@@ -284,6 +285,7 @@ private:
     int         m_buildJobs = 1;    // main switch: -j
     int         m_convergeLimit = 100;  // main switch: --converge-limit
     int         m_coverageMaxWidth = 256; // main switch: --coverage-max-width
+    int         m_dumpDfg = 0;     // main switch: --dump-dfg
     int         m_dumpTree = 0;     // main switch: --dump-tree
     int         m_expandLimit = 64;  // main switch: --expand-limit
     int         m_gateStmts = 100;    // main switch: --gate-stmts
@@ -445,6 +447,7 @@ public:
     bool debugProtect() const { return m_debugProtect; }
     bool debugSelfTest() const { return m_debugSelfTest; }
     bool decoration() const { return m_decoration; }
+    bool dfgOpt() const { return m_dfgOpt; }
     bool dpiHdrOnly() const { return m_dpiHdrOnly; }
     bool dumpDefines() const { return m_dumpDefines; }
     bool exe() const { return m_exe; }
@@ -487,6 +490,7 @@ public:
     int buildJobs() const { return m_buildJobs; }
     int convergeLimit() const { return m_convergeLimit; }
     int coverageMaxWidth() const { return m_coverageMaxWidth; }
+    int dumpDfg() const { return m_dumpDfg; }
     int dumpTree() const { return m_dumpTree; }
     bool dumpTreeAddrids() const { return m_dumpTreeAddrids; }
     int expandLimit() const { return m_expandLimit; }

@@ -33,8 +33,10 @@
 #include "V3Os.h"
 
 #include <cerrno>
+#include <cctype>
 #include <climits>  // PATH_MAX (especially on FreeBSD)
 #include <cstdarg>
+#include <cstdlib>
 #include <dirent.h>
 #include <fstream>
 #include <memory>
@@ -106,6 +108,20 @@ void V3Os::setenvStr(const string& envvar, const string& value, const string& wh
     const string vareq = envvar + "=" + value;
     putenv(const_cast<char*>(vareq.c_str()));
 #endif
+}
+
+long V3Os::getenvLong(const string& envvar, long defaultValue) {
+    const string& str = getenvStr(envvar, "");
+    if (str.empty()) return defaultValue;
+    char* endp = nullptr;
+    const long result = std::strtol(str.c_str(), &endp, 10);
+    while (std::isspace(*endp)) ++endp;
+    if (*endp) {
+        v3fatalStatic("Environment variable '"
+                      << envvar << "' is expected to be an integer, but was set to \"" << str
+                      << "\"");
+    }
+    return result;
 }
 
 //######################################################################

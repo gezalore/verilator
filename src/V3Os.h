@@ -33,6 +33,7 @@ public:
     // METHODS (environment)
     static string getenvStr(const string& envvar, const string& defaultValue);
     static void setenvStr(const string& envvar, const string& value, const string& why);
+    static long getenvLong(const string& envvar, long defaultValue);
 
     // METHODS (generic filename utilities)
     static string filenameFromDirBase(const string& dir, const string& basename);

@@ -41,6 +41,8 @@ public:
     // METHODS
     T begin() const { return m_headp; }
     T end() const { return nullptr; }
+    T rbegin() const { return m_tailp; }
+    T rend() const { return nullptr; }
     bool empty() const { return m_headp == nullptr; }
     void reset() {  // clear() without walking the list
         m_headp = nullptr;
@@ -74,6 +76,7 @@ public:
 #endif
     }
     T nextp() const { return m_nextp; }
+    T prevp() const { return m_prevp; }
     // METHODS
     void pushBack(V3List<T>& listr, T newp) {
         // "this" must be a element inside of *newp

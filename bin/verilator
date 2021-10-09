@@ -306,8 +306,11 @@ detailed descriptions of these arguments.
     --no-decoration             Disable comments and symbol decorations
     --default-language <lang>   Default language to parse
      +define+<var>=<value>      Set preprocessor define
+    --dfg-opt                   Enable experimental combinational logic optimizer
     --dpi-hdr-only              Only produce the DPI header file
     --dump-defines              Show preprocessor defines with -E
+    --dump-dfg                  Enable dumping DFG optimizer .dot files
+    --dump-dfgi <level>         Enable dumping DFG optimizer .dot files at a level
     --dump-tree                 Enable dumping .tree files
     --dump-tree-addrids         Use short identifiers instead of addresses
     --dump-treei <level>        Enable dumping .tree files at a level

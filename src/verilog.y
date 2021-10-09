@@ -376,6 +376,7 @@ BISONPRE_VERSION(3.7,%define api.header.include {"V3ParseBison.h"})
 %token<fl>              yVLT_COVERAGE_ON            "coverage_on"
 %token<fl>              yVLT_FORCEABLE              "forceable"
 %token<fl>              yVLT_FULL_CASE              "full_case"
+%token<fl>              yVLT_NO_DFG                 "no_dfg"
 %token<fl>              yVLT_HIER_BLOCK             "hier_block"
 %token<fl>              yVLT_INLINE                 "inline"
 %token<fl>              yVLT_ISOLATE_ASSIGNMENTS    "isolate_assignments"
@@ -6552,6 +6553,8 @@ vltItem:
                         { V3Config::addCaseParallel(*$3, $5->toUInt()); }
         |       yVLT_PROFILE_DATA yVLT_D_MODEL yaSTRING yVLT_D_MTASK yaSTRING yVLT_D_COST yaINTNUM
                         { V3Config::addProfileData($<fl>1, *$3, *$5, $7->toUQuad()); }
+        |       yVLT_NO_DFG yVLT_D_MODULE str
+                        { V3Config::addNoDfg(*$3); }
         ;
 
 vltOffFront<errcodeen>:

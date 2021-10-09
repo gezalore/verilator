@@ -38,6 +38,7 @@
 #include "V3Const.h"
 #include "V3Coverage.h"
 #include "V3CoverageJoin.h"
+#include "V3Dataflow.h"
 #include "V3Dead.h"
 #include "V3Delayed.h"
 #include "V3Depth.h"
@@ -233,6 +234,11 @@ static void process() {
         // (Before flattening, so each new X variable is shared between all scopes of that module.)
         V3Unknown::unknownAll(v3Global.rootp());
         v3Global.constRemoveXs(true);
+    }
+
+    if (v3Global.opt.dfgOpt()) {
+        // Experimental combinational logic optimizer
+        V3Dataflow::all(v3Global.rootp());
     }
 
     if (!(v3Global.opt.xmlOnly() && !v3Global.opt.flatten())) {

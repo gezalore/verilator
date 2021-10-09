@@ -97,7 +97,7 @@ public:
     // cppcheck-suppress uninitVar  // responsibility of each subclass
     inline VNType() {}
     // cppcheck-suppress noExplicitConstructor
-    inline VNType(en _e)
+    constexpr inline VNType(en _e)
         : m_e{_e} {}
     explicit inline VNType(int _e)
         : m_e(static_cast<en>(_e)) {}  // Need () or GCC 4.8 false warning
@@ -233,6 +233,7 @@ public:
         PUBLIC_TASK,
         FULL_CASE,
         PARALLEL_CASE,
+        NO_DFG,
         ENUM_SIZE
     };
     enum en m_e;

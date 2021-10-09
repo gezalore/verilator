@@ -330,6 +330,11 @@ Summary:
    standard across Verilog tools while :vlopt:`-D <-D<var>>` is similar to
    :command:`gcc -D`.
 
+.. option:: --dfg-opt
+
+   Enable experimentla data-flow based combinational logic optimizer.
+   Off by default because implementation and testing is incomplete.
+
 .. option:: --dpi-hdr-only
 
    Only generate the DPI header file.  This option has no effect on the
@@ -346,6 +351,15 @@ Summary:
    .. code-block:: bash
 
        touch foo.v ; verilator -E --dump-defines foo.v
+
+.. option:: --dump-dfg
+
+   Rarely needed.  Enable writing DFG optimizer .dot files with dumping level 1,
+
+.. option:: --dump-dfgi <level>
+
+   Rarely needed - for developer use.  Set internal DFG dumping level
+   globally to a specific dumping level.
 
 .. option:: --dump-tree
 
@@ -1602,6 +1616,11 @@ The grammar of configuration commands is as follows:
    Verilator will either formally prove the directive to be true, or
    failing that, will insert the appropriate code to detect failing cases
    at simulation runtime and print an "Assertion failed" error message.
+
+.. option:: no_dfg -module "<modulename>"
+
+   Specifies that the module should not undergo combinational logic
+   optimization via the DFG optimizer.
 
 .. option:: hier_block -module "<modulename>"
 
