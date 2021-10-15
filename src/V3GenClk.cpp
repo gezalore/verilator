@@ -14,8 +14,11 @@
 //
 //*************************************************************************
 // GENCLK TRANSFORMATIONS:
-//      Follow control-flow graph with assignments and var usages
-//          ASSIGNDLY to variable later used as clock requires change detect
+//
+// Follow code execution path. Any clock (variable referenced in a
+// sensitivity list) that is assigned after it's used as a clock will
+// be replaced with a delayed signal and a change detect added (by marking
+// circular).
 //
 //*************************************************************************
 
@@ -38,24 +41,19 @@ protected:
 // GenClk Read
 
 class GenClkRenameVisitor final : public GenClkBaseVisitor {
-private:
     // NODE STATE
-    // Cleared on top scope
-    //  AstVarScope::user2()    -> AstVarScope*.  Signal replacing activation with
-    //  AstVarRef::user3()      -> bool.  Signal is replaced activation (already done)
-    AstUser2InUse m_inuser2;
-    AstUser3InUse m_inuser3;
+    // AstVarScope::user2p() -> AstVarScope*. Replacement clock signal to be used in
+    //                          sensitivity lists.
+    AstUser2InUse m_user2InUse;
 
     // STATE
-    AstActive* m_activep = nullptr;  // Inside activate statement
-    AstNodeModule* m_topModp;  // Top module
-    AstScope* m_scopetopp = nullptr;  // Scope under TOPSCOPE
+    AstNodeModule* const m_topModp;  // Top module
+    AstScope* m_scopetopp = nullptr;  // AstScope under AstTopScope
+    bool m_inSenseList = false;  // Walking the sensitivity list of an AstActive
 
     // METHODS
     AstVarScope* genInpClk(AstVarScope* vscp) {
-        if (vscp->user2p()) {
-            return VN_CAST(vscp->user2p(), VarScope);
-        } else {
+        if (!vscp->user2p()) {
             // In order to create a __VinpClk* for a signal, it needs to be marked circular.
             // The DPI export trigger is never marked circular by V3Order (see comments in
             // OrderVisitor::nodeMarkCircular). The only other place where one might mark
@@ -69,69 +67,57 @@ private:
             // that might have dependents scheduled earlier.
             UASSERT_OBJ(vscp != v3Global.rootp()->dpiExportTriggerp(), vscp,
                         "DPI export trigger should not need __VinpClk");
-            AstVar* varp = vscp->varp();
-            string newvarname
+
+            AstVar* const varp = vscp->varp();
+            const string newvarname
                 = "__VinpClk__" + vscp->scopep()->nameDotless() + "__" + varp->name();
-            // Create:  VARREF(inpclk)
-            //          ...
-            //          ASSIGN(VARREF(inpclk), VARREF(var))
-            AstVar* newvarp
+            AstVar* const newvarp
                 = new AstVar(varp->fileline(), AstVarType::MODULETEMP, newvarname, varp);
             m_topModp->addStmtp(newvarp);
-            AstVarScope* newvscp = new AstVarScope(vscp->fileline(), m_scopetopp, newvarp);
+            AstVarScope* const newvscp = new AstVarScope(vscp->fileline(), m_scopetopp, newvarp);
             m_scopetopp->addVarp(newvscp);
-            AstAssign* asninitp = new AstAssign(
+            AstAssign* const assignp = new AstAssign(
                 vscp->fileline(), new AstVarRef(vscp->fileline(), newvscp, VAccess::WRITE),
                 new AstVarRef(vscp->fileline(), vscp, VAccess::READ));
-            m_scopetopp->addFinalClkp(asninitp);
-            //
+            m_scopetopp->addFinalClkp(assignp);
             vscp->user2p(newvscp);
-            return newvscp;
         }
+        return vscp->user2u().to<AstVarScope*>();
     }
 
     // VISITORS
     virtual void visit(AstTopScope* nodep) override {
-        AstNode::user2ClearTree();  // user2p() used on entire tree
-
-        AstScope* scopep = nodep->scopep();
-        UASSERT_OBJ(scopep, nodep, "No scope found on top level");
-        m_scopetopp = scopep;
-
+        m_scopetopp = nodep->scopep();
+        UASSERT_OBJ(m_scopetopp, nodep, "No scope found on top level");
         iterateChildren(nodep);
     }
+    virtual void visit(AstNode* nodep) override { iterateChildren(nodep); }
+
     //----
     virtual void visit(AstVarRef* nodep) override {
-        // Consumption/generation of a variable,
-        AstVarScope* vscp = nodep->varScopep();
+        AstVarScope* const vscp = nodep->varScopep();
         UASSERT_OBJ(vscp, nodep, "Scope not assigned");
-        if (m_activep && !nodep->user3()) {
-            nodep->user3(true);
-            if (vscp->isCircular()) {
-                UINFO(8, "  VarActReplace " << nodep << endl);
-                // Replace with the new variable
-                AstVarScope* newvscp = genInpClk(vscp);
-                AstVarRef* newrefp = new AstVarRef(nodep->fileline(), newvscp, nodep->access());
-                nodep->replaceWith(newrefp);
-                VL_DO_DANGLING(pushDeletep(nodep), nodep);
-            }
+        if (m_inSenseList && vscp->isCircular()) {
+            // Replace with the new variable
+            AstVarScope* const newvscp = genInpClk(vscp);
+            AstVarRef* const newrefp = new AstVarRef(nodep->fileline(), newvscp, nodep->access());
+            nodep->replaceWith(newrefp);
+            VL_DO_DANGLING(nodep->deleteTree(), nodep);
         }
     }
     virtual void visit(AstActive* nodep) override {
-        m_activep = nodep;
-        UASSERT_OBJ(nodep->sensesp(), nodep, "Unlinked");
-        iterateChildren(nodep->sensesp());  // iterateAndNext?
-        m_activep = nullptr;
-        iterateChildren(nodep);
+        m_inSenseList = true;
+        iterateChildren(nodep->sensesp());
+        m_inSenseList = false;
+        // No nested AstActive under here, no need to iterate
     }
 
     //-----
-    virtual void visit(AstNode* nodep) override { iterateChildren(nodep); }
 
 public:
     // CONSTRUCTORS
-    GenClkRenameVisitor(AstTopScope* nodep, AstNodeModule* topModp)
-        : m_topModp{topModp} {
+    GenClkRenameVisitor(AstNetlist* nodep)
+        : m_topModp{nodep->topModulep()} {
         iterate(nodep);
     }
     virtual ~GenClkRenameVisitor() override = default;
@@ -141,92 +127,73 @@ public:
 // GenClk Read
 
 class GenClkReadVisitor final : public GenClkBaseVisitor {
-private:
     // NODE STATE
-    // Cleared on top scope
-    //  AstVarScope::user()     -> bool.  Set when the var has been used as clock
-    AstUser1InUse m_inuser1;
+    // AstVarScope::user() -> bool. Set on variables read in a sensitivity list (i.e.: on clocks)
+    AstUser1InUse m_user1InUse;
 
     // STATE
-    bool m_tracingCall = false;  // Iterating into a call to a cfunc
-    AstActive* m_activep = nullptr;  // Inside activate statement
-    AstNodeAssign* m_assignp = nullptr;  // Inside assigndly statement
-    AstNodeModule* m_topModp = nullptr;  // Top module
+    bool m_inSenseList = false;  // Walking the sensitivity list of an AstActive
+    bool m_inAssign = false;  // Walking under an AstNodeAssign
 
     // VISITORS
-    virtual void visit(AstTopScope* nodep) override {
-        AstNode::user1ClearTree();  // user1p() used on entire tree
-        iterateChildren(nodep);
-        {
-            // Make the new clock signals and replace any activate references
-            // See rename, it does some AstNode::userClearTree()'s
-            GenClkRenameVisitor visitor{nodep, m_topModp};
-        }
-    }
+
+    // Trace execution path
     virtual void visit(AstNodeModule* nodep) override {
-        // Only track the top scopes, not lower level functions
-        if (nodep->isTop()) {
-            m_topModp = nodep;
-            iterateChildren(nodep);
-        }
+        UASSERT_OBJ(nodep->isTop(), nodep, "Only the top module should be visited");
+        iterateChildrenConst(nodep);
     }
     virtual void visit(AstNodeCCall* nodep) override {
-        iterateChildren(nodep);
-        if (!nodep->funcp()->entryPoint()) {
-            // Enter the function and trace it
-            m_tracingCall = true;
-            iterate(nodep->funcp());
-        }
+        iterateChildrenConst(nodep);
+        // Analyse the body of the callee
+        if (!nodep->funcp()->entryPoint()) iterateChildrenConst(nodep->funcp());
     }
     virtual void visit(AstCFunc* nodep) override {
-        if (!m_tracingCall && !nodep->entryPoint()) {
-            // Only consider logic within a CFunc when looking
-            // at the call to it, and not when scanning whatever
-            // scope it happens to live beneath.
+        // We are trying to trace execution order, so only start from functions
+        // that are entry points. Other function bodies will be visited when called.
+        if (nodep->entryPoint()) iterateChildrenConst(nodep);
+    }
+    virtual void visit(AstNode* nodep) override { iterateChildrenConst(nodep); }
+
+    // Mark variables that were previously used as clock, but written later
+    virtual void visit(AstVarRef* nodep) override {
+        AstVarScope* const vscp = nodep->varScopep();
+        UASSERT_OBJ(vscp, nodep, "Scope not assigned");
+
+        if (m_inSenseList) {
+            // Variable reference in a sensitivity list. Mark as clock.
+            UASSERT_OBJ(nodep->access().isReadOnly(), nodep, "Sensitivity list writes clock");
+            vscp->user1(true);
             return;
         }
-        m_tracingCall = false;
-        iterateChildren(nodep);
-    }
-    //----
 
-    virtual void visit(AstVarRef* nodep) override {
-        // Consumption/generation of a variable,
-        AstVarScope* vscp = nodep->varScopep();
-        UASSERT_OBJ(vscp, nodep, "Scope not assigned");
-        if (m_activep) {
-            UINFO(8, "  VarAct " << nodep << endl);
-            vscp->user1(true);
-        }
-        if (m_assignp && nodep->access().isWriteOrRW() && vscp->user1()) {
-            // Variable was previously used as a clock, and is now being set
-            // Thus a unordered generated clock...
+        if (m_inAssign && nodep->access().isWriteOrRW() && vscp->user1()) {
+            // TODO: why do we check only under assignments?
+            // Variable was previously used as a clock, and is now being set,
+            // thus it is an unordered generated clock...
             UINFO(8, "  VarSetAct " << nodep << endl);
             vscp->circular(true);
         }
     }
-    virtual void visit(AstNodeAssign* nodep) override {
-        // UINFO(8, "ASS " << nodep << endl);
-        m_assignp = nodep;
-        iterateChildren(nodep);
-        m_assignp = nullptr;
-    }
     virtual void visit(AstActive* nodep) override {
-        UINFO(8, "ACTIVE " << nodep << endl);
-        m_activep = nodep;
-        UASSERT_OBJ(nodep->sensesp(), nodep, "Unlinked");
-        iterateChildren(nodep->sensesp());  // iterateAndNext?
-        m_activep = nullptr;
-        iterateChildren(nodep);
+        m_inSenseList = true;
+        iterateChildrenConst(nodep->sensesp());
+        m_inSenseList = false;
+        iterateChildrenConst(nodep);
     }
-
-    //-----
-    virtual void visit(AstVar*) override {}  // Don't want varrefs under it
-    virtual void visit(AstNode* nodep) override { iterateChildren(nodep); }
+    virtual void visit(AstNodeAssign* nodep) override {
+        m_inAssign = true;
+        iterateChildrenConst(nodep);
+        m_inAssign = false;
+    }
 
 public:
     // CONSTRUCTORS
-    explicit GenClkReadVisitor(AstNetlist* nodep) { iterate(nodep); }
+    explicit GenClkReadVisitor(AstNetlist* nodep) {
+        // Trace execution and mark problematic clock
+        iterate(nodep->topModulep());
+        // Create the new clock signals and replace any references in sensitivity lists
+        GenClkRenameVisitor visitor{nodep};
+    }
     virtual ~GenClkReadVisitor() override = default;
 };
 
