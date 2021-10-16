@@ -44,12 +44,13 @@ class GenClkRenameVisitor final : public GenClkBaseVisitor {
     // NODE STATE
     // AstVarScope::user2p() -> AstVarScope*. Replacement clock signal to be used in
     //                          sensitivity lists.
+    // AstStenTree::user3()  -> Flag indicating already processed.
     AstUser2InUse m_user2InUse;
 
     // STATE
     AstNodeModule* const m_topModp;  // Top module
     AstScope* m_scopetopp = nullptr;  // AstScope under AstTopScope
-    bool m_inSenseList = false;  // Walking the sensitivity list of an AstActive
+    bool m_inSenTree = false;  // Walking an AstSenTree
 
     // METHODS
     AstVarScope* genInpClk(AstVarScope* vscp) {
@@ -92,24 +93,26 @@ class GenClkRenameVisitor final : public GenClkBaseVisitor {
         iterateChildren(nodep);
     }
     virtual void visit(AstNode* nodep) override { iterateChildren(nodep); }
+    virtual void visit(AstActive* nodep) override {}  // Accelerate
+    virtual void visit(AstNodeAssign* nodep) override {}  // Accelerate
 
     //----
+    virtual void visit(AstSenTree* nodep) override {
+        m_inSenTree = true;
+        iterateChildren(nodep);
+        m_inSenTree = false;
+    }
+
     virtual void visit(AstVarRef* nodep) override {
         AstVarScope* const vscp = nodep->varScopep();
         UASSERT_OBJ(vscp, nodep, "Scope not assigned");
-        if (m_inSenseList && vscp->isCircular()) {
-            // Replace with the new variable
+        if (m_inSenTree && vscp->isCircular()) {
+            // Replace with the new variableS
             AstVarScope* const newvscp = genInpClk(vscp);
             AstVarRef* const newrefp = new AstVarRef(nodep->fileline(), newvscp, nodep->access());
             nodep->replaceWith(newrefp);
             VL_DO_DANGLING(nodep->deleteTree(), nodep);
         }
-    }
-    virtual void visit(AstActive* nodep) override {
-        m_inSenseList = true;
-        iterateChildren(nodep->sensesp());
-        m_inSenseList = false;
-        // No nested AstActive under here, no need to iterate
     }
 
     //-----
@@ -153,6 +156,7 @@ class GenClkReadVisitor final : public GenClkBaseVisitor {
         if (nodep->entryPoint()) iterateChildrenConst(nodep);
     }
     virtual void visit(AstNode* nodep) override { iterateChildrenConst(nodep); }
+    virtual void visit(AstSenTree* nodep) override {}  // Accelerate (we want them in code order)
 
     // Mark variables that were previously used as clock, but written later
     virtual void visit(AstVarRef* nodep) override {
