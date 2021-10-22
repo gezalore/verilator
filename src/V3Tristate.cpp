@@ -1237,7 +1237,7 @@ class TristateVisitor final : public TristateBaseVisitor {
                     exprrefp = nullptr;  // Primary input only
                 } else {
                     // pinReconnect should have converted this
-                    exprrefp = VN_CAST(outpinp->exprp(), VarRef);
+                    exprrefp = VN_AS(outpinp->exprp(), VarRef);
                     if (!exprrefp) {
                         nodep->v3warn(E_UNSUPPORTED, "Unsupported tristate port expression: "
                                                          << nodep->exprp()->prettyTypeName());
@@ -1245,8 +1245,8 @@ class TristateVisitor final : public TristateBaseVisitor {
                 }
             } else {
                 // pinReconnect should have converted this
-                exprrefp = VN_CAST(outAssignp->rhsp(),
-                                   VarRef);  // This should be the same var as the output pin
+                exprrefp = VN_AS(outAssignp->rhsp(),
+                                 VarRef);  // This should be the same var as the output pin
                 if (!exprrefp) {
                     nodep->v3warn(E_UNSUPPORTED, "Unsupported tristate port expression: "
                                                      << nodep->exprp()->prettyTypeName());

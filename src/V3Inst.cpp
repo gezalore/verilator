@@ -98,7 +98,7 @@ private:
                 // link with their scope later
                 AstNode* lhsp = new AstVarXRef(exprp->fileline(), nodep->modVarp(),
                                                m_cellp->name(), VAccess::READ);
-                const AstVarRef* refp = VN_CAST(exprp, VarRef);
+                const AstVarRef* refp = VN_AS(exprp, VarRef);
                 const AstVarXRef* xrefp = VN_CAST(exprp, VarXRef);
                 UASSERT_OBJ(refp || xrefp, exprp,
                             "Interfaces: Pin is not connected to a VarRef or VarXRef");
@@ -362,11 +362,11 @@ private:
             }
         }  // end expanding ranged cell
         else if (AstArraySel* arrselp = VN_CAST(nodep->exprp(), ArraySel)) {
-            if (AstUnpackArrayDType* arrp = VN_CAST(arrselp->lhsp()->dtypep(), UnpackArrayDType)) {
+            if (AstUnpackArrayDType* arrp = VN_AS(arrselp->lhsp()->dtypep(), UnpackArrayDType)) {
                 if (!VN_IS(arrp->subDTypep(), IfaceRefDType)) return;
                 // Interface pin attaches to one element of arrayed interface
                 V3Const::constifyParamsEdit(arrselp->rhsp());
-                const AstConst* constp = VN_CAST(arrselp->rhsp(), Const);
+                const AstConst* constp = VN_AS(arrselp->rhsp(), Const);
                 if (!constp) {
                     nodep->v3warn(
                         E_UNSUPPORTED,
@@ -441,7 +441,7 @@ private:
                     expr_i = slice_index + exprArrp->lo();
                 } else if (!varrefp) {
                     newp->exprp()->v3error("Unexpected connection to arrayed port");
-                } else if (auto* exprArrp = VN_CAST(varrefp->dtypep(), UnpackArrayDType)) {
+                } else if (auto* exprArrp = VN_AS(varrefp->dtypep(), UnpackArrayDType)) {
                     expr_i = exprArrp->left() + in * exprArrp->declRange().leftToRightInc();
                 }
 

@@ -636,7 +636,7 @@ private:
         if (m_vup->prelim()) {
             iterateCheckSizedSelf(nodep, "RHS", nodep->rhsp(), SELF, BOTH);
             V3Const::constifyParamsEdit(nodep->rhsp());  // rhsp may change
-            const AstConst* constp = VN_CAST(nodep->rhsp(), Const);
+            const AstConst* constp = VN_AS(nodep->rhsp(), Const);
             if (!constp) {
                 nodep->v3error("Replication value isn't a constant.");
                 return;
@@ -693,7 +693,7 @@ private:
             iterateCheckString(nodep, "LHS", nodep->lhsp(), BOTH);
             iterateCheckSizedSelf(nodep, "RHS", nodep->rhsp(), SELF, BOTH);
             V3Const::constifyParamsEdit(nodep->rhsp());  // rhsp may change
-            const AstConst* constp = VN_CAST(nodep->rhsp(), Const);
+            const AstConst* constp = VN_AS(nodep->rhsp(), Const);
             if (!constp) {
                 nodep->v3error("Replication value isn't a constant.");
                 return;
@@ -787,7 +787,7 @@ private:
             iterateCheckSizedSelf(nodep, "Select Width", nodep->widthp(), SELF, BOTH);
             iterateCheckSizedSelf(nodep, "Select LHS", nodep->lhsp(), SELF, BOTH);
             V3Const::constifyParamsEdit(nodep->widthp());  // widthp may change
-            AstConst* widthConstp = VN_CAST(nodep->widthp(), Const);
+            AstConst* widthConstp = VN_AS(nodep->widthp(), Const);
             if (!widthConstp) {
                 nodep->v3error("Width of bit extract isn't a constant");
                 nodep->dtypeSetBit();
@@ -891,7 +891,7 @@ private:
             int frommsb;
             int fromlsb;
             AstNodeDType* fromDtp = nodep->fromp()->dtypep()->skipRefp();
-            if (const AstUnpackArrayDType* adtypep = VN_CAST(fromDtp, UnpackArrayDType)) {
+            if (const AstUnpackArrayDType* adtypep = VN_AS(fromDtp, UnpackArrayDType)) {
                 frommsb = adtypep->hi();
                 fromlsb = adtypep->lo();
                 if (fromlsb > frommsb) {
@@ -946,7 +946,7 @@ private:
         // Signed/Real: Output type based on array-declared type; binary operator
         if (m_vup->prelim()) {
             AstNodeDType* fromDtp = nodep->fromp()->dtypep()->skipRefp();
-            AstAssocArrayDType* adtypep = VN_CAST(fromDtp, AssocArrayDType);
+            AstAssocArrayDType* adtypep = VN_AS(fromDtp, AssocArrayDType);
             if (!adtypep) {
                 UINFO(1, "    Related dtype: " << fromDtp << endl);
                 nodep->v3fatalSrc("Associative array reference is not to associative array");
@@ -964,7 +964,7 @@ private:
             //
             // Array indices are always constant
             AstNodeDType* fromDtp = nodep->fromp()->dtypep()->skipRefp();
-            AstUnpackArrayDType* adtypep = VN_CAST(fromDtp, UnpackArrayDType);
+            AstUnpackArrayDType* adtypep = VN_AS(fromDtp, UnpackArrayDType);
             if (!adtypep) {
                 UINFO(1, "    Related dtype: " << fromDtp << endl);
                 nodep->v3fatalSrc("Packed array reference exceeds dimension of array");
@@ -1171,7 +1171,7 @@ private:
             if (varp->isParam()) return;  // Ok, leave
         }
         // queue_slice[#:$]
-        if (auto* selp = VN_CAST(nodep->backp(), SelExtract)) {
+        if (auto* selp = VN_AS(nodep->backp(), SelExtract)) {
             if (VN_IS(selp->fromp()->dtypep(), QueueDType)) {
                 nodep->replaceWith(
                     new AstConst(nodep->fileline(), AstConst::Signed32(), 0x7FFFFFFF));
@@ -1300,7 +1300,7 @@ private:
         // LHS is a real number in seconds
         // Need to round to time units and precision
         userIterateAndNext(nodep->lhsp(), WidthVP(SELF, BOTH).p());
-        AstConst* constp = VN_CAST(nodep->lhsp(), Const);
+        AstConst* constp = VN_AS(nodep->lhsp(), Const);
         if (!constp || !constp->isDouble()) nodep->v3fatalSrc("Times should be doubles");
         if (nodep->timeunit().isNone()) nodep->v3fatalSrc("$time import no units");
         double time = constp->num().toDouble();
@@ -1712,7 +1712,7 @@ private:
         // nodep->dtp could be data type, or a primary_constant
         // Don't iterate lhsp, will deal with that once convert the type
         V3Const::constifyParamsEdit(nodep->dtp());  // itemp may change
-        if (AstConst* constp = VN_CAST(nodep->dtp(), Const)) {
+        if (AstConst* constp = VN_AS(nodep->dtp(), Const)) {
             constp->unlinkFrBack();
             AstNode* newp
                 = new AstCastSize(nodep->fileline(), nodep->lhsp()->unlinkFrBack(), constp);
@@ -2198,7 +2198,7 @@ private:
             AstNodeDType* const vdtypep = m_vup->dtypeNullp();
             UASSERT_OBJ(vdtypep, nodep, "InitArray type not assigned by AstPattern/Var visitor");
             nodep->dtypep(vdtypep);
-            if (AstNodeArrayDType* const arrayp = VN_CAST(vdtypep->skipRefp(), NodeArrayDType)) {
+            if (AstNodeArrayDType* const arrayp = VN_AS(vdtypep->skipRefp(), NodeArrayDType)) {
                 userIterateChildren(nodep, WidthVP(arrayp->subDTypep(), BOTH).p());
             } else {
                 UINFO(1, "dtype object " << vdtypep->skipRefp() << endl);
@@ -2360,7 +2360,7 @@ private:
                     nodep->varp(varp);
                     return;
                 }
-                if (AstEnumItemRef* adfoundp = VN_CAST(foundp, EnumItemRef)) {
+                if (AstEnumItemRef* adfoundp = VN_AS(foundp, EnumItemRef)) {
                     nodep->replaceWith(adfoundp->cloneTree(false));
                     return;
                 }
@@ -2492,7 +2492,7 @@ private:
                                 AstNodeDType* returnDtp, AstNodeDType* indexDtp,
                                 AstNodeDType* valueDtp) {
         UASSERT_OBJ(arbReturn || returnDtp, nodep, "Null return type");
-        if (AstWith* withp = VN_CAST(nodep->pinsp(), With)) {
+        if (AstWith* withp = VN_AS(nodep->pinsp(), With)) {
             withp->indexArgRefp()->dtypep(indexDtp);
             withp->valueArgRefp()->dtypep(valueDtp);
             userIterate(withp, WidthVP(returnDtp, BOTH).p());
@@ -2721,7 +2721,7 @@ private:
         }
     }
     AstNode* methodCallAssocIndexExpr(AstMethodCall* nodep, AstAssocArrayDType* adtypep) {
-        AstNode* index_exprp = VN_CAST(nodep->pinsp(), Arg)->exprp();
+        AstNode* index_exprp = VN_AS(nodep->pinsp(), Arg)->exprp();
         iterateCheck(nodep, "index", index_exprp, CONTEXT, FINAL, adtypep->keyDTypep(),
                      EXTEND_EXP);
         VL_DANGLING(index_exprp);  // May have been edited
@@ -2732,7 +2732,7 @@ private:
             varrefp->access(access);
         } else if (AstMemberSel* ichildp = VN_CAST(childp, MemberSel)) {
             methodCallLValueRecurse(nodep, ichildp->fromp(), access);
-        } else if (AstNodeSel* ichildp = VN_CAST(childp, NodeSel)) {
+        } else if (AstNodeSel* ichildp = VN_AS(childp, NodeSel)) {
             methodCallLValueRecurse(nodep, ichildp->fromp(), access);
         } else {
             UINFO(1, "    Related node: " << childp << endl);
@@ -2973,7 +2973,7 @@ private:
         }
         UASSERT_OBJ(first_classp, nodep, "Unlinked");
         for (AstClass* classp = first_classp; classp;) {
-            if (AstNodeFTask* ftaskp = VN_CAST(classp->findMember(nodep->name()), NodeFTask)) {
+            if (AstNodeFTask* ftaskp = VN_AS(classp->findMember(nodep->name()), NodeFTask)) {
                 userIterate(ftaskp, nullptr);
                 if (ftaskp->lifetime().isStatic()) {
                     AstNode* argsp = nullptr;
@@ -3191,7 +3191,7 @@ private:
     virtual void visit(AstNew* nodep) override {
         if (nodep->didWidth()) return;
         AstClassRefDType* refp
-            = m_vup ? VN_CAST(m_vup->dtypeNullSkipRefp(), ClassRefDType) : nullptr;
+            = m_vup ? VN_AS(m_vup->dtypeNullSkipRefp(), ClassRefDType) : nullptr;
         if (!refp) {  // e.g. int a = new;
             nodep->v3error("new() not expected in this context");
             return;
@@ -3200,7 +3200,7 @@ private:
 
         AstClass* classp = refp->classp();
         UASSERT_OBJ(classp, nodep, "Unlinked");
-        if (AstNodeFTask* ftaskp = VN_CAST(classp->findMember("new"), Func)) {
+        if (AstNodeFTask* ftaskp = VN_AS(classp->findMember("new"), Func)) {
             nodep->taskp(ftaskp);
             nodep->classOrPackagep(classp);
         } else {
@@ -3216,7 +3216,7 @@ private:
     }
     virtual void visit(AstNewCopy* nodep) override {
         if (nodep->didWidthAndSet()) return;
-        AstClassRefDType* refp = VN_CAST(m_vup->dtypeNullSkipRefp(), ClassRefDType);
+        AstClassRefDType* refp = VN_AS(m_vup->dtypeNullSkipRefp(), ClassRefDType);
         if (!refp) {  // e.g. int a = new;
             nodep->v3error("new() not expected in this context");
             return;
@@ -3231,7 +3231,7 @@ private:
     }
     virtual void visit(AstNewDynamic* nodep) override {
         if (nodep->didWidthAndSet()) return;
-        AstDynArrayDType* adtypep = VN_CAST(m_vup->dtypeNullSkipRefp(), DynArrayDType);
+        AstDynArrayDType* adtypep = VN_AS(m_vup->dtypeNullSkipRefp(), DynArrayDType);
         if (!adtypep) {  // e.g. int a = new;
             nodep->v3error(
                 "dynamic new() not expected in this context (data type must be dynamic array)");
@@ -3349,12 +3349,12 @@ private:
         PatMap patmap;
         {
             AstMemberDType* memp = vdtypep->membersp();
-            AstPatMember* patp = VN_CAST(nodep->itemsp(), PatMember);
+            AstPatMember* patp = VN_AS(nodep->itemsp(), PatMember);
             for (; memp || patp;) {
                 do {
                     if (patp) {
                         if (patp->keyp()) {
-                            if (AstText* textp = VN_CAST(patp->keyp(), Text)) {
+                            if (AstText* textp = VN_AS(patp->keyp(), Text)) {
                                 memp = vdtypep->findMember(textp->text());
                                 if (!memp) {
                                     patp->keyp()->v3error("Assignment pattern key '"
@@ -3618,7 +3618,7 @@ private:
         if (nodep->repp()) {  // else repp()==nullptr shorthand for rep count 1
             iterateCheckSizedSelf(nodep, "LHS", nodep->repp(), SELF, BOTH);
             V3Const::constifyParamsEdit(nodep->repp());  // repp may change
-            const AstConst* constp = VN_CAST(nodep->repp(), Const);
+            const AstConst* constp = VN_AS(nodep->repp(), Const);
             if (!constp) {
                 nodep->v3error("Replication value isn't a constant.");
                 times = 0;
@@ -4086,7 +4086,7 @@ private:
                                        << " address/key must be integral (IEEE 1800-2017 21.4.1)");
             }
         } else if (AstUnpackArrayDType* adtypep
-                   = VN_CAST(nodep->memp()->dtypep()->skipRefp(), UnpackArrayDType)) {
+                   = VN_AS(nodep->memp()->dtypep()->skipRefp(), UnpackArrayDType)) {
             subp = adtypep->subDTypep();
         } else {
             nodep->memp()->v3warn(E_UNSUPPORTED,
@@ -4230,10 +4230,10 @@ private:
                     || (VN_IS(conDTypep, IfaceRefDType) && !VN_IS(modDTypep, IfaceRefDType))) {
                     nodep->v3error("Illegal " << nodep->prettyOperatorName() << ","
                                               << " mismatch between port which is"
-                                              << (VN_CAST(modDTypep, IfaceRefDType) ? "" : " not")
+                                              << (VN_AS(modDTypep, IfaceRefDType) ? "" : " not")
                                               << " an interface,"
                                               << " and expression which is"
-                                              << (VN_CAST(conDTypep, IfaceRefDType) ? "" : " not")
+                                              << (VN_AS(conDTypep, IfaceRefDType) ? "" : " not")
                                               << " an interface.");
                 }
 
@@ -5696,7 +5696,7 @@ private:
 
     void replaceWithSFormat(AstMethodCall* nodep, const string& format) {
         // For string.itoa and similar, replace with SFormatF
-        AstArg* argp = VN_CAST(nodep->pinsp(), Arg);
+        AstArg* argp = VN_AS(nodep->pinsp(), Arg);
         if (!argp) {
             nodep->v3error("Argument needed for string." + nodep->prettyName() + " method");
             return;
@@ -5771,7 +5771,7 @@ private:
             } else if (AstNodeUOrStructDType* adtypep = VN_CAST(dtypep, NodeUOrStructDType)) {
                 declRange = adtypep->declRange();
                 break;  // Sub elements don't look like arrays and can't iterate into
-            } else if (AstBasicDType* adtypep = VN_CAST(dtypep, BasicDType)) {
+            } else if (AstBasicDType* adtypep = VN_AS(dtypep, BasicDType)) {
                 if (adtypep->isRanged()) declRange = adtypep->declRange();
                 break;
             }
@@ -5791,7 +5791,7 @@ private:
                 } else if (AstNodeUOrStructDType* adtypep = VN_CAST(dtypep, NodeUOrStructDType)) {
                     bits *= adtypep->width();
                     break;
-                } else if (AstBasicDType* adtypep = VN_CAST(dtypep, BasicDType)) {
+                } else if (AstBasicDType* adtypep = VN_AS(dtypep, BasicDType)) {
                     bits *= adtypep->width();
                     break;
                 }
@@ -5956,7 +5956,7 @@ private:
         for (AstPatMember* patp = VN_AS(nodep->itemsp(), PatMember); patp;
              patp = VN_AS(patp->nextp(), PatMember)) {
             if (patp->keyp()) {
-                if (const AstConst* constp = VN_CAST(patp->keyp(), Const)) {
+                if (const AstConst* constp = VN_AS(patp->keyp(), Const)) {
                     element = constp->toSInt();
                 } else {
                     patp->keyp()->v3error("Assignment pattern key not supported/understood: "

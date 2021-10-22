@@ -293,10 +293,8 @@ public:
 
 private:
     AstNode* fetchOutValueNull(AstNode* nodep) { return nodep->user2p(); }
-    AstConst* fetchConstNull(AstNode* nodep) { return VN_CAST(fetchValueNull(nodep), Const); }
-    AstConst* fetchOutConstNull(AstNode* nodep) {
-        return VN_CAST(fetchOutValueNull(nodep), Const);
-    }
+    AstConst* fetchConstNull(AstNode* nodep) { return VN_AS(fetchValueNull(nodep), Const); }
+    AstConst* fetchOutConstNull(AstNode* nodep) { return VN_AS(fetchOutValueNull(nodep), Const); }
     AstNode* fetchValue(AstNode* nodep) {
         AstNode* valuep = fetchValueNull(nodep);
         UASSERT_OBJ(valuep, nodep, "No value found for node.");
@@ -656,14 +654,14 @@ private:
         // To do better, we need the concept of lvalues, or similar, to know where/how to insert
         checkNodeInfo(selp);
         iterateAndNextNull(selp->bitp());  // Bit index
-        AstVarRef* varrefp = VN_CAST(selp->fromp(), VarRef);
+        AstVarRef* varrefp = VN_AS(selp->fromp(), VarRef);
         if (!varrefp) {
             clearOptimizable(nodep, "Array select LHS isn't simple variable");
             return;
         }
         AstUnpackArrayDType* arrayp = VN_AS(varrefp->varp()->dtypeSkipRefp(), UnpackArrayDType);
         UASSERT_OBJ(arrayp, nodep, "Array select of non-array dtype");
-        AstBasicDType* basicp = VN_CAST(arrayp->subDTypep()->skipRefp(), BasicDType);
+        AstBasicDType* basicp = VN_AS(arrayp->subDTypep()->skipRefp(), BasicDType);
         if (!basicp) {
             clearOptimizable(nodep, "Array of non-basic dtype (e.g. array-of-array)");
             return;
@@ -671,7 +669,7 @@ private:
         if (!m_checkOnly && optimizable()) {
             AstNode* vscp = varOrScope(varrefp);
             AstInitArray* initp = nullptr;
-            if (AstInitArray* vscpnump = VN_CAST(fetchOutValueNull(vscp), InitArray)) {
+            if (AstInitArray* vscpnump = VN_AS(fetchOutValueNull(vscp), InitArray)) {
                 initp = vscpnump;
             } else if (AstInitArray* vscpnump = VN_CAST(fetchValueNull(vscp), InitArray)) {
                 initp = vscpnump;
@@ -735,7 +733,7 @@ private:
             outVarrefpRef = varrefp;
             lsbRef = fetchConst(selp->lsbp())->num();
             return;  // And presumably still optimizable()
-        } else if (AstSel* subselp = VN_CAST(selp->lhsp(), Sel)) {
+        } else if (AstSel* subselp = VN_AS(selp->lhsp(), Sel)) {
             V3Number sublsb(nodep);
             handleAssignSelRecurse(nodep, subselp, outVarrefpRef, sublsb /*ref*/, depth + 1);
             if (optimizable()) {
@@ -778,7 +776,7 @@ private:
         } else if (optimizable()) {
             iterateAndNextNull(nodep->rhsp());
             if (optimizable()) {
-                AstNode* vscp = varOrScope(VN_CAST(nodep->lhsp(), VarRef));
+                AstNode* vscp = varOrScope(VN_AS(nodep->lhsp(), VarRef));
                 assignOutValue(nodep, vscp, fetchValue(nodep->rhsp()));
             }
         }
@@ -787,7 +785,7 @@ private:
     virtual void visit(AstArraySel* nodep) override {
         checkNodeInfo(nodep);
         iterateChildren(nodep);
-        if (AstInitArray* initp = VN_CAST(fetchValueNull(nodep->fromp()), InitArray)) {
+        if (AstInitArray* initp = VN_AS(fetchValueNull(nodep->fromp()), InitArray)) {
             AstConst* indexp = fetchConst(nodep->bitp());
             uint32_t offset = indexp->num().toUInt();
             AstNode* itemp = initp->getIndexDefaultedValuep(offset);
@@ -1002,7 +1000,7 @@ private:
         // cppcheck-suppress danglingLifetime
         m_callStack.push_back(&stackNode);
         // Clear output variable
-        if (auto* const basicp = VN_CAST(funcp->fvarp(), Var)->basicp()) {
+        if (auto* const basicp = VN_AS(funcp->fvarp(), Var)->basicp()) {
             AstConst cnst(funcp->fvarp()->fileline(), AstConst::WidthedValue(), basicp->widthMin(),
                           0);
             if (basicp->isZeroInit()) {

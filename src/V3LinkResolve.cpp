@@ -412,27 +412,27 @@ private:
 
     virtual void visit(AstFOpen* nodep) override {
         iterateChildren(nodep);
-        expectDescriptor(nodep, VN_CAST(nodep->filep(), NodeVarRef));
+        expectDescriptor(nodep, VN_AS(nodep->filep(), NodeVarRef));
     }
     virtual void visit(AstFOpenMcd* nodep) override {
         iterateChildren(nodep);
-        expectDescriptor(nodep, VN_CAST(nodep->filep(), NodeVarRef));
+        expectDescriptor(nodep, VN_AS(nodep->filep(), NodeVarRef));
     }
     virtual void visit(AstFClose* nodep) override {
         iterateChildren(nodep);
-        expectDescriptor(nodep, VN_CAST(nodep->filep(), NodeVarRef));
+        expectDescriptor(nodep, VN_AS(nodep->filep(), NodeVarRef));
     }
     virtual void visit(AstFError* nodep) override {
         iterateChildren(nodep);
-        expectDescriptor(nodep, VN_CAST(nodep->filep(), NodeVarRef));
+        expectDescriptor(nodep, VN_AS(nodep->filep(), NodeVarRef));
     }
     virtual void visit(AstFEof* nodep) override {
         iterateChildren(nodep);
-        expectDescriptor(nodep, VN_CAST(nodep->filep(), NodeVarRef));
+        expectDescriptor(nodep, VN_AS(nodep->filep(), NodeVarRef));
     }
     virtual void visit(AstFRead* nodep) override {
         iterateChildren(nodep);
-        expectDescriptor(nodep, VN_CAST(nodep->filep(), NodeVarRef));
+        expectDescriptor(nodep, VN_AS(nodep->filep(), NodeVarRef));
     }
     virtual void visit(AstFScanF* nodep) override {
         iterateChildren(nodep);

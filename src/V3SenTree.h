@@ -104,7 +104,7 @@ public:
         m_topScopep = topScopep;
         // Gather existing global SenTrees
         for (AstNode* nodep = topScopep->stmtsp(); nodep; nodep = nodep->nextp()) {
-            if (AstSenTree* senTreep = VN_CAST(nodep, SenTree)) m_trees.add(senTreep);
+            if (AstSenTree* senTreep = VN_AS(nodep, SenTree)) m_trees.add(senTreep);
         }
     }
 };

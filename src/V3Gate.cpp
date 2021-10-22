@@ -707,22 +707,22 @@ void GateVisitor::replaceAssigns() {
             AstVarScope* vscp = vvertexp->varScp();
             if (vscp->valuep() && !VN_IS(vscp->valuep(), NodeMath)) {
                 // if (debug() > 9) vscp->dumpTree(cout, "-vscPre:  ");
-                while (AstNode* delp = VN_CAST(vscp->valuep(), Comment)) {
+                while (AstNode* delp = VN_AS(vscp->valuep(), Comment)) {
                     VL_DO_DANGLING(delp->unlinkFrBack()->deleteTree(), delp);
                 }
-                if (AstInitial* delp = VN_CAST(vscp->valuep(), Initial)) {
+                if (AstInitial* delp = VN_AS(vscp->valuep(), Initial)) {
                     AstNode* bodyp = delp->bodysp();
                     bodyp->unlinkFrBackWithNext();
                     delp->replaceWith(bodyp);
                     VL_DO_DANGLING(delp->deleteTree(), delp);
                 }
-                if (AstAlways* delp = VN_CAST(vscp->valuep(), Always)) {
+                if (AstAlways* delp = VN_AS(vscp->valuep(), Always)) {
                     AstNode* bodyp = delp->bodysp();
                     bodyp->unlinkFrBackWithNext();
                     delp->replaceWith(bodyp);
                     VL_DO_DANGLING(delp->deleteTree(), delp);
                 }
-                if (AstNodeAssign* delp = VN_CAST(vscp->valuep(), NodeAssign)) {
+                if (AstNodeAssign* delp = VN_AS(vscp->valuep(), NodeAssign)) {
                     AstNode* rhsp = delp->rhsp();
                     rhsp->unlinkFrBack();
                     delp->replaceWith(rhsp);
@@ -1257,15 +1257,15 @@ private:
 
     // assemble two Sel into one if possible
     AstSel* merge(AstSel* pre, AstSel* cur) {
-        AstVarRef* preVarRefp = VN_CAST(pre->fromp(), VarRef);
-        AstVarRef* curVarRefp = VN_CAST(cur->fromp(), VarRef);
+        AstVarRef* preVarRefp = VN_AS(pre->fromp(), VarRef);
+        AstVarRef* curVarRefp = VN_AS(cur->fromp(), VarRef);
         if (!preVarRefp || !curVarRefp || !curVarRefp->same(preVarRefp)) {
             return nullptr;  // not the same var
         }
-        const AstConst* pstart = VN_CAST(pre->lsbp(), Const);
-        const AstConst* pwidth = VN_CAST(pre->widthp(), Const);
-        const AstConst* cstart = VN_CAST(cur->lsbp(), Const);
-        const AstConst* cwidth = VN_CAST(cur->widthp(), Const);
+        const AstConst* pstart = VN_AS(pre->lsbp(), Const);
+        const AstConst* pwidth = VN_AS(pre->widthp(), Const);
+        const AstConst* cstart = VN_AS(cur->lsbp(), Const);
+        const AstConst* cwidth = VN_AS(cur->widthp(), Const);
         if (!pstart || !pwidth || !cstart || !cwidth) return nullptr;  // too complicated
         if (cur->lsbConst() + cur->widthConst() == pre->lsbConst()) {
             return new AstSel(curVarRefp->fileline(), curVarRefp->cloneTree(false),
@@ -1298,8 +1298,8 @@ private:
                             continue;
                         }
 
-                        AstSel* preselp = VN_CAST(m_assignp->lhsp(), Sel);
-                        AstSel* curselp = VN_CAST(assignp->lhsp(), Sel);
+                        AstSel* preselp = VN_AS(m_assignp->lhsp(), Sel);
+                        AstSel* curselp = VN_AS(assignp->lhsp(), Sel);
                         if (!preselp || !curselp) continue;
 
                         if (AstSel* newselp = merge(preselp, curselp)) {
@@ -1505,7 +1505,7 @@ private:
                 } else {
                     return VNUser(0);
                 }
-            } else if (const AstVarRef* vrp = VN_CAST(assignp->lhsp(), VarRef)) {
+            } else if (const AstVarRef* vrp = VN_AS(assignp->lhsp(), VarRef)) {
                 if (vrp->dtypep()->width() == 1 && m_seen_clk_vectors) {
                     if (clk_offset != 0) {
                         UINFO(9, "Should only make it here with clk_offset = 0" << endl);
@@ -1574,7 +1574,7 @@ class GateDeassignVisitor final : public GateBaseVisitor {
 private:
     // VISITORS
     virtual void visit(AstVarScope* nodep) override {
-        if (AstNodeAssign* assp = VN_CAST(nodep->valuep(), NodeAssign)) {
+        if (AstNodeAssign* assp = VN_AS(nodep->valuep(), NodeAssign)) {
             UINFO(5, " Removeassign " << assp << endl);
             AstNode* valuep = assp->rhsp();
             valuep->unlinkFrBack();

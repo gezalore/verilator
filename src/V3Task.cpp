@@ -171,7 +171,7 @@ private:
         // However, to create variables, we need to track the scopes involved.
         // Find all var->varscope mappings, for later cleanup
         for (AstNode* stmtp = nodep->varsp(); stmtp; stmtp = stmtp->nextp()) {
-            if (AstVarScope* vscp = VN_CAST(stmtp, VarScope)) {
+            if (AstVarScope* vscp = VN_AS(stmtp, VarScope)) {
                 if (vscp->varp()->isFuncLocal()) {
                     UINFO(9, "   funcvsc " << vscp << endl);
                     m_varToScopeMap.insert(
@@ -1013,7 +1013,7 @@ private:
         // Convert input/inout arguments to DPI types
         string args;
         for (AstNode* stmtp = cfuncp->argsp(); stmtp; stmtp = stmtp->nextp()) {
-            if (AstVar* portp = VN_CAST(stmtp, Var)) {
+            if (AstVar* portp = VN_AS(stmtp, Var)) {
                 AstVarScope* portvscp
                     = VN_AS(portp->user2p(), VarScope);  // Remembered when we created it earlier
                 if (portp->isIO() && !portp->isFuncReturn() && portvscp != rtnvscp
@@ -1084,7 +1084,7 @@ private:
 
         // Convert output/inout arguments back to internal type
         for (AstNode* stmtp = cfuncp->argsp(); stmtp; stmtp = stmtp->nextp()) {
-            if (AstVar* portp = VN_CAST(stmtp, Var)) {
+            if (AstVar* portp = VN_AS(stmtp, Var)) {
                 portp->protect(false);  // No additional exposure - already part of shown proto
                 if (portp->isIO() && (portp->isWritable() || portp->isFuncReturn())
                     && !portp->isDpiOpenArray()) {
@@ -1504,7 +1504,7 @@ private:
             // Any variables inside the function still have varscopes pointing to them.
             // We're going to delete the vars, so delete the varscopes.
             if (nodep->isFunction()) {
-                if (AstVar* portp = VN_CAST(nodep->fvarp(), Var)) {
+                if (AstVar* portp = VN_AS(nodep->fvarp(), Var)) {
                     AstVarScope* vscp = m_statep->findVarScope(m_scopep, portp);
                     UINFO(9, "   funcremovevsc " << vscp << endl);
                     VL_DO_DANGLING(pushDeletep(vscp->unlinkFrBack()), vscp);

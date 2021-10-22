@@ -45,7 +45,7 @@ class EmitCGatherDependencies final : AstNVisitor {
         }
     }
     void addDTypeDependency(const AstNodeDType* nodep) {
-        if (const AstClassRefDType* const dtypep = VN_CAST_CONST(nodep, ClassRefDType)) {
+        if (const AstClassRefDType* const dtypep = VN_AS_CONST(nodep, ClassRefDType)) {
             m_dependencies.insert(
                 EmitCBaseVisitor::prefixNameProtect(dtypep->classp()->classOrPackagep()));
         }
@@ -595,21 +595,21 @@ class EmitCTrace final : EmitCFunc {
     }
 
     bool emitTraceIsScBv(AstTraceInc* nodep) {
-        const AstVarRef* varrefp = VN_CAST(nodep->declp()->valuep(), VarRef);
+        const AstVarRef* varrefp = VN_AS(nodep->declp()->valuep(), VarRef);
         if (!varrefp) return false;
         AstVar* varp = varrefp->varp();
         return varp->isSc() && varp->isScBv();
     }
 
     bool emitTraceIsScBigUint(AstTraceInc* nodep) {
-        const AstVarRef* varrefp = VN_CAST(nodep->declp()->valuep(), VarRef);
+        const AstVarRef* varrefp = VN_AS(nodep->declp()->valuep(), VarRef);
         if (!varrefp) return false;
         AstVar* varp = varrefp->varp();
         return varp->isSc() && varp->isScBigUint();
     }
 
     bool emitTraceIsScUint(AstTraceInc* nodep) {
-        const AstVarRef* varrefp = VN_CAST(nodep->declp()->valuep(), VarRef);
+        const AstVarRef* varrefp = VN_AS(nodep->declp()->valuep(), VarRef);
         if (!varrefp) return false;
         AstVar* varp = varrefp->varp();
         return varp->isSc() && varp->isScUint();

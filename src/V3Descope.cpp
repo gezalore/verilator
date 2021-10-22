@@ -138,7 +138,7 @@ private:
                     funcp->declPrivate(true);
                     AstNode* argsp = nullptr;
                     for (AstNode* stmtp = newfuncp->argsp(); stmtp; stmtp = stmtp->nextp()) {
-                        if (AstVar* portp = VN_CAST(stmtp, Var)) {
+                        if (AstVar* portp = VN_AS(stmtp, Var)) {
                             if (portp->isIO() && !portp->isFuncReturn()) {
                                 AstNode* newp = new AstVarRef(portp->fileline(), portp,
                                                               portp->isWritable() ? VAccess::WRITE

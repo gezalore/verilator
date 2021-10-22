@@ -106,7 +106,7 @@ AstRange* V3ParseGrammar::scrubRange(AstNodeRange* nrangep) {
                                  "Unsupported: Multidimensional instances/interfaces.");
         nrangep->nextp()->unlinkFrBackWithNext()->deleteTree();
     }
-    return VN_CAST(nrangep, Range);
+    return VN_AS(nrangep, Range);
 }
 
 AstNodeDType* V3ParseGrammar::createArray(AstNodeDType* basep, AstNodeRange* nrangep,

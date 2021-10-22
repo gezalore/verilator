@@ -308,7 +308,7 @@ private:
                         // This lets us link the XREFs between the (uncloned) children so
                         // they don't point to the same module which would
                         // break parameter resolution.
-                        AstNodeModule* otherModp = VN_CAST(cellmodp->user2p(), NodeModule);
+                        AstNodeModule* otherModp = VN_AS(cellmodp->user2p(), NodeModule);
                         if (!otherModp) {
                             otherModp = cellmodp->cloneTree(false);
                             otherModp->name(otherModp->name() + "__Vrcm");

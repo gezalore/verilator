@@ -292,7 +292,7 @@ private:
     virtual void visit(AstAssignPost* nodep) override {
         // Don't record ASSIGNPOST in the read/write maps, record them in a
         // separate map
-        if (AstVarRef* rhsp = VN_CAST(nodep->rhsp(), VarRef)) {
+        if (AstVarRef* rhsp = VN_AS(nodep->rhsp(), VarRef)) {
             // rhsp is the dly var
             AstVarScope* dlyVarp = rhsp->varScopep();
             UASSERT_OBJ(m_assignposts.find(dlyVarp) == m_assignposts.end(), nodep,

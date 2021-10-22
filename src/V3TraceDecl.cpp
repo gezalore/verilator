@@ -145,7 +145,7 @@ private:
         iterateChildren(nodep);
     }
     virtual void visit(AstScope* nodep) override {
-        AstCell* const cellp = VN_CAST(nodep->aboveCellp(), Cell);
+        AstCell* const cellp = VN_AS(nodep->aboveCellp(), Cell);
         if (cellp && VN_IS(cellp->modp(), Iface)) {
             AstCFunc* const origSubFunc = m_initSubFuncp;
             int origSubStmts = m_initSubStmts;

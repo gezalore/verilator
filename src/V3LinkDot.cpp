@@ -99,7 +99,7 @@ public:
 class LinkNodeMatcherVarIO final : public VNodeMatcher {
 public:
     virtual bool nodeMatch(const AstNode* nodep) const override {
-        const AstVar* varp = VN_CAST_CONST(nodep, Var);
+        const AstVar* varp = VN_AS_CONST(nodep, Var);
         if (!varp) return false;
         return varp->isIO();
     }
@@ -468,7 +468,7 @@ public:
                 VSymEnt* foundp = ifaceSymp->findIdFallback(ifacerefp->modportName());
                 bool ok = false;
                 if (foundp) {
-                    if (AstModport* modportp = VN_CAST(foundp->nodep(), Modport)) {
+                    if (AstModport* modportp = VN_AS(foundp->nodep(), Modport)) {
                         UINFO(4, "Link Modport: " << modportp << endl);
                         ifacerefp->modportp(modportp);
                         ifOrPortSymp = foundp;
@@ -976,12 +976,12 @@ class LinkDotFindVisitor final : public AstNVisitor {
             // Change to appropriate package if extern declaration (vs definition)
             if (nodep->classOrPackagep()) {
                 AstClassOrPackageRef* cpackagerefp
-                    = VN_CAST(nodep->classOrPackagep(), ClassOrPackageRef);
+                    = VN_AS(nodep->classOrPackagep(), ClassOrPackageRef);
                 if (!cpackagerefp) {
                     nodep->v3warn(E_UNSUPPORTED,
                                   "Unsupported: extern function definition with class-in-class");
                 } else {
-                    AstClass* classp = VN_CAST(cpackagerefp->classOrPackagep(), Class);
+                    AstClass* classp = VN_AS(cpackagerefp->classOrPackagep(), Class);
                     if (!classp) {
                         nodep->v3error("Extern declaration's scope is not a defined class");
                     } else {
@@ -1009,7 +1009,7 @@ class LinkDotFindVisitor final : public AstNVisitor {
             // This should probably be done in the Parser instead, as then we could
             // just attach normal signal attributes to it.
             if (!nodep->isExternProto() && nodep->fvarp() && !VN_IS(nodep->fvarp(), Var)) {
-                AstNodeDType* dtypep = VN_CAST(nodep->fvarp(), NodeDType);
+                AstNodeDType* dtypep = VN_AS(nodep->fvarp(), NodeDType);
                 // If unspecified, function returns one bit; however when we
                 // support NEW() it could also return the class reference.
                 if (dtypep) {
@@ -1091,7 +1091,7 @@ class LinkDotFindVisitor final : public AstNVisitor {
                     } else {
                         findvarp->combineType(nodep);
                         findvarp->fileline()->modifyStateInherit(nodep->fileline());
-                        AstBasicDType* bdtypep = VN_CAST(findvarp->childDTypep(), BasicDType);
+                        AstBasicDType* bdtypep = VN_AS(findvarp->childDTypep(), BasicDType);
                         if (bdtypep && bdtypep->implicit()) {
                             // Then have "input foo" and "real foo" so the
                             // dtype comes from the other side.
@@ -1271,7 +1271,7 @@ class LinkDotFindVisitor final : public AstNVisitor {
         UASSERT_OBJ(funcrefp, nodep, "'with' only can operate on a function/task");
         string name = "item";
         FileLine* argFl = nodep->fileline();
-        if (const auto argp = VN_CAST(funcrefp->pinsp(), Arg)) {
+        if (const auto argp = VN_AS(funcrefp->pinsp(), Arg)) {
             if (const auto parserefp = VN_CAST(argp->exprp(), ParseRef)) {
                 name = parserefp->name();
                 argFl = parserefp->fileline();
@@ -1453,12 +1453,8 @@ private:
         // tran gates need implicit creation
         // As VarRefs don't exist in forPrimary, sanity check
         UASSERT_OBJ(!m_statep->forPrimary(), nodep, "Assign aliases unexpected pre-dot");
-        if (AstVarRef* forrefp = VN_CAST(nodep->lhsp(), VarRef)) {
-            pinImplicitExprRecurse(forrefp);
-        }
-        if (AstVarRef* forrefp = VN_CAST(nodep->rhsp(), VarRef)) {
-            pinImplicitExprRecurse(forrefp);
-        }
+        if (AstVarRef* forrefp = VN_AS(nodep->lhsp(), VarRef)) { pinImplicitExprRecurse(forrefp); }
+        if (AstVarRef* forrefp = VN_AS(nodep->rhsp(), VarRef)) { pinImplicitExprRecurse(forrefp); }
         iterateChildren(nodep);
     }
     virtual void visit(AstImplicit* nodep) override {
@@ -1608,7 +1604,7 @@ class LinkDotScopeVisitor final : public AstNVisitor {
         if (debug() >= 9) nodep->dumpTree(cout, "-    avs: ");
         VSymEnt* rhsSymp;
         {
-            AstVarRef* refp = VN_CAST(nodep->rhsp(), VarRef);
+            AstVarRef* refp = VN_AS(nodep->rhsp(), VarRef);
             AstVarXRef* xrefp = VN_CAST(nodep->rhsp(), VarXRef);
             UASSERT_OBJ(refp || xrefp, nodep,
                         "Unsupported: Non Var(X)Ref attached to interface pin");
@@ -1708,7 +1704,7 @@ class LinkDotIfaceVisitor final : public AstNVisitor {
         VSymEnt* symp = m_curSymp->findIdFallback(nodep->name());
         if (!symp) {
             nodep->v3error("Modport item not found: " << nodep->prettyNameQ());
-        } else if (AstNodeFTask* ftaskp = VN_CAST(symp->nodep(), NodeFTask)) {
+        } else if (AstNodeFTask* ftaskp = VN_AS(symp->nodep(), NodeFTask)) {
             // Make symbol under modport that points at the _interface_'s var, not the modport.
             nodep->ftaskp(ftaskp);
             VSymEnt* subSymp
@@ -1735,7 +1731,7 @@ class LinkDotIfaceVisitor final : public AstNVisitor {
             // (Need modport still to test input/output markings)
             nodep->varp(varp);
             m_statep->insertSym(m_curSymp, nodep->name(), nodep, nullptr /*package*/);
-        } else if (AstVarScope* vscp = VN_CAST(symp->nodep(), VarScope)) {
+        } else if (AstVarScope* vscp = VN_AS(symp->nodep(), VarScope)) {
             // Make symbol under modport that points at the _interface_'s var, not the modport.
             nodep->varp(vscp->varp());
             m_statep->insertSym(m_curSymp, nodep->name(), vscp, nullptr /*package*/);
@@ -2040,7 +2036,7 @@ private:
                     nodep->modVarp(refp);
                     markAndCheckPinDup(nodep, refp, whatp);
                 }
-            } else if (AstParamTypeDType* refp = VN_CAST(foundp->nodep(), ParamTypeDType)) {
+            } else if (AstParamTypeDType* refp = VN_AS(foundp->nodep(), ParamTypeDType)) {
                 nodep->modPTypep(refp);
                 markAndCheckPinDup(nodep, refp, whatp);
             } else {
@@ -2366,7 +2362,7 @@ private:
                     UINFO(9, " cell -> iface varref " << foundp->nodep() << endl);
                     AstNode* newp
                         = new AstVarRef(ifaceRefVarp->fileline(), ifaceRefVarp, VAccess::READ);
-                    auto* cellarrayrefp = VN_CAST(m_ds.m_unlinkedScopep, CellArrayRef);
+                    auto* cellarrayrefp = VN_AS(m_ds.m_unlinkedScopep, CellArrayRef);
                     if (cellarrayrefp) {
                         // iface[vec].modport became CellArrayRef(iface, lsb)
                         // Convert back to SelBit(iface, lsb)
@@ -2389,7 +2385,7 @@ private:
                     ok = true;
                     m_ds.m_dotText = "";
                 }
-            } else if (AstLambdaArgRef* argrefp = VN_CAST(foundp->nodep(), LambdaArgRef)) {
+            } else if (AstLambdaArgRef* argrefp = VN_AS(foundp->nodep(), LambdaArgRef)) {
                 if (allowVar) {
                     AstNode* newp = new AstLambdaArgRef(nodep->fileline(), argrefp->name(), false);
                     nodep->replaceWith(newp);
@@ -2691,7 +2687,7 @@ private:
                                 while (nodep->pinsp()) {
                                     AstNode* pinp = nodep->pinsp()->unlinkFrBack();
                                     AstNode* addp = pinp;
-                                    if (AstArg* argp = VN_CAST(pinp, Arg)) {
+                                    if (AstArg* argp = VN_AS(pinp, Arg)) {
                                         addp = argp->exprp()->unlinkFrBack();
                                         VL_DO_DANGLING(pinp->deleteTree(), pinp);
                                     }
@@ -2844,19 +2840,19 @@ private:
             m_ds.m_dotSymp = m_curSymp = m_modSymp = m_statep->getNodeSym(nodep);
             m_modp = nodep;
             for (AstNode* itemp = nodep->extendsp(); itemp; itemp = itemp->nextp()) {
-                if (AstClassExtends* cextp = VN_CAST(itemp, ClassExtends)) {
+                if (AstClassExtends* cextp = VN_AS(itemp, ClassExtends)) {
                     // Replace abstract reference with hard pointer
                     // Will need later resolution when deal with parameters
                     if (cextp->childDTypep() || cextp->dtypep()) continue;  // Already converted
                     AstClassOrPackageRef* cpackagerefp
-                        = VN_CAST(cextp->classOrPkgsp(), ClassOrPackageRef);
+                        = VN_AS(cextp->classOrPkgsp(), ClassOrPackageRef);
                     if (!cpackagerefp) {
                         cextp->v3error("Attempting to extend using a non-class ");
                     } else {
                         VSymEnt* foundp = m_curSymp->findIdFallback(cpackagerefp->name());
                         bool ok = false;
                         if (foundp) {
-                            if (AstClass* classp = VN_CAST(foundp->nodep(), Class)) {
+                            if (AstClass* classp = VN_AS(foundp->nodep(), Class)) {
                                 UINFO(8, "Import to " << nodep << " from export class " << classp
                                                       << endl);
                                 if (classp == nodep) {
@@ -2912,7 +2908,7 @@ private:
         // Resolve its reference
         if (nodep->user3SetOnce()) return;
         if (AstNode* cpackagep = nodep->classOrPackageOpp()) {
-            if (AstClassOrPackageRef* cpackagerefp = VN_CAST(cpackagep, ClassOrPackageRef)) {
+            if (AstClassOrPackageRef* cpackagerefp = VN_AS(cpackagep, ClassOrPackageRef)) {
                 nodep->classOrPackagep(cpackagerefp->classOrPackagep());
                 if (!VN_IS(nodep->classOrPackagep(), Class)
                     && !VN_IS(nodep->classOrPackagep(), Package)) {

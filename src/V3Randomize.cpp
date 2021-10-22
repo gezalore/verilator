@@ -91,7 +91,7 @@ private:
     virtual void visit(AstMethodCall* nodep) override {
         iterateChildren(nodep);
         if (nodep->name() != "randomize") return;
-        if (AstClassRefDType* classRefp = VN_CAST(nodep->fromp()->dtypep(), ClassRefDType)) {
+        if (AstClassRefDType* classRefp = VN_AS(nodep->fromp()->dtypep(), ClassRefDType)) {
             auto* classp = classRefp->classp();
             classp->user1(true);
             markMembers(classp);
@@ -171,9 +171,9 @@ private:
             return stmtsp;
         } else {
             AstNodeMath* valp;
-            if (auto* enumDtp = VN_CAST(memberp ? memberp->subDTypep()->subDTypep()
-                                                : varrefp->dtypep()->subDTypep(),
-                                        EnumDType)) {
+            if (auto* enumDtp = VN_AS(memberp ? memberp->subDTypep()->subDTypep()
+                                              : varrefp->dtypep()->subDTypep(),
+                                      EnumDType)) {
                 AstVarRef* tabRefp = new AstVarRef(fl, enumValueTabp(enumDtp), VAccess::READ);
                 tabRefp->classOrPackagep(v3Global.rootp()->dollarUnitPkgAddp());
                 auto* randp = new AstRand(fl, nullptr, false);

@@ -178,8 +178,8 @@ private:
         }
         if (const AstShiftR* const shiftp = VN_CAST_CONST(nodep, ShiftR)) {
             // Shift right by width - 1 or more
-            if (const AstConst* const constp = VN_CAST_CONST(shiftp->rhsp(), Const)) {
-                const AstVarRef* const vrefp = VN_CAST_CONST(shiftp->lhsp(), VarRef);
+            if (const AstConst* const constp = VN_AS_CONST(shiftp->rhsp(), Const)) {
+                const AstVarRef* const vrefp = VN_AS_CONST(shiftp->lhsp(), VarRef);
                 const int width = vrefp && !vrefp->varp()->dtypep()->isSigned()
                                       ? vrefp->varp()->widthMin()
                                       : shiftp->width();
@@ -191,17 +191,17 @@ private:
             || VN_IS(nodep, Gt) || VN_IS(nodep, Gte)) {
             return true;
         }
-        if (const AstNodeBiop* const biopp = VN_CAST_CONST(nodep, NodeBiop)) {
+        if (const AstNodeBiop* const biopp = VN_AS_CONST(nodep, NodeBiop)) {
             if (VN_IS(nodep, And))
                 return yieldsOneOrZero(biopp->lhsp()) || yieldsOneOrZero(biopp->rhsp());
             if (VN_IS(nodep, Or) || VN_IS(nodep, Xor))
                 return yieldsOneOrZero(biopp->lhsp()) && yieldsOneOrZero(biopp->rhsp());
             return false;
         }
-        if (const AstNodeCond* const condp = VN_CAST_CONST(nodep, NodeCond)) {
+        if (const AstNodeCond* const condp = VN_AS_CONST(nodep, NodeCond)) {
             return yieldsOneOrZero(condp->expr1p()) && yieldsOneOrZero(condp->expr2p());
         }
-        if (const AstCCast* const castp = VN_CAST_CONST(nodep, CCast)) {
+        if (const AstCCast* const castp = VN_AS_CONST(nodep, CCast)) {
             // Cast never sign extends
             return yieldsOneOrZero(castp->lhsp());
         }
@@ -231,7 +231,7 @@ private:
             if (condp == rhsp) {  //
                 return resp;
             }
-            if (AstAnd* const andp = VN_CAST(rhsp, And)) {
+            if (AstAnd* const andp = VN_AS(rhsp, And)) {
                 UASSERT_OBJ(andp->rhsp() == condp, rhsp, "Should not try to fold this");
                 return new AstAnd{andp->fileline(), andp->lhsp()->cloneTree(false), resp};
             }

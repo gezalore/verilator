@@ -761,7 +761,7 @@ protected:
             AstSplitPlaceholder* else_placeholderp = makePlaceholderp();
             AstIf* clonep = new AstIf(nodep->fileline(), nodep->condp()->cloneTree(true),
                                       if_placeholderp, else_placeholderp);
-            AstIf* origp = VN_CAST(nodep, If);
+            AstIf* origp = VN_AS(nodep, If);
             if (origp) {
                 // Preserve pragmas from unique if's
                 // so assertions work properly

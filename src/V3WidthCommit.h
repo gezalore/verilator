@@ -122,7 +122,7 @@ private:
         if (const auto varp = VN_CAST(defp, Var)) {
             local = varp->isHideLocal();
             prot = varp->isHideProtected();
-        } else if (const auto ftaskp = VN_CAST(defp, NodeFTask)) {
+        } else if (const auto ftaskp = VN_AS(defp, NodeFTask)) {
             local = ftaskp->isHideLocal();
             prot = ftaskp->isHideProtected();
         } else {
@@ -221,7 +221,7 @@ private:
     virtual void visit(AstMemberSel* nodep) override {
         iterateChildren(nodep);
         editDType(nodep);
-        if (auto* classrefp = VN_CAST(nodep->fromp()->dtypep(), ClassRefDType)) {
+        if (auto* classrefp = VN_AS(nodep->fromp()->dtypep(), ClassRefDType)) {
             classEncapCheck(nodep, nodep->varp(), classrefp->classp());
         }  // else might be struct, etc
     }

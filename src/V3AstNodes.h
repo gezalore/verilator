@@ -1159,7 +1159,7 @@ public:
     AstNode* boundp() const { return op2p(); }  // op2 = Bound, nullptr = none
     void boundp(AstNode* nodep) { setNOp2p(nodep); }
     int boundConst() const {
-        AstConst* constp = VN_CAST(boundp(), Const);
+        AstConst* constp = VN_AS(boundp(), Const);
         return (constp ? constp->toSInt() : 0);
     }
     virtual AstNodeDType* virtRefDTypep() const override { return m_refDTypep; }

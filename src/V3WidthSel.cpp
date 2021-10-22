@@ -91,7 +91,7 @@ private:
         } else if (VN_IS(ddtypep, QueueDType)) {
         } else if (const AstNodeUOrStructDType* adtypep = VN_CAST(ddtypep, NodeUOrStructDType)) {
             fromRange = adtypep->declRange();
-        } else if (AstBasicDType* adtypep = VN_CAST(ddtypep, BasicDType)) {
+        } else if (AstBasicDType* adtypep = VN_AS(ddtypep, BasicDType)) {
             if (adtypep->isString() && VN_IS(nodep, SelBit)) {
             } else if (adtypep->isRanged()) {
                 UASSERT_OBJ(
@@ -272,7 +272,7 @@ private:
             VL_DO_DANGLING(pushDeletep(nodep), nodep);
         } else if (VN_IS(ddtypep, BasicDType) && ddtypep->isString()) {
             // SELBIT(string, index) -> GETC(string, index)
-            AstNodeVarRef* varrefp = VN_CAST(fromp, NodeVarRef);
+            AstNodeVarRef* varrefp = VN_AS(fromp, NodeVarRef);
             if (!varrefp) {
                 nodep->v3warn(E_UNSUPPORTED,
                               "Unsupported: String array operation on non-variable");

@@ -424,7 +424,7 @@ private:
             int declElements = -1;
             AstNodeDType* dtypep = nodep->fromp()->dtypep()->skipRefp();
             UASSERT_OBJ(dtypep, nodep, "Select of non-selectable type");
-            if (const AstNodeArrayDType* adtypep = VN_CAST(dtypep, NodeArrayDType)) {
+            if (const AstNodeArrayDType* adtypep = VN_AS(dtypep, NodeArrayDType)) {
                 declElements = adtypep->elementsConst();
             } else {
                 nodep->v3error("Select from non-array " << dtypep->prettyTypeName());

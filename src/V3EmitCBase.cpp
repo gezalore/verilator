@@ -78,7 +78,7 @@ string EmitCBaseVisitor::cFuncArgs(const AstCFunc* nodep) {
     }
     // Might be a user function with argument list.
     for (const AstNode* stmtp = nodep->argsp(); stmtp; stmtp = stmtp->nextp()) {
-        if (const AstVar* portp = VN_CAST_CONST(stmtp, Var)) {
+        if (const AstVar* portp = VN_AS_CONST(stmtp, Var)) {
             if (portp->isIO() && !portp->isFuncReturn()) {
                 if (args != "") args += ", ";
                 if (nodep->dpiImportPrototype() || nodep->dpiExportDispatcher()) {

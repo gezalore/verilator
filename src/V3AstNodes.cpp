@@ -779,9 +779,9 @@ int AstNodeDType::widthPow2() const {
 bool AstNodeDType::isLiteralType() const {
     if (auto* const dtypep = VN_CAST_CONST(skipRefp(), BasicDType)) {
         return dtypep->keyword().isLiteralType();
-    } else if (auto* const dtypep = VN_CAST_CONST(skipRefp(), UnpackArrayDType)) {
+    } else if (auto* const dtypep = VN_AS_CONST(skipRefp(), UnpackArrayDType)) {
         return dtypep->basicp()->isLiteralType();
-    } else if (auto* const dtypep = VN_CAST_CONST(skipRefp(), StructDType)) {
+    } else if (auto* const dtypep = VN_AS_CONST(skipRefp(), StructDType)) {
         // Currently all structs are packed, later this can be expanded to
         // 'forall members _.isLiteralType()'
         return dtypep->packed();
@@ -1309,7 +1309,7 @@ void AstClass::dump(std::ostream& str) const {
     if (isVirtual()) str << " [VIRT]";
 }
 AstClass* AstClassExtends::classp() const {
-    AstClassRefDType* refp = VN_CAST(dtypep(), ClassRefDType);
+    AstClassRefDType* refp = VN_AS(dtypep(), ClassRefDType);
     if (VL_UNLIKELY(!refp)) {  // LinkDot uses this for 'super.'
         refp = VN_AS(childDTypep(), ClassRefDType);
     }
@@ -1512,7 +1512,7 @@ void AstNodeDType::dumpSmall(std::ostream& str) const {
 }
 void AstNodeArrayDType::dumpSmall(std::ostream& str) const {
     this->AstNodeDType::dumpSmall(str);
-    if (auto* adtypep = VN_CAST_CONST(this, UnpackArrayDType)) {
+    if (auto* adtypep = VN_AS_CONST(this, UnpackArrayDType)) {
         // uc = packed compound object, u = unpacked POD
         str << (adtypep->isCompound() ? "uc" : "u");
     } else {

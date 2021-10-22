@@ -183,7 +183,7 @@ class EmitCHeader final : public EmitCConstInit {
             if (!tdefp) continue;
             if (!tdefp->attrPublic()) continue;
             const AstEnumDType* const edtypep
-                = VN_CAST(tdefp->dtypep()->skipRefToEnump(), EnumDType);
+                = VN_AS(tdefp->dtypep()->skipRefToEnump(), EnumDType);
             if (!edtypep) continue;
             decorateFirst(first, "\n// ENUMS (that were declared public)\n");
             if (edtypep->width() > 64) {

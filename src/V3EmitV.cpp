@@ -170,7 +170,7 @@ class EmitVBaseVisitor VL_NOT_FINAL : public EmitCBaseVisitor {
     }
     virtual void visit(AstNodeCase* nodep) override {
         putfs(nodep, "");
-        if (const AstCase* casep = VN_CAST(nodep, Case)) {
+        if (const AstCase* casep = VN_AS(nodep, Case)) {
             if (casep->priorityPragma()) puts("priority ");
             if (casep->uniquePragma()) puts("unique ");
             if (casep->unique0Pragma()) puts("unique0 ");
@@ -179,7 +179,7 @@ class EmitVBaseVisitor VL_NOT_FINAL : public EmitCBaseVisitor {
         puts(" (");
         iterateAndNextNull(nodep->exprp());
         puts(")\n");
-        if (const AstCase* casep = VN_CAST(nodep, Case)) {
+        if (const AstCase* casep = VN_AS(nodep, Case)) {
             if (casep->fullPragma() || casep->parallelPragma()) {
                 puts(" // synopsys");
                 if (casep->fullPragma()) puts(" full_case");
@@ -342,7 +342,7 @@ class EmitVBaseVisitor VL_NOT_FINAL : public EmitCBaseVisitor {
     }
     virtual void visit(AstNodeIf* nodep) override {
         putfs(nodep, "");
-        if (const AstIf* ifp = VN_CAST(nodep, If)) {
+        if (const AstIf* ifp = VN_AS(nodep, If)) {
             if (ifp->priorityPragma()) puts("priority ");
             if (ifp->uniquePragma()) puts("unique ");
             if (ifp->unique0Pragma()) puts("unique0 ");

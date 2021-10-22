@@ -424,9 +424,9 @@ private:
         FileLine* const fl = insertp->fileline();
         AstAssign* const setterp = new AstAssign(fl, selectActivity(fl, code, VAccess::WRITE),
                                                  new AstConst(fl, AstConst::BitTrue()));
-        if (AstCCall* const callp = VN_CAST(insertp, CCall)) {
+        if (AstCCall* const callp = VN_AS(insertp, CCall)) {
             callp->addNextHere(setterp);
-        } else if (AstCFunc* const funcp = VN_CAST(insertp, CFunc)) {
+        } else if (AstCFunc* const funcp = VN_AS(insertp, CFunc)) {
             funcp->addStmtsp(setterp);
         } else {
             insertp->v3fatalSrc("Bad trace activity vertex");

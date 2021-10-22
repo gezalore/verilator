@@ -377,7 +377,7 @@ class ParamProcessor final {
         // We have not resolved parameter of the child yet, so still
         // have BracketArrayDType's. We'll presume it'll end up as assignment
         // compatible (or V3Width will complain).
-        if (AstBracketArrayDType* adtypep = VN_CAST(nodep, BracketArrayDType)) {
+        if (AstBracketArrayDType* adtypep = VN_AS(nodep, BracketArrayDType)) {
             return adtypep->subDTypep();
         }
         return nullptr;
@@ -642,7 +642,7 @@ class ParamProcessor final {
                 longnamer += "_" + paramSmallName(srcModp, modvarp) + paramValueNumber(exprp);
                 any_overridesr = true;
             } else {
-                AstConst* exprp = VN_CAST(pinp->exprp(), Const);
+                AstConst* exprp = VN_AS(pinp->exprp(), Const);
                 AstConst* origp = VN_CAST(modvarp->valuep(), Const);
                 if (!exprp) {
                     // if (debug()) pinp->dumpTree(cout, "error:");
@@ -666,7 +666,7 @@ class ParamProcessor final {
                 }
             }
         } else if (AstParamTypeDType* modvarp = pinp->modPTypep()) {
-            AstNodeDType* exprp = VN_CAST(pinp->exprp(), NodeDType);
+            AstNodeDType* exprp = VN_AS(pinp->exprp(), NodeDType);
             AstNodeDType* origp = modvarp->subDTypep();
             if (!exprp) {
                 pinp->v3error("Parameter type pin value isn't a type: Param "
@@ -699,7 +699,7 @@ class ParamProcessor final {
             if (modvarp->isIfaceRef()) {
                 AstIfaceRefDType* portIrefp = VN_CAST(modvarp->subDTypep(), IfaceRefDType);
                 if (!portIrefp && arraySubDTypep(modvarp->subDTypep())) {
-                    portIrefp = VN_CAST(arraySubDTypep(modvarp->subDTypep()), IfaceRefDType);
+                    portIrefp = VN_AS(arraySubDTypep(modvarp->subDTypep()), IfaceRefDType);
                 }
                 AstIfaceRefDType* pinIrefp = nullptr;
                 AstNode* exprp = pinp->exprp();
@@ -708,14 +708,14 @@ class ParamProcessor final {
                 if (varp && varp->subDTypep() && VN_IS(varp->subDTypep(), IfaceRefDType)) {
                     pinIrefp = VN_AS(varp->subDTypep(), IfaceRefDType);
                 } else if (varp && varp->subDTypep() && arraySubDTypep(varp->subDTypep())
-                           && VN_CAST(arraySubDTypep(varp->subDTypep()), IfaceRefDType)) {
-                    pinIrefp = VN_CAST(arraySubDTypep(varp->subDTypep()), IfaceRefDType);
+                           && VN_AS(arraySubDTypep(varp->subDTypep()), IfaceRefDType)) {
+                    pinIrefp = VN_AS(arraySubDTypep(varp->subDTypep()), IfaceRefDType);
                 } else if (exprp && exprp->op1p() && VN_IS(exprp->op1p(), VarRef)
-                           && VN_CAST(exprp->op1p(), VarRef)->varp()
-                           && VN_CAST(exprp->op1p(), VarRef)->varp()->subDTypep()
-                           && arraySubDTypep(VN_CAST(exprp->op1p(), VarRef)->varp()->subDTypep())
-                           && VN_CAST(
-                               arraySubDTypep(VN_CAST(exprp->op1p(), VarRef)->varp()->subDTypep()),
+                           && VN_AS(exprp->op1p(), VarRef)->varp()
+                           && VN_AS(exprp->op1p(), VarRef)->varp()->subDTypep()
+                           && arraySubDTypep(VN_AS(exprp->op1p(), VarRef)->varp()->subDTypep())
+                           && VN_AS(
+                               arraySubDTypep(VN_AS(exprp->op1p(), VarRef)->varp()->subDTypep()),
                                IfaceRefDType)) {
                     pinIrefp
                         = VN_AS(arraySubDTypep(VN_AS(exprp->op1p(), VarRef)->varp()->subDTypep()),
@@ -975,7 +975,7 @@ class ParamVisitor final : public AstNVisitor {
                     UINFO(9, "Found interface parameter: " << varp << endl);
                     nodep->varp(varp);
                     return true;
-                } else if (AstPin* pinp = VN_CAST(candp, Pin)) {
+                } else if (AstPin* pinp = VN_AS(candp, Pin)) {
                     UINFO(9, "Found interface parameter: " << pinp << endl);
                     UASSERT_OBJ(pinp->exprp(), pinp, "Interface parameter pin missing expression");
                     VL_DO_DANGLING(nodep->replaceWith(pinp->exprp()->cloneTree(false)), nodep);
@@ -998,14 +998,14 @@ class ParamVisitor final : public AstNVisitor {
                 if (VN_IS(backp, Var) && VN_AS(backp, Var)->isIfaceRef()
                     && VN_AS(backp, Var)->childDTypep()
                     && (VN_CAST(VN_CAST(backp, Var)->childDTypep(), IfaceRefDType)
-                        || (VN_CAST(VN_CAST(backp, Var)->childDTypep(), UnpackArrayDType)
-                            && VN_CAST(VN_CAST(backp, Var)->childDTypep()->getChildDTypep(),
-                                       IfaceRefDType)))) {
+                        || (VN_AS(VN_AS(backp, Var)->childDTypep(), UnpackArrayDType)
+                            && VN_AS(VN_AS(backp, Var)->childDTypep()->getChildDTypep(),
+                                     IfaceRefDType)))) {
                     AstIfaceRefDType* ifacerefp
                         = VN_CAST(VN_CAST(backp, Var)->childDTypep(), IfaceRefDType);
                     if (!ifacerefp) {
-                        ifacerefp = VN_CAST(VN_CAST(backp, Var)->childDTypep()->getChildDTypep(),
-                                            IfaceRefDType);
+                        ifacerefp = VN_AS(VN_AS(backp, Var)->childDTypep()->getChildDTypep(),
+                                          IfaceRefDType);
                     }
                     // Interfaces passed in on the port map have ifaces
                     if (AstIface* ifacep = ifacerefp->ifacep()) {
@@ -1080,7 +1080,7 @@ class ParamVisitor final : public AstNVisitor {
         V3Width::widthGenerateParamsEdit(nodep);  // Param typed widthing will
                                                   // NOT recurse the body.
         V3Const::constifyGenerateParamsEdit(nodep->condp());  // condp may change
-        if (const AstConst* constp = VN_CAST(nodep->condp(), Const)) {
+        if (const AstConst* constp = VN_AS(nodep->condp(), Const)) {
             AstNode* keepp = (constp->isZero() ? nodep->elsesp() : nodep->ifsp());
             if (keepp) {
                 keepp->unlinkFrBackWithNext();
@@ -1158,7 +1158,7 @@ class ParamVisitor final : public AstNVisitor {
              itemp = VN_AS(itemp->nextp(), CaseItem)) {
             if (!itemp->isDefault()) {
                 for (AstNode* ep = itemp->condsp(); ep; ep = ep->nextp()) {
-                    if (const AstConst* ccondp = VN_CAST(ep, Const)) {
+                    if (const AstConst* ccondp = VN_AS(ep, Const)) {
                         V3Number match(nodep, 1);
                         match.opEq(ccondp->num(), exprp->num());
                         if (!keepp && match.isNeqZero()) keepp = itemp->bodysp();

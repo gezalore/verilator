@@ -364,7 +364,7 @@ private:
             ifacerefp->addNextHere(newdp);
             // Relink to point to newly cloned cell
             if (newdp->cellp()) {
-                if (AstCell* newcellp = VN_CAST(newdp->cellp()->user4p(), Cell)) {
+                if (AstCell* newcellp = VN_AS(newdp->cellp()->user4p(), Cell)) {
                     newdp->cellp(newcellp);
                     newdp->cellName(newcellp->name());
                     // Tag the old ifacerefp to ensure it leaves no stale
@@ -657,7 +657,7 @@ private:
                 if (!irdtp) continue;
 
                 AstCell* cellp;
-                if ((cellp = VN_CAST(fromVarp->user1p(), Cell)) || (cellp = irdtp->cellp())) {
+                if ((cellp = VN_AS(fromVarp->user1p(), Cell)) || (cellp = irdtp->cellp())) {
                     varp->user1p(cellp);
                     const string alias = m_scope + "__DOT__" + pinp->name();
                     cellp->addIntfRefp(new AstIntfRef(pinp->fileline(), alias));
@@ -672,18 +672,18 @@ private:
     }
     virtual void visit(AstAssignVarScope* nodep) override {
         // Reference
-        AstVarRef* reflp = VN_CAST(nodep->lhsp(), VarRef);
+        AstVarRef* reflp = VN_AS(nodep->lhsp(), VarRef);
         // What the reference refers to
-        AstVarRef* refrp = VN_CAST(nodep->rhsp(), VarRef);
+        AstVarRef* refrp = VN_AS(nodep->rhsp(), VarRef);
         if (!(reflp && refrp)) return;
 
         AstVar* varlp = reflp->varp();
         AstVar* varrp = refrp->varp();
         if (!(varlp && varrp)) return;
 
-        AstCell* cellp = VN_CAST(varrp->user1p(), Cell);
+        AstCell* cellp = VN_AS(varrp->user1p(), Cell);
         if (!cellp) {
-            AstIfaceRefDType* irdtp = VN_CAST(varrp->dtypep(), IfaceRefDType);
+            AstIfaceRefDType* irdtp = VN_AS(varrp->dtypep(), IfaceRefDType);
             if (!irdtp) return;
 
             cellp = irdtp->cellp();

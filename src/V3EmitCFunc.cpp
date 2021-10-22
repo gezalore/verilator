@@ -316,12 +316,12 @@ void EmitCFunc::displayArg(AstNode* dispp, AstNode** elistp, bool isScan, const 
         emitDispState.pushArg(fmtLetter, argp, "");
         if (fmtLetter == 't' || fmtLetter == '^') {
             AstSFormatF* fmtp = nullptr;
-            if (AstDisplay* nodep = VN_CAST(dispp, Display))
+            if (AstDisplay* nodep = VN_AS(dispp, Display))
                 fmtp = nodep->fmtp();
-            else if (AstSFormat* nodep = VN_CAST(dispp, SFormat))
+            else if (AstSFormat* nodep = VN_AS(dispp, SFormat))
                 fmtp = nodep->fmtp();
             else
-                fmtp = VN_CAST(dispp, SFormatF);
+                fmtp = VN_AS(dispp, SFormatF);
             UASSERT_OBJ(fmtp, dispp,
                         "Use of %t must be under AstDisplay, AstSFormat, or AstSFormatF");
             UASSERT_OBJ(!fmtp->timeunit().isNone(), fmtp, "timenunit must be set");
@@ -625,7 +625,7 @@ void EmitCFunc::emitVarReset(AstVar* varp) {
         // If an ARRAYINIT we initialize it using an initial block similar to a signal
         // puts("// parameter "+varp->nameProtect()+" = "+varp->valuep()->name()+"\n");
     } else if (AstInitArray* initarp = VN_CAST(varp->valuep(), InitArray)) {
-        if (AstUnpackArrayDType* adtypep = VN_CAST(dtypep, UnpackArrayDType)) {
+        if (AstUnpackArrayDType* adtypep = VN_AS(dtypep, UnpackArrayDType)) {
             if (initarp->defaultp()) {
                 puts("for (int __Vi=0; __Vi<" + cvtToStr(adtypep->elementsConst()));
                 puts("; ++__Vi) {\n");
@@ -691,7 +691,7 @@ string EmitCFunc::emitVarResetRecurse(const AstVar* varp, const string& varNameP
         if (dtypep->isWide()) {  // Handle unpacked; not basicp->isWide
             string out;
             if (varp->valuep()) {
-                AstConst* const constp = VN_AS(varp->valuep(), Const);
+                AstConst* const constp = VN_CAST(varp->valuep(), Const);
                 if (!constp) varp->v3fatalSrc("non-const initializer for variable");
                 for (int w = 0; w < varp->widthWords(); ++w) {
                     out += varNameProtected + suffix + "[" + cvtToStr(w) + "] = ";

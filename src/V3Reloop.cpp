@@ -192,7 +192,7 @@ private:
         uint32_t rindex = lindex;
         if (rconstp) {  // Ok
         } else if (rselp) {
-            AstConst* const rbitp = VN_CAST(rselp->bitp(), Const);
+            AstConst* const rbitp = VN_AS(rselp->bitp(), Const);
             rvarrefp = VN_CAST(rselp->fromp(), NodeVarRef);
             if (!rbitp || !rvarrefp || lvarrefp->varp() == rvarrefp->varp()) {
                 mergeEnd();

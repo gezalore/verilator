@@ -229,7 +229,7 @@ public:
         puts(nodep->nameProtect() + "\\n\"); );\n");
 
         for (AstNode* subnodep = nodep->argsp(); subnodep; subnodep = subnodep->nextp()) {
-            if (AstVar* varp = VN_CAST(subnodep, Var)) {
+            if (AstVar* varp = VN_AS(subnodep, Var)) {
                 if (varp->isFuncReturn()) emitVarDecl(varp);
             }
         }
@@ -632,13 +632,13 @@ public:
         puts(cvtToStr(nodep->memp()->dtypep()->subDTypep()->widthMin()));
         uint32_t array_lo = 0;
         {
-            const AstVarRef* varrefp = VN_CAST(nodep->memp(), VarRef);
+            const AstVarRef* varrefp = VN_AS(nodep->memp(), VarRef);
             if (!varrefp) {
                 nodep->v3error(nodep->verilogKwd() << " loading non-variable");
             } else if (VN_IS(varrefp->varp()->dtypeSkipRefp(), AssocArrayDType)) {
                 // nodep->memp() below will when verilated code is compiled create a C++ template
             } else if (const AstUnpackArrayDType* adtypep
-                       = VN_CAST(varrefp->varp()->dtypeSkipRefp(), UnpackArrayDType)) {
+                       = VN_AS(varrefp->varp()->dtypeSkipRefp(), UnpackArrayDType)) {
                 putbs(", ");
                 puts(cvtToStr(varrefp->varp()->dtypep()->arrayUnpackedElements()));
                 array_lo = adtypep->lo();
@@ -716,12 +716,12 @@ public:
         uint32_t array_lo = 0;
         uint32_t array_size = 0;
         {
-            const AstVarRef* varrefp = VN_CAST(nodep->memp(), VarRef);
+            const AstVarRef* varrefp = VN_AS(nodep->memp(), VarRef);
             if (!varrefp) {
                 nodep->v3error(nodep->verilogKwd() << " loading non-variable");
             } else if (VN_CAST(varrefp->varp()->dtypeSkipRefp(), BasicDType)) {
             } else if (const AstUnpackArrayDType* adtypep
-                       = VN_CAST(varrefp->varp()->dtypeSkipRefp(), UnpackArrayDType)) {
+                       = VN_AS(varrefp->varp()->dtypeSkipRefp(), UnpackArrayDType)) {
                 array_lo = adtypep->lo();
                 array_size = adtypep->elementsConst();
             } else {

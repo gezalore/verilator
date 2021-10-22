@@ -376,11 +376,11 @@ public:
         for (AstSel* const selp : m_sels) {
             // If m_refs includes VarRef from ArraySel, remove it
             // because the VarRef would not be visited in SplitPackedVarVisitor::visit(AstSel*).
-            if (AstVarRef* const refp = VN_CAST(selp->fromp(), VarRef)) {
+            if (AstVarRef* const refp = VN_AS(selp->fromp(), VarRef)) {
                 m_refs.erase(refp);
-            } else if (AstVarRef* const refp = VN_CAST(selp->lsbp(), VarRef)) {
+            } else if (AstVarRef* const refp = VN_AS(selp->lsbp(), VarRef)) {
                 m_refs.erase(refp);
-            } else if (AstVarRef* const refp = VN_CAST(selp->widthp(), VarRef)) {
+            } else if (AstVarRef* const refp = VN_AS(selp->widthp(), VarRef)) {
                 m_refs.erase(refp);
             }
             UASSERT_OBJ(reinterpret_cast<uintptr_t>(selp->op1p()) != 1, selp, "stale");
@@ -498,7 +498,7 @@ class SplitUnpackedVarVisitor final : public AstNVisitor, public SplitVarImpl {
                 const char* reason = nullptr;
                 AstVar* vparamp = nullptr;
                 while (paramp) {
-                    vparamp = VN_CAST(paramp, Var);
+                    vparamp = VN_AS(paramp, Var);
                     if (vparamp && vparamp->isIO()) {
                         reason = cannotSplitVarDirectionReason(vparamp->direction());
                         break;
@@ -601,7 +601,7 @@ class SplitUnpackedVarVisitor final : public AstNVisitor, public SplitVarImpl {
         }
     }
     AstNode* toInsertPoint(AstNode* insertp) {
-        if (AstNodeStmt* const stmtp = VN_CAST(insertp, NodeStmt)) {
+        if (AstNodeStmt* const stmtp = VN_AS(insertp, NodeStmt)) {
             if (!stmtp->isStatement()) insertp = stmtp->backp();
         }
         return insertp;
@@ -1008,7 +1008,7 @@ class SplitPackedVarVisitor final : public AstNVisitor, public SplitVarImpl {
 
         std::array<AstConst*, 2> consts
             = {{VN_CAST(nodep->lsbp(), Const),
-                VN_CAST(nodep->widthp(), Const)}};  // GCC 3.8.0 wants {{}}
+                VN_AS(nodep->widthp(), Const)}};  // GCC 3.8.0 wants {{}}
         if (consts[0] && consts[1]) {  // OK
             refit->second.append(
                 PackedVarRefEntry(nodep, consts[0]->toSInt() + refit->second.basicp()->lo(),
@@ -1052,7 +1052,7 @@ class SplitPackedVarVisitor final : public AstNVisitor, public SplitVarImpl {
     static void connectPortAndVar(const std::vector<SplitNewVar>& vars, AstVar* portp,
                                   AstNode* insertp) {
         for (; insertp; insertp = insertp->backp()) {
-            if (const AstNodeStmt* const stmtp = VN_CAST(insertp, NodeStmt)) {
+            if (const AstNodeStmt* const stmtp = VN_AS(insertp, NodeStmt)) {
                 if (stmtp->isStatement()) break;
             }
         }

@@ -247,7 +247,7 @@ private:
                     itemp->addStmtp(newp);
                 } else if (AstNodeFTask* itemp = VN_CAST(nodep, NodeFTask)) {
                     itemp->addStmtsp(newp);
-                } else if (AstWhile* itemp = VN_CAST(nodep, While)) {
+                } else if (AstWhile* itemp = VN_AS(nodep, While)) {
                     itemp->addBodysp(newp);
                 } else {
                     nodep->v3fatalSrc("Bad node type");
@@ -363,7 +363,7 @@ private:
                 toggleVarRecurse(subtypep, depth + 1, newent, varp, chgVarp);
                 newent.cleanup();
             }
-        } else if (AstUnionDType* adtypep = VN_CAST(dtypep, UnionDType)) {
+        } else if (AstUnionDType* adtypep = VN_AS(dtypep, UnionDType)) {
             // Arbitrarily handle only the first member of the union
             if (AstMemberDType* itemp = adtypep->membersp()) {
                 AstNodeDType* subtypep = itemp->subDTypep()->skipRefp();

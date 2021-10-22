@@ -1052,7 +1052,7 @@ void EmitCSyms::emitDpiImp() {
             puts("return " + topClassName() + "::" + nodep->name() + "(");
             string args;
             for (AstNode* stmtp = nodep->argsp(); stmtp; stmtp = stmtp->nextp()) {
-                if (const AstVar* portp = VN_CAST(stmtp, Var)) {
+                if (const AstVar* portp = VN_AS(stmtp, Var)) {
                     if (portp->isIO() && !portp->isFuncReturn()) {
                         if (args != "") args += ", ";
                         args += portp->name();

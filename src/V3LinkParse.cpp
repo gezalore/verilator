@@ -197,7 +197,7 @@ private:
         }
         if (VN_IS(nodep->subDTypep(), ParseTypeDType)) {
             // It's a parameter type. Use a different node type for this.
-            AstNodeDType* dtypep = VN_CAST(nodep->valuep(), NodeDType);
+            AstNodeDType* dtypep = VN_AS(nodep->valuep(), NodeDType);
             if (!dtypep) {
                 nodep->v3error(
                     "Parameter type's initial value isn't a type: " << nodep->prettyNameQ());

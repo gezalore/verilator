@@ -61,7 +61,7 @@ class SliceVisitor final : public AstNVisitor {
 
     AstNode* cloneAndSel(AstNode* nodep, int elements, int offset) {
         // Insert an ArraySel, except for a few special cases
-        AstUnpackArrayDType* arrayp = VN_CAST(nodep->dtypep()->skipRefp(), UnpackArrayDType);
+        AstUnpackArrayDType* arrayp = VN_AS(nodep->dtypep()->skipRefp(), UnpackArrayDType);
         if (!arrayp) {  // V3Width should have complained, but...
             if (!m_assignError) {
                 nodep->v3error(
