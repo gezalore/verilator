@@ -20,13 +20,29 @@
 #include "config_build.h"
 #include "verilatedos.h"
 
+#include <unordered_set>
+#include <vector>
+
+class AstActive;
+class AstExecGraph;
 class AstNetlist;
+class AstVarScope;
+
+namespace V3Sched {
+class LogicByScope;
+};
 
 //============================================================================
 
-class V3Order final {
-public:
-    static void orderMarkClocks(AstNetlist* nodep);
-};
+namespace V3Order {
+enum class OrderMode { Settle, Eval, ActiveRegion, NBARegion };
+
+std::vector<AstActive*> orderST(  //
+    AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&,
+    const std::unordered_set<const AstVarScope*>& writtenExternally, OrderMode);
+AstExecGraph* orderMT(  //
+    AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&,
+    const std::unordered_set<const AstVarScope*>& writtenExternally, OrderMode);
+};  // namespace V3Order
 
 #endif  // Guard

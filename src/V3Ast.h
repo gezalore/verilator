@@ -261,12 +261,14 @@ public:
         // in V3Const::visit AstSenTree
         ET_ILLEGAL,
         // Involving a variable
-        ET_ANYEDGE,  // Default for sensitivities; rip them out
-        ET_BOTHEDGE,  // POSEDGE | NEGEDGE
+        ET_CHANGED,  // Value changed
+        ET_BOTHEDGE,  // POSEDGE | NEGEDGE (i.e.: 'edge' in Verilog)
         ET_POSEDGE,
         ET_NEGEDGE,
         ET_HIGHEDGE,  // Is high now (latches)
         ET_LOWEDGE,  // Is low now (latches)
+        // Involving an expression
+        ET_TRUE,
         // Not involving anything
         ET_COMBO,  // Sensitive to all combo inputs to this block
         ET_STATIC,  // static variable initializers (runs before 'initial')
@@ -277,13 +279,29 @@ public:
     };
     enum en m_e;
     bool clockedStmt() const {
-        static const bool clocked[] = {false, false, true,  true,  true,  true, true,
-                                       false, false, false, false, false, false};
+        static const bool clocked[] = {
+            false,  // ET_ILLEGAL
+
+            true,  // ET_CHANGED
+            true,  // ET_BOTHEDGE
+            true,  // ET_POSEDGE
+            true,  // ET_NEGEDGE
+            true,  // ET_HIGHEDGE
+            true,  // ET_LOWEDGE
+            true,  // ET_TRUE
+
+            false,  // ET_COMBO
+            false,  // ET_STATIC
+            false,  // ET_INITIAL
+            false,  // ET_SETTLE
+            false,  // ET_FINAL
+            false,  // ET_NEVER
+        };
         return clocked[m_e];
     }
     VEdgeType invert() const {
         switch (m_e) {
-        case ET_ANYEDGE: return ET_ANYEDGE;
+        case ET_CHANGED: return ET_CHANGED;
         case ET_BOTHEDGE: return ET_BOTHEDGE;
         case ET_POSEDGE: return ET_NEGEDGE;
         case ET_NEGEDGE: return ET_POSEDGE;
@@ -295,14 +313,14 @@ public:
     }
     const char* ascii() const {
         static const char* const names[]
-            = {"%E-edge", "ANY",   "BOTH",   "POS",     "NEG",   "HIGH",
-               "LOW",     "COMBO", "STATIC", "INITIAL", "FINAL", "NEVER"};
+            = {"%E-edge", "CHANGED", "BOTH",   "POS",     "NEG",    "HIGH",  "LOW",
+               "TRUE",    "COMBO",   "STATIC", "INITIAL", "SETTLE", "FINAL", "NEVER"};
         return names[m_e];
     }
     const char* verilogKwd() const {
         static const char* const names[]
-            = {"%E-edge", "[any]",    "edge",      "posedge",  "negedge", "[high]", "[low]",
-               "*",       "[static]", "[initial]", "[settle]", "[final]", "[never]"};
+            = {"%E-edge", "[changed]", "edge",     "posedge",   "negedge",  "[high]",  "[low]",
+               "[true]",  "*",         "[static]", "[initial]", "[settle]", "[final]", "[never]"};
         return names[m_e];
     }
     // Return true iff this and the other have mutually exclusive transitions
@@ -443,6 +461,7 @@ public:
         SCOPEPTR,
         CHARPTR,
         MTASKSTATE,
+        TRIGGERVEC,
         // Unsigned and two state; fundamental types
         UINT32,
         UINT64,
@@ -454,18 +473,20 @@ public:
     enum en m_e;
     const char* ascii() const {
         static const char* const names[]
-            = {"%E-unk",       "bit",     "byte",   "chandle",         "event",
-               "int",          "integer", "logic",  "longint",         "real",
-               "shortint",     "time",    "string", "VerilatedScope*", "char*",
-               "VlMTaskState", "IData",   "QData",  "LOGIC_IMPLICIT",  " MAX"};
+            = {"%E-unk",       "bit",          "byte",   "chandle",         "event",
+               "int",          "integer",      "logic",  "longint",         "real",
+               "shortint",     "time",         "string", "VerilatedScope*", "char*",
+               "VlMTaskState", "VlTriggerVec", "IData",  "QData",           "LOGIC_IMPLICIT",
+               " MAX"};
         return names[m_e];
     }
     const char* dpiType() const {
         static const char* const names[]
-            = {"%E-unk",        "svBit",      "char",        "void*",           "char",
-               "int",           "%E-integer", "svLogic",     "long long",       "double",
-               "short",         "%E-time",    "const char*", "dpiScope",        "const char*",
-               "%E-mtaskstate", "IData",      "QData",       "%E-logic-implct", " MAX"};
+            = {"%E-unk",        "svBit",         "char",        "void*",     "char",
+               "int",           "%E-integer",    "svLogic",     "long long", "double",
+               "short",         "%E-time",       "const char*", "dpiScope",  "const char*",
+               "%E-mtaskstate", "%E-triggervec", "IData",       "QData",     "%E-logic-implct",
+               " MAX"};
         return names[m_e];
     }
     static void selfTest() {
@@ -498,6 +519,7 @@ public:
         case SCOPEPTR: return 0;  // opaque
         case CHARPTR: return 0;  // opaque
         case MTASKSTATE: return 0;  // opaque
+        case TRIGGERVEC: return 0;  // opaque
         case UINT32: return 32;
         case UINT64: return 64;
         default: return 0;
@@ -535,7 +557,7 @@ public:
     }
     bool isOpaque() const {  // IE not a simple number we can bit optimize
         return (m_e == STRING || m_e == SCOPEPTR || m_e == CHARPTR || m_e == MTASKSTATE
-                || m_e == DOUBLE);
+                || m_e == TRIGGERVEC || m_e == DOUBLE);
     }
     bool isDouble() const { return m_e == DOUBLE; }
     bool isEventValue() const { return m_e == EVENTVALUE; }
@@ -1071,6 +1093,27 @@ inline bool operator==(const VUseType& lhs, const VUseType& rhs) { return lhs.m_
 inline bool operator==(const VUseType& lhs, VUseType::en rhs) { return lhs.m_e == rhs; }
 inline bool operator==(VUseType::en lhs, const VUseType& rhs) { return lhs == rhs.m_e; }
 inline std::ostream& operator<<(std::ostream& os, const VUseType& rhs) {
+    return os << rhs.ascii();
+}
+
+//######################################################################
+
+class VEvalKind final {
+public:
+    enum en : uint8_t { SETTLE, ACTIVE, NBA, _ENUM_MAX };
+    enum en m_e;
+    // cppcheck-suppress noExplicitConstructor
+    inline VEvalKind(en _e)
+        : m_e{_e} {}
+    const char* ascii() const {
+        static const char* const names[_ENUM_MAX] = {"SETTLE", "ACTIVE", "NBA"};
+        return names[m_e];
+    }
+};
+inline bool operator==(const VEvalKind& lhs, const VEvalKind& rhs) { return lhs.m_e == rhs.m_e; }
+inline bool operator==(const VEvalKind& lhs, VEvalKind::en rhs) { return lhs.m_e == rhs; }
+inline bool operator==(VEvalKind::en lhs, const VEvalKind& rhs) { return lhs == rhs.m_e; }
+inline std::ostream& operator<<(std::ostream& os, const VEvalKind& rhs) {
     return os << rhs.ascii();
 }
 
@@ -2042,6 +2085,9 @@ template <> inline bool AstNode::privateMayBeUnder<AstActive>(const AstNode* nod
 template <> inline bool AstNode::privateMayBeUnder<AstScope>(const AstNode* nodep) {
     return !VN_IS(nodep, Scope);  // AstScopes do not nest
 }
+template <> inline bool AstNode::privateMayBeUnder<AstSenTree>(const AstNode* nodep) {
+    return !VN_IS(nodep, SenTree);  // AstSenTree do not nest
+}
 
 inline std::ostream& operator<<(std::ostream& os, const AstNode* rhs) {
     if (!rhs) {
@@ -2066,7 +2112,7 @@ public:
     VNRef(U&& x)
         : std::reference_wrapper<T_Node>{x} {}
 
-    VNRef(const VNRef& other) noexcept
+    VNRef(const std::reference_wrapper<T_Node>& other)
         : std::reference_wrapper<T_Node>{other} {}
 };
 

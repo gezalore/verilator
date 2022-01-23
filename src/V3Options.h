@@ -584,7 +584,7 @@ public:
     bool oInline() const { return m_oInline; }
     bool oLife() const { return m_oLife; }
     bool oLifePost() const { return m_oLifePost; }
-    bool oLocalize() const { return m_oLocalize; }
+    bool oLocalize() const { return false; }
     bool oMergeCond() const { return m_oMergeCond; }
     bool oReloop() const { return m_oReloop; }
     bool oReorder() const { return m_oReorder; }

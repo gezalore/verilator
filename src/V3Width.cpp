@@ -4788,6 +4788,9 @@ private:
         userIterateChildren(nodep, nullptr);
         m_procedurep = nullptr;
     }
+    virtual void visit(AstSenItem* nodep) override {
+        userIterateChildren(nodep, WidthVP(SELF, BOTH).p());
+    }
     virtual void visit(AstWith* nodep) override {
         // Should otherwise be underneath a method call
         AstNodeDType* const vdtypep = m_vup->dtypeNullSkipRefp();

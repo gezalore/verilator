@@ -193,10 +193,10 @@ private:
         iterateChildrenConst(nodep);
     }
     virtual void visit(AstNetlist* nodep) override {
-        if (m_fast && nodep->evalBodyp()) {
+        if (m_fast && nodep->evalp()) {
             m_instrs = 0;
             m_counting = true;
-            iterateChildrenConst(nodep->evalBodyp());
+            iterateChildrenConst(nodep->evalp());
             m_counting = false;
         }
         allNodes(nodep);

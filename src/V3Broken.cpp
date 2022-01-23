@@ -169,6 +169,7 @@ private:
         UASSERT_OBJ(!whyp, nodep,
                     "Broken link in node (or something without maybePointedTo): " << whyp);
         if (nodep->dtypep()) {
+            if (!nodep->dtypep()->brokeExists()) nodep->dtypep()->dumpTree();
             UASSERT_OBJ(nodep->dtypep()->brokeExists(), nodep,
                         "Broken link in node->dtypep() to " << cvtToHex(nodep->dtypep()));
             UASSERT_OBJ(nodep->dtypep(), nodep,

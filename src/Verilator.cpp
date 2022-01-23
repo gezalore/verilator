@@ -377,14 +377,8 @@ static void process() {
 
         if (v3Global.opt.stats()) V3Stats::statsStageAll(v3Global.rootp(), "PreOrder");
 
-        // Propagate 'clocker' attribute through logic
-        V3Order::orderMarkClocks(v3Global.rootp());
-
         // Schedule the logic
         V3Sched::schedule(v3Global.rootp());
-
-        // Change generated clocks to look at delayed signals
-        V3GenClk::genClkAll(v3Global.rootp());
 
         // Convert sense lists into IF statements.
         V3Clock::clockAll(v3Global.rootp());
@@ -396,14 +390,18 @@ static void process() {
             V3Const::constifyAll(v3Global.rootp());
             V3Life::lifeAll(v3Global.rootp());
         }
+
+        // Detect change loop
+        V3Changed::changedAll(v3Global.rootp());
+
+        // Remove redundant vars
+#if 0  // TODO: fix and re-enable with new scheduler
         if (v3Global.opt.oLifePost()) V3LifePost::lifepostAll(v3Global.rootp());
+#endif
 
         // Remove unused vars
         V3Const::constifyAll(v3Global.rootp());
         V3Dead::deadifyAllScoped(v3Global.rootp());
-
-        // Detect change loop
-        V3Changed::changedAll(v3Global.rootp());
 
         // Create tracing logic, since we ripped out some signals the user might want to trace
         // Note past this point, we presume traced variables won't move between CFuncs
@@ -425,8 +423,12 @@ static void process() {
         // Up until this point, all references must be scoped
         v3Global.assertScoped(false);
 
-        // Move variables from modules to function local variables where possible
-        if (v3Global.opt.oLocalize()) V3Localize::localizeAll(v3Global.rootp());
+#if 0  // TODO: fix and re-enable with new scheduler
+       // Move variables from modules to function local variables where possible
+        if (v3Global.opt.oLocalize()) {
+            V3Localize::localizeAll(v3Global.rootp());
+        }
+#endif
 
         // Remove remaining scopes; make varrefs/funccalls relative to current module
         V3Descope::descopeAll(v3Global.rootp());

@@ -23,9 +23,9 @@ execute(
 
 if ($Self->{vlt_all}) {
     file_grep($Self->{stats}, qr/Optimizations, Reloop iterations\s+(\d+)/i,
-              768);
+              $Self->{vltmt} ? 768 : 1024);
     file_grep($Self->{stats}, qr/Optimizations, Reloops\s+(\d+)/i,
-              3);
+              $Self->{vltmt} ? 3 : 4);
 }
 
 ok(1);

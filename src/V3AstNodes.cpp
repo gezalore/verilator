@@ -705,6 +705,8 @@ AstNodeDType::CTypeRecursed AstNodeDType::cTypeRecurse(bool compound) const {
             info.m_type = "std::string";
         } else if (bdtypep->keyword().isMTaskState()) {
             info.m_type = "VlMTaskVertex";
+        } else if (bdtypep->keyword() == VBasicDTypeKwd::TRIGGERVEC) {
+            info.m_type = "VlTriggerVec<" + cvtToStr(dtypep->width()) + ">";
         } else if (dtypep->widthMin() <= 8) {  // Handle unpacked arrays; not bdtypep->width
             info.m_type = "CData" + bitvec;
         } else if (dtypep->widthMin() <= 16) {
@@ -851,6 +853,25 @@ string AstScope::nameDotless() const {
     string::size_type pos;
     while ((pos = out.find('.')) != string::npos) out.replace(pos, 1, "__");
     return out;
+}
+
+AstVarScope* AstScope::createTemp(const string& name, unsigned width) {
+    FileLine* const flp = fileline();
+    AstVar* const varp
+        = new AstVar{flp, VVarType::MODULETEMP, name, VFlagBitPacked{}, static_cast<int>(width)};
+    modp()->addStmtp(varp);
+    AstVarScope* const vscp = new AstVarScope{flp, this, varp};
+    addVarp(vscp);
+    return vscp;
+}
+
+AstVarScope* AstScope::createTemp(const string& name, AstNodeDType* dtypep) {
+    FileLine* const flp = fileline();
+    AstVar* const varp = new AstVar{flp, VVarType::MODULETEMP, name, dtypep};
+    modp()->addStmtp(varp);
+    AstVarScope* const vscp = new AstVarScope{flp, this, varp};
+    addVarp(vscp);
+    return vscp;
 }
 
 string AstScopeName::scopePrettyNameFormatter(AstText* scopeTextp) const {
@@ -1218,6 +1239,15 @@ void AstWhile::addNextStmt(AstNode* newp, AstNode* belowp) {
         belowp->addNextHere(newp);
     } else {
         belowp->v3fatalSrc("Doesn't look like this was really under the while");
+    }
+}
+
+string AstEval::name() const {
+    switch (kind().m_e) {
+    case VEvalKind::SETTLE: return "_eval_settle";
+    case VEvalKind::ACTIVE: return "_eval_active";
+    case VEvalKind::NBA: return "_eval_nba";
+    default: v3fatalSrc("unreachable");
     }
 }
 
@@ -1912,4 +1942,10 @@ void AstCFunc::dump(std::ostream& str) const {
 void AstCUse::dump(std::ostream& str) const {
     this->AstNode::dump(str);
     str << " [" << useType() << "]";
+}
+
+void AstEval::dump(std::ostream& str) const {
+    this->AstNode::dump(str);
+    str << " [" << kind() << "]";
+    if (isSlow()) str << " [SLOW]";
 }

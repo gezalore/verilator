@@ -27,7 +27,7 @@ class AstSenTree;
 
 class V3EmitV final {
 public:
-    static void verilogForTree(AstNode* nodep, std::ostream& os = std::cout);
+    static void verilogForTree(const AstNode* nodep, std::ostream& os = std::cout);
     static void verilogPrefixedTree(AstNode* nodep, std::ostream& os, const string& prefix,
                                     int flWidth, AstSenTree* domainp, bool user3mark);
     static void emitvFiles();
