@@ -306,8 +306,23 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
 
     const VNUser2InUse user2InUse;  // Used by ChangedInsertVisitor
 
-    // All AstEval are under the top level AstScope
     AstScope* const scopeTopp = netlistp->topScopep()->scopep();
+
+    const auto makeFuncp = [&](const string& name, bool slow) {
+        AstCFunc* const funcp = new AstCFunc{netlistp->fileline(), name, scopeTopp};
+        scopeTopp->addActivep(funcp);
+        funcp->dontCombine(true);
+        funcp->isLoose(true);
+        funcp->slow(slow);
+        funcp->isConst(false);
+        funcp->declPrivate(true);
+        return funcp;
+    };
+
+    AstCFunc* actFuncp = nullptr;
+    AstCFunc* nbaFuncp = nullptr;
+
+    // All AstEval are under the top level AstScope
     for (AstNode *nodep = scopeTopp->blocksp(), *nextp; nodep; nodep = nextp) {
         nextp = nodep->nextp();
         if (AstEval* const evalp = VN_CAST(nodep, Eval)) {
@@ -318,47 +333,39 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
             UASSERT_OBJ(!!cdSnapFuncp == !!cdCheckFuncp, evalp, "Inconsistent");
 
             FileLine* const flp = evalp->fileline();
-            AstScope* const scopeTopp = netlistp->topScopep()->scopep();
 
             // Create the top level function
-            AstCFunc* const topFuncp = new AstCFunc{flp, evalp->name(), scopeTopp};
-            topFuncp->dontCombine(true);
-            topFuncp->isLoose(true);
-            topFuncp->entryPoint(true);
-            topFuncp->slow(evalp->isSlow());
-            topFuncp->isConst(false);
-            topFuncp->declPrivate(true);
+            AstCFunc* const topFuncp = makeFuncp(evalp->name(), evalp->isSlow());
+
+            switch (evalp->kind().m_e) {
+            case VEvalKind::ACTIVE: actFuncp = topFuncp; break;
+            case VEvalKind::NBA: nbaFuncp = topFuncp; break;
+            default: topFuncp->entryPoint(true); break;
+            }
+
+            if (evalp->initp()) topFuncp->addStmtsp(evalp->initp()->unlinkFrBackWithNext());
 
             if (cdSnapFuncp) {
                 // A change detect loop is required. Create a sub-function for the body
-                AstCFunc* const subFuncp = new AstCFunc{flp, evalp->name() + "__body", scopeTopp};
-                subFuncp->dontCombine(true);
-                subFuncp->isLoose(true);
-                subFuncp->slow(evalp->isSlow());
-                subFuncp->isConst(false);
-                subFuncp->declPrivate(true);
-                scopeTopp->addActivep(subFuncp);
+                AstCFunc* const subFuncp = makeFuncp(evalp->name() + "__body", evalp->isSlow());
 
                 // Move the body under the sub-function
                 if (evalp->bodyp()) subFuncp->addStmtsp(evalp->bodyp()->unlinkFrBackWithNext());
-                if (evalp->finalp()) subFuncp->addFinalsp(evalp->finalp()->unlinkFrBackWithNext());
+                if (evalp->finalp()) subFuncp->addStmtsp(evalp->finalp()->unlinkFrBackWithNext());
 
                 // Split it if needed
                 V3Sched::splitCheck(subFuncp);
 
-                // Remember it
-                if (evalp == netlistp->evalp()) netlistp->evalBodyp(subFuncp);
-
                 // Create the change detect loop
                 {
-                    // Create the __VclockLoop variable, and initialize it to zero before the loop
+                    // Create the iteration count variable, and initialize it to zero
                     AstVarScope* const loopCntVscp
-                        = createVar(scopeTopp, "__VclockLoop__" + evalp->name(), 32);
+                        = createVar(scopeTopp, "__ViterationCount__" + evalp->name(), 32);
                     topFuncp->addStmtsp(
                         new AstAssign{flp, new AstVarRef{flp, loopCntVscp, VAccess::WRITE},
                                       new AstConst{flp, AstConst::WidthedValue{}, 32, 0}});
 
-                    // Create the __Vchange variable, and initialize it to non-zero before the loop
+                    // Create the change variable, and initialize it to non-zero
                     AstVarScope* const changeVscp
                         = createVar(scopeTopp, "__Vchange__" + evalp->name(), 64);
                     topFuncp->addStmtsp(
@@ -371,6 +378,7 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
                     topFuncp->addStmtsp(whilep);
 
                     // If we exceeded the iteration limit, die
+
                     {
                         AstTextBlock* const blockp = new AstTextBlock{flp};
                         AstIf* const ifp = new AstIf{
@@ -411,22 +419,160 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
                                                     new AstCCall{flp, cdCheckFuncp}});
                 }
             } else {
-                // No change detect needed. Simply move the body under the top function.
+                // No change detect needed. Simply use the top function as the body.
                 if (evalp->bodyp()) topFuncp->addStmtsp(evalp->bodyp()->unlinkFrBackWithNext());
-                if (evalp->finalp()) topFuncp->addFinalsp(evalp->finalp()->unlinkFrBackWithNext());
-
-                // Remember it
-                if (evalp == netlistp->evalp()) netlistp->evalBodyp(topFuncp);
+                if (evalp->finalp()) topFuncp->addStmtsp(evalp->finalp()->unlinkFrBackWithNext());
 
                 // Split it if needed
                 V3Sched::splitCheck(topFuncp);
             }
 
-            evalp->replaceWith(topFuncp);
-            if (evalp == netlistp->evalp()) netlistp->evalp(nullptr);
+            evalp->unlinkFrBack();
             evalp->deleteTree();
         }
     }
+
+    FileLine* const flp = netlistp->fileline();
+
+    AstCFunc* const funcp = makeFuncp("_eval", false);
+    funcp->entryPoint(true);
+    netlistp->evalp(funcp);
+
+    const auto setVar = [&](AstVarScope* cntp, uint32_t val) {
+        AstVarRef* const refp = new AstVarRef{flp, cntp, VAccess::WRITE};
+        AstConst* const zerop = new AstConst{flp, AstConst::DtypedValue{}, cntp->dtypep(), val};
+        return new AstAssign{flp, refp, zerop};
+    };
+
+    const auto testZero = [&](AstVarScope* cntp) -> AstNodeMath* {
+        AstVarRef* const refp = new AstVarRef{flp, cntp, VAccess::READ};
+        AstConst* const zerop = new AstConst{flp, AstConst::DtypedValue{}, cntp->dtypep(), 0};
+        return new AstEq{flp, refp, zerop};
+    };
+
+    const auto buildLoop
+        = [&](const string& name, std::function<void(AstVarScope*, AstWhile*)> build)  //
+    {
+        // Create the loop condition variable
+        AstVarScope* const condp = scopeTopp->createTemp("__V" + name + "Continue", 1);
+        // Initialize the loop condition variable to true
+        AstNode* const resp = setVar(condp, 1);
+        // Add the loop
+        AstWhile* const loopp = new AstWhile{flp, new AstVarRef{flp, condp, VAccess::READ}};
+        resp->addNext(loopp);
+        // Clear the loop condition variable in the loop
+        loopp->addBodysp(setVar(condp, 0));
+        // Build the body
+        build(condp, loopp);
+        // Done
+        return resp;
+    };
+
+    const auto makeRegionIf = [&](AstVarScope* cntp, AstVarScope* trigsp) {
+        AstVarRef* const refp = new AstVarRef{flp, trigsp, VAccess::READ};
+        AstCMethodHard* const callp = new AstCMethodHard{flp, refp, "any"};
+        callp->dtypeSetBit();
+        AstNodeMath* const firstp = testZero(cntp);
+        AstNodeMath* const condp = new AstOr{flp, firstp, callp};
+        return new AstIf{flp, condp};
+    };
+
+    const auto incrementIterationCount = [&](AstVarScope* cntp, const string& name) {
+        AstNode* resp = nullptr;
+
+        // If we exceeded the iteration limit, die
+        {
+            AstTextBlock* const blockp = new AstTextBlock{flp};
+            const uint32_t limit = v3Global.opt.convergeLimit();
+            AstVarRef* const refp = new AstVarRef{flp, cntp, VAccess::READ};
+            AstConst* const constp
+                = new AstConst{flp, AstConst::DtypedValue{}, cntp->dtypep(), limit};
+            AstNodeMath* const condp = new AstGt{flp, refp, constp};
+            AstIf* const ifp = new AstIf{flp, condp, blockp};
+            FileLine* const locp = netlistp->topModulep()->fileline();
+            const string& file = EmitCBaseVisitor::protect(locp->filename());
+            const string& line = cvtToStr(locp->lineno());
+            const auto add = [&](const string& text) { blockp->addText(flp, text, true); };
+            add("VL_FATAL_MT(\"" + file + "\", " + line + ", \"\", ");
+            add("\"" + name + " region did not converge.\");\n");
+            resp = ifp;
+        }
+
+        // Increment iteration count
+        {
+            AstVarRef* const wrefp = new AstVarRef{flp, cntp, VAccess::WRITE};
+            AstVarRef* const rrefp = new AstVarRef{flp, cntp, VAccess::READ};
+            AstConst* const onep = new AstConst{flp, AstConst::DtypedValue{}, cntp->dtypep(), 1};
+            resp->addNext(new AstAssign{flp, wrefp, new AstAdd{flp, rrefp, onep}});
+        }
+
+        return resp;
+    };
+
+    AstVarScope* const preTrigsp = netlistp->preTrigsp();
+    AstVarScope* const actTrigsp = netlistp->actTrigsp();
+    AstVarScope* const nbaTrigsp = netlistp->nbaTrigsp();
+    AstVarScope* const actCountp = netlistp->actCountp();
+    AstVarScope* const nbaCountp = netlistp->nbaCountp();
+
+    // Reset nbaCount
+    funcp->addStmtsp(setVar(nbaCountp, 0));
+
+    // Add NBA Region loop
+    funcp->addStmtsp(buildLoop("nba", [&](AstVarScope* nbaCondp, AstWhile* nbaLoopp) {  //
+        // Reset actCount
+        nbaLoopp->addBodysp(setVar(actCountp, 0));
+        // Add Active Region
+        nbaLoopp->addBodysp(buildLoop("act", [&](AstVarScope* actCondp, AstWhile* actLoopp) {  //
+            // Compute triggers
+            actLoopp->addBodysp(new AstCCall{flp, netlistp->compTrigsp()});
+            // Invoke Active region eval if triggered
+            {
+                AstIf* const ifp = makeRegionIf(actCountp, actTrigsp);
+                actLoopp->addBodysp(ifp);
+                ifp->addIfsp(setVar(actCondp, 1));
+                ifp->addIfsp(incrementIterationCount(actCountp, "Active"));
+
+                // Compute the pre triggers
+                {
+                    AstVarRef* const lhsp = new AstVarRef{flp, preTrigsp, VAccess::WRITE};
+                    AstVarRef* const opap = new AstVarRef{flp, actTrigsp, VAccess::READ};
+                    AstVarRef* const opbp = new AstVarRef{flp, nbaTrigsp, VAccess::READ};
+                    opap->addNext(opbp);
+                    AstCMethodHard* const callp = new AstCMethodHard{flp, lhsp, "andNot", opap};
+                    callp->statement(true);
+                    callp->dtypeSetVoid();
+                    ifp->addIfsp(callp);
+                }
+
+                // Latch the active trigger flags under the NBA trigger flags
+                {
+                    AstVarRef* const lhsp = new AstVarRef{flp, nbaTrigsp, VAccess::WRITE};
+                    AstVarRef* const argp = new AstVarRef{flp, actTrigsp, VAccess::READ};
+                    AstCMethodHard* const callp = new AstCMethodHard{flp, lhsp, "set", argp};
+                    callp->statement(true);
+                    callp->dtypeSetVoid();
+                    ifp->addIfsp(callp);
+                }
+
+                ifp->addIfsp(new AstCCall{flp, actFuncp});
+            }
+        }));
+        // Invoke NBA region eval if triggered
+        {
+            AstIf* const ifp = makeRegionIf(nbaCountp, nbaTrigsp);
+            nbaLoopp->addBodysp(ifp);
+            ifp->addIfsp(incrementIterationCount(nbaCountp, "NBA"));
+            ifp->addIfsp(setVar(nbaCondp, 1));
+            ifp->addIfsp(new AstCCall{flp, nbaFuncp});
+        }
+    }));
+
+    netlistp->preTrigsp(nullptr);
+    netlistp->actTrigsp(nullptr);
+    netlistp->nbaTrigsp(nullptr);
+    netlistp->actCountp(nullptr);
+    netlistp->nbaCountp(nullptr);
 
     V3Global::dumpCheckGlobalTree("changed", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 }

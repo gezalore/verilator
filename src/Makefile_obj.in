@@ -201,7 +201,6 @@ RAW_OBJS = \
 	V3FileLine.o \
 	V3Force.o \
 	V3Gate.o \
-	V3GenClk.o \
 	V3Global.o \
 	V3Graph.o \
 	V3GraphAlg.o \
@@ -240,6 +239,7 @@ RAW_OBJS = \
 	V3Randomize.o \
 	V3Reloop.o \
 	V3Sched.o \
+	V3SchedPartition.o \
 	V3Scope.o \
 	V3Scoreboard.o \
 	V3Slice.o \

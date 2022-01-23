@@ -842,8 +842,9 @@ public:
 //######################################################################
 // EmitV class functions
 
-void V3EmitV::verilogForTree(AstNode* nodep, std::ostream& os) {
-    { EmitVStreamVisitor{nodep, os}; }
+// TODO: make it take 'const AstNode*'
+void V3EmitV::verilogForTree(const AstNode* nodep, std::ostream& os) {
+    { EmitVStreamVisitor{const_cast<AstNode*>(nodep), os}; }
 }
 
 void V3EmitV::verilogPrefixedTree(AstNode* nodep, std::ostream& os, const string& prefix,

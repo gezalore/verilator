@@ -1921,7 +1921,7 @@ public:
         dtypep(nullptr);  // V3Width will resolve
         addNOp2p(pinsp);
     }
-    AstCMethodHard(FileLine* fl, AstNode* fromp, const string& name, AstNode* pinsp)
+    AstCMethodHard(FileLine* fl, AstNode* fromp, const string& name, AstNode* pinsp = nullptr)
         : ASTGEN_SUPER_CMethodHard(fl, false)
         , m_name{name} {
         setOp1p(fromp);
@@ -2378,13 +2378,13 @@ public:
     // op2: Logic blocks/AstActive/AstExecGraph
     AstNode* blocksp() const { return op2p(); }
     void addActivep(AstNode* nodep) { addOp2p(nodep); }
-    // op3: Final assigns for clock correction
-    AstNodeStmt* finalClksp() const { return VN_AS(op3p(), NodeStmt); }
-    void addFinalClkp(AstNodeStmt* nodep) { addOp3p(nodep); }
     //
     AstScope* aboveScopep() const { return m_aboveScopep; }
     AstCell* aboveCellp() const { return m_aboveCellp; }
     bool isTop() const { return aboveScopep() == nullptr; }  // At top of hierarchy
+    // Create new MODULETEMP variable under this scope
+    AstVarScope* createTemp(const string& name, unsigned width);
+    AstVarScope* createTemp(const string& name, AstNodeDType* dtypep);
 };
 
 class AstTopScope final : public AstNode {
@@ -3328,10 +3328,10 @@ public:
     class Settle {};  // for constructor type-overload selection
     class Final {};  // for constructor type-overload selection
     class Never {};  // for constructor type-overload selection
-    AstSenItem(FileLine* fl, VEdgeType edgeType, AstNode* varrefp)
+    AstSenItem(FileLine* fl, VEdgeType edgeType, AstNode* senp)
         : ASTGEN_SUPER_SenItem(fl)
         , m_edgeType{edgeType} {
-        setOp1p(varrefp);
+        setOp1p(senp);
     }
     AstSenItem(FileLine* fl, Combo)
         : ASTGEN_SUPER_SenItem(fl)
@@ -3359,15 +3359,14 @@ public:
     virtual bool same(const AstNode* samep) const override {
         return edgeType() == static_cast<const AstSenItem*>(samep)->edgeType();
     }
-    VEdgeType edgeType() const { return m_edgeType; }  // * = Posedge/negedge
+    VEdgeType edgeType() const { return m_edgeType; }
     void edgeType(VEdgeType type) {
         m_edgeType = type;
         editCountInc();
-    }  // * = Posedge/negedge
-    AstNode* sensp() const { return op1p(); }  // op1 = Signal sensitized
-    AstNodeVarRef* varrefp() const {
-        return VN_CAST(op1p(), NodeVarRef);
-    }  // op1 = Signal sensitized
+    }
+    // op1 = Expression sensitized, if any
+    AstNode* sensp() const { return op1p(); }
+    AstNodeVarRef* varrefp() const { return VN_CAST(op1p(), NodeVarRef); }
     //
     bool isClocked() const { return edgeType().clockedStmt(); }
     bool isCombo() const { return edgeType() == VEdgeType::ET_COMBO; }
@@ -3377,9 +3376,6 @@ public:
     bool isFinal() const { return edgeType() == VEdgeType::ET_FINAL; }
     bool isIllegal() const { return edgeType() == VEdgeType::ET_ILLEGAL; }
     bool isNever() const { return edgeType() == VEdgeType::ET_NEVER; }
-    bool hasVar() const {
-        return !(isCombo() || isStatic() || isInitial() || isFinal() || isNever());
-    }
 };
 
 class AstSenTree final : public AstNode {
@@ -4637,7 +4633,7 @@ public:
 
 class AstWhile final : public AstNodeStmt {
 public:
-    AstWhile(FileLine* fl, AstNode* condp, AstNode* bodysp, AstNode* incsp = nullptr)
+    AstWhile(FileLine* fl, AstNode* condp, AstNode* bodysp = nullptr, AstNode* incsp = nullptr)
         : ASTGEN_SUPER_While(fl) {
         setOp2p(condp);
         addNOp3p(bodysp);
@@ -4741,8 +4737,8 @@ private:
     bool m_unique0Pragma;  // unique0 case
     bool m_priorityPragma;  // priority case
 public:
-    AstIf(FileLine* fl, AstNode* condp, AstNode* ifsp, AstNode* elsesp = nullptr)
-        : ASTGEN_SUPER_If(fl, condp, ifsp, elsesp) {
+    AstIf(FileLine* fl, AstNode* condp, AstNode* thensp = nullptr, AstNode* elsesp = nullptr)
+        : ASTGEN_SUPER_If(fl, condp, thensp, elsesp) {
         m_uniquePragma = false;
         m_unique0Pragma = false;
         m_priorityPragma = false;
@@ -5463,6 +5459,7 @@ public:
     void addStmtsp(AstNode* nodep) { addOp2p(nodep); }
     // METHODS
     bool hasClocked() const { return m_sensesp->hasClocked(); }
+    bool hasSettle() const { return m_sensesp->hasSettle(); }
     bool hasCombo() const { return m_sensesp->hasCombo(); }
 };
 
@@ -8825,26 +8822,39 @@ public:
 
 class AstEval final : public AstNode {
     // An evaluation function, constructed incrementally around the scheduling phase
-    const string m_name;  // Name of function
-    const bool m_isSlow;  // Slow function
+    const VEvalKind m_kind;  // Eval flavour
+    AstVarScope* m_iterCountp = nullptr;  // Region iteration count
 
 public:
-    AstEval(FileLine* fl, const string& name, bool isSlow)
+    AstEval(FileLine* fl, VEvalKind kind)
         : ASTGEN_SUPER_Eval(fl)
-        , m_name{name}
-        , m_isSlow{isSlow} {}
+        , m_kind{kind} {}
     ASTNODE_NODE_FUNCS(Eval)
-    virtual string name() const override { return m_name; }
+    virtual const char* broken() const override {
+        BROKEN_RTN((m_iterCountp && !m_iterCountp->brokeExists()));
+        return nullptr;
+    }
     virtual bool maybePointedTo() const override { return true; }
-    // op1: body of function
-    AstNode* bodyp() const { return op1p(); }
-    void addBodyp(AstActive* activep) { addOp1p(reinterpret_cast<AstNode*>(activep)); }
-    void addBodyp(AstExecGraph* execGraphp) { addOp1p(reinterpret_cast<AstNode*>(execGraphp)); }
-    // op2: final Statements
-    AstNodeStmt* finalp() const { return VN_AS(op2p(), NodeStmt); }
-    void addFinalp(AstNodeStmt* stmtp) { addOp2p(reinterpret_cast<AstNode*>(stmtp)); }
+    virtual void dump(std::ostream& str) const override;
+    virtual string name() const override;
+    // op1: out-of-loop stat initialization statements
+    //    AstNodeStmt* clearp() const { return VN_AS(op1p(), NodeStmt); }
+    //    void addClearp(AstNodeStmt* stmtp) { addOp1p(reinterpret_cast<AstNode*>(stmtp)); }
+    // op2: initial statements
+    AstNodeStmt* initp() const { return VN_AS(op2p(), NodeStmt); }
+    void addInitp(AstNodeStmt* stmtp) { addOp2p(reinterpret_cast<AstNode*>(stmtp)); }
+    // op3: body of function
+    AstNode* bodyp() const { return op3p(); }
+    void addBodyp(AstActive* activep) { addOp3p(reinterpret_cast<AstNode*>(activep)); }
+    void addBodyp(AstExecGraph* execGraphp) { addOp3p(reinterpret_cast<AstNode*>(execGraphp)); }
+    // op4: final Statements
+    AstNodeStmt* finalp() const { return VN_AS(op4p(), NodeStmt); }
+    void addFinalp(AstNodeStmt* stmtp) { addOp4p(reinterpret_cast<AstNode*>(stmtp)); }
     //
-    bool isSlow() const { return m_isSlow; }
+    VEvalKind kind() const { return m_kind; }
+    bool isSlow() const { return m_kind == VEvalKind::SETTLE; }
+    //    AstVarScope* iterCountp() const { return m_iterCountp; }
+    //    void iterCountp(AstVarScope* vscp) { m_iterCountp = vscp; }
 };
 
 //======================================================================
@@ -9370,8 +9380,13 @@ private:
     AstConstPool* const m_constPoolp;  // Reference to constant pool, for faster lookup
     AstPackage* m_dollarUnitPkgp = nullptr;  // $unit
     AstCFunc* m_initp = nullptr;  // The '_eval_initial' function
-    AstEval* m_evalp = nullptr;  // The '_eval' AstEval
-    AstCFunc* m_evalBodyp = nullptr;  // The body '_eval' function
+    AstCFunc* m_evalp = nullptr;  // The '_eval' function
+    AstCFunc* m_compTrigsp = nullptr;  // The trigger computation function
+    AstVarScope* m_preTrigsp = nullptr;  // The Active region Ast*Pre triggers
+    AstVarScope* m_actTrigsp = nullptr;  // The Active region triggers
+    AstVarScope* m_nbaTrigsp = nullptr;  // The NBA region triggers
+    AstVarScope* m_actCountp = nullptr;  // The Active region triggers
+    AstVarScope* m_nbaCountp = nullptr;  // The NBA region triggers
     AstVarScope* m_dpiExportTriggerp = nullptr;  // The DPI export trigger variable
     AstTopScope* m_topScopep = nullptr;  // The singleton AstTopScope under the top module
     VTimescale m_timeunit;  // Global time unit
@@ -9389,7 +9404,6 @@ public:
         BROKEN_RTN(m_dollarUnitPkgp && !m_dollarUnitPkgp->brokeExists());
         BROKEN_RTN(m_initp && !m_initp->brokeExists());
         BROKEN_RTN(m_evalp && !m_evalp->brokeExists());
-        BROKEN_RTN(m_evalBodyp && !m_evalBodyp->brokeExists());
         BROKEN_RTN(m_dpiExportTriggerp && !m_dpiExportTriggerp->brokeExists());
         BROKEN_RTN(m_topScopep && !m_topScopep->brokeExists());
         return nullptr;
@@ -9423,10 +9437,24 @@ public:
     }
     AstCFunc* initp() const { return m_initp; }
     void initp(AstCFunc* initp) { m_initp = initp; }
-    AstEval* evalp() const { return m_evalp; }
-    void evalp(AstEval* evalp) { m_evalp = evalp; }
-    AstCFunc* evalBodyp() const { return m_evalBodyp; }
-    void evalBodyp(AstCFunc* funcp) { m_evalBodyp = funcp; }
+
+    AstCFunc* evalp() const { return m_evalp; }
+    void evalp(AstCFunc* evalp) { m_evalp = evalp; }
+
+    AstCFunc* compTrigsp() const { return m_compTrigsp; }
+    void compTrigsp(AstCFunc* funcp) { m_compTrigsp = funcp; }
+
+    AstVarScope* preTrigsp() const { return m_preTrigsp; }
+    void preTrigsp(AstVarScope* vscp) { m_preTrigsp = vscp; }
+    AstVarScope* actTrigsp() const { return m_actTrigsp; }
+    void actTrigsp(AstVarScope* vscp) { m_actTrigsp = vscp; }
+    AstVarScope* nbaTrigsp() const { return m_nbaTrigsp; }
+    void nbaTrigsp(AstVarScope* vscp) { m_nbaTrigsp = vscp; }
+    AstVarScope* actCountp() const { return m_actCountp; }
+    void actCountp(AstVarScope* vscp) { m_actCountp = vscp; }
+    AstVarScope* nbaCountp() const { return m_nbaCountp; }
+    void nbaCountp(AstVarScope* vscp) { m_nbaCountp = vscp; }
+
     AstVarScope* dpiExportTriggerp() const { return m_dpiExportTriggerp; }
     void dpiExportTriggerp(AstVarScope* varScopep) { m_dpiExportTriggerp = varScopep; }
     AstTopScope* topScopep() const { return m_topScopep; }

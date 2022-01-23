@@ -93,7 +93,7 @@ private:
     AstAssignDly* m_nextDlyp = nullptr;  // Next delayed assignment in a list of assignments
     bool m_inDly = false;  // True in delayed assignments
     bool m_inLoop = false;  // True in for loops
-    bool m_inInitial = false;  // True in static initializer and initial blocks
+    bool m_inInitial = false;  // True in static initializer, initial blocks and settle logic
     using VarMap = std::map<const std::pair<AstNodeModule*, std::string>, AstVar*>;
     VarMap m_modVarMap;  // Table of new var names created under module
     VDouble0 m_statSharedSet;  // Statistic tracking
@@ -384,7 +384,8 @@ private:
         m_activep = nodep;
         VL_RESTORER(m_inInitial);
         {
-            m_inInitial = nodep->sensesp()->hasInitial() || nodep->sensesp()->hasStatic();
+            AstSenTree* const senTreep = nodep->sensesp();
+            m_inInitial = senTreep->hasStatic() || senTreep->hasInitial() || senTreep->hasSettle();
             // Two sets to same variable in different actives must use different vars.
             AstNode::user3ClearTree();
             iterateChildren(nodep);
@@ -445,15 +446,9 @@ private:
                 if (!dlyvscp) {  // First use of this delayed variable
                     const string newvarname = (string("__Vdly__") + nodep->varp()->shortName());
                     dlyvscp = createVarSc(oldvscp, newvarname, 0, nullptr);
-                    AstNodeAssign* prep;
+                    AstNodeAssign* prep = nullptr;
                     const AstBasicDType* const basicp = oldvscp->dtypep()->basicp();
-                    if (basicp && basicp->isEventValue()) {
-                        // Events go to zero on next timestep unless reactivated
-                        prep = new AstAssignPre(
-                            nodep->fileline(),
-                            new AstVarRef(nodep->fileline(), dlyvscp, VAccess::WRITE),
-                            new AstConst(nodep->fileline(), AstConst::BitFalse()));
-                    } else {
+                    if (!(basicp && basicp->isEventValue())) {
                         prep = new AstAssignPre(
                             nodep->fileline(),
                             new AstVarRef(nodep->fileline(), dlyvscp, VAccess::WRITE),
@@ -468,7 +463,7 @@ private:
                     // Make new ACTIVE with identical sensitivity tree
                     AstActive* const newactp = createActivePost(nodep);
                     dlyvscp->user2p(newactp);
-                    newactp->addStmtsp(prep);  // Add to FRONT of statements
+                    if (prep) newactp->addStmtsp(prep);  // Add to FRONT of statements
                     newactp->addStmtsp(postp);
                 }
                 AstVarRef* const newrefp

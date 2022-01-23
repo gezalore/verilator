@@ -2940,7 +2940,7 @@ senitem<senItemp>:		// IEEE: part of event_expression, non-'OR' ',' terms
 	;
 
 senitemVar<senItemp>:
-		idClassSel				{ $$ = new AstSenItem($1->fileline(), VEdgeType::ET_ANYEDGE, $1); }
+		idClassSel				{ $$ = new AstSenItem($1->fileline(), VEdgeType::ET_CHANGED, $1); }
 	;
 
 senitemEdge<senItemp>:		// IEEE: part of event_expression
