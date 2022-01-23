@@ -36,14 +36,6 @@
 // Active class functions
 
 class ActiveTopVisitor final : public VNVisitor {
-private:
-    // NODE STATE
-    //  Entire netlist
-    //   AstNode::user()                bool. True if processed
-    //  Each call to V3Const::constify
-    //   AstNode::user4()               Used by V3Const::constify, called below
-    const VNUser1InUse m_inuser1;
-
     // STATE
     SenTreeFinder m_finder;  // Find global sentree's / add them under the AstTopScope
 

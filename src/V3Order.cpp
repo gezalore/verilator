@@ -108,6 +108,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+using V3Order::OrderMode;
+
 //######################################################################
 // Utilities
 
@@ -145,30 +147,6 @@ static bool domainsExclusive(const AstSenTree* fromp, const AstSenTree* top) {
     return fromSenListp->edgeType().exclusiveEdge(toSenListp->edgeType());
 }
 
-// Predicate returning true if the LHS of the given assignment is a signal marked as clocker
-static bool isClockerAssignment(AstNodeAssign* nodep) {
-    class Visitor final : public VNVisitor {
-    public:
-        bool m_clkAss = false;  // There is signals marked as clocker in the assignment
-    private:
-        // METHODS
-        VL_DEBUG_FUNC;  // Declare debug()
-        virtual void visit(AstNodeAssign* nodep) override {
-            if (const AstVarRef* const varrefp = VN_CAST(nodep->lhsp(), VarRef)) {
-                if (varrefp->varp()->attrClocker() == VVarAttrClocker::CLOCKER_YES) {
-                    m_clkAss = true;
-                    UINFO(6, "node was marked as clocker " << varrefp << endl);
-                }
-            }
-            iterateChildren(nodep->rhsp());
-        }
-        virtual void visit(AstNodeMath*) override {}  // Accelerate
-        virtual void visit(AstNode* nodep) override { iterateChildren(nodep); }
-    } visitor;
-    visitor.iterate(nodep);
-    return visitor.m_clkAss;
-}
-
 //######################################################################
 // Functions for above graph classes
 
@@ -183,119 +161,6 @@ void OrderGraph::loopsVertexCb(V3GraphVertex* vertexp) {
                   << "     Example path: " << vvertexp->varScp()->prettyName() << endl;
     }
 }
-
-//######################################################################
-// The class is used for propagating the clocker attribute for further
-// avoiding marking clock signals as circular.
-// Transformation:
-//    while (newClockerMarked)
-//        check all assignments
-//            if RHS is marked as clocker:
-//                mark LHS as clocker as well.
-//                newClockerMarked = true;
-//
-// In addition it also check whether clock and data signals are mixed, and
-// produce a CLKDATA warning if so.
-//
-
-class OrderClkMarkVisitor final : public VNVisitor {
-    bool m_hasClk = false;  // flag indicating whether there is clock signal on rhs
-    bool m_inClocked = false;  // Currently inside a sequential block
-    bool m_newClkMarked;  // Flag for deciding whether a new run is needed
-    bool m_inAss = false;  // Currently inside of a assignment
-    int m_childClkWidth = 0;  // If in hasClk, width of clock signal in child
-
-    // METHODS
-    VL_DEBUG_FUNC;  // Declare debug()
-
-    virtual void visit(AstNodeAssign* nodep) override {
-        m_hasClk = false;
-        m_inAss = true;
-        m_childClkWidth = 0;
-        iterateAndNextNull(nodep->rhsp());
-        m_inAss = false;
-        if (m_hasClk) {
-            // do the marking
-            if (nodep->lhsp()->width() > m_childClkWidth) {
-                nodep->v3warn(CLKDATA, "Clock is assigned to part of data signal "
-                                           << nodep->lhsp()->prettyNameQ());
-                UINFO(4, "CLKDATA: lhs with width " << nodep->lhsp()->width() << endl);
-                UINFO(4, "     but rhs clock with width " << m_childClkWidth << endl);
-                return;  // skip the marking
-            }
-
-            const AstVarRef* const lhsp = VN_CAST(nodep->lhsp(), VarRef);
-            if (lhsp && (lhsp->varp()->attrClocker() == VVarAttrClocker::CLOCKER_UNKNOWN)) {
-                lhsp->varp()->attrClocker(VVarAttrClocker::CLOCKER_YES);  // mark as clocker
-                m_newClkMarked = true;  // enable a further run since new clocker is marked
-                UINFO(5, "node is newly marked as clocker by assignment " << lhsp << endl);
-            }
-        }
-    }
-    virtual void visit(AstVarRef* nodep) override {
-        if (m_inAss && nodep->varp()->attrClocker() == VVarAttrClocker::CLOCKER_YES) {
-            if (m_inClocked) {
-                nodep->v3warn(CLKDATA,
-                              "Clock used as data (on rhs of assignment) in sequential block "
-                                  << nodep->prettyNameQ());
-            } else {
-                m_hasClk = true;
-                m_childClkWidth = nodep->width();  // Pass up
-                UINFO(5, "node is already marked as clocker " << nodep << endl);
-            }
-        }
-    }
-    virtual void visit(AstConcat* nodep) override {
-        if (m_inAss) {
-            iterateAndNextNull(nodep->lhsp());
-            const int lw = m_childClkWidth;
-            iterateAndNextNull(nodep->rhsp());
-            const int rw = m_childClkWidth;
-            m_childClkWidth = lw + rw;  // Pass up
-        }
-    }
-    virtual void visit(AstNodeSel* nodep) override {
-        if (m_inAss) {
-            iterateChildren(nodep);
-            // Pass up result width
-            if (m_childClkWidth > nodep->width()) m_childClkWidth = nodep->width();
-        }
-    }
-    virtual void visit(AstSel* nodep) override {
-        if (m_inAss) {
-            iterateChildren(nodep);
-            if (m_childClkWidth > nodep->width()) m_childClkWidth = nodep->width();
-        }
-    }
-    virtual void visit(AstReplicate* nodep) override {
-        if (m_inAss) {
-            iterateChildren(nodep);
-            if (VN_IS(nodep->rhsp(), Const)) {
-                m_childClkWidth = m_childClkWidth * VN_AS(nodep->rhsp(), Const)->toUInt();
-            } else {
-                m_childClkWidth = nodep->width();  // can not check in this case.
-            }
-        }
-    }
-    virtual void visit(AstActive* nodep) override {
-        m_inClocked = nodep->hasClocked();
-        iterateChildren(nodep);
-        m_inClocked = false;
-    }
-    virtual void visit(AstNode* nodep) override { iterateChildren(nodep); }
-
-    // CONSTRUCTORS
-    explicit OrderClkMarkVisitor(AstNode* nodep) {
-        do {
-            m_newClkMarked = false;
-            iterate(nodep);
-        } while (m_newClkMarked);
-    }
-    virtual ~OrderClkMarkVisitor() override = default;
-
-public:
-    static void process(AstNetlist* nodep) { OrderClkMarkVisitor{nodep}; }
-};
 
 //######################################################################
 // Order information stored under each AstNode::user1p()...
@@ -383,7 +248,6 @@ class OrderBuildVisitor final : public VNVisitor {
     AstSenTree* m_domainp = nullptr;
 
     bool m_inClocked = false;  // Underneath clocked AstActive
-    bool m_inClkAss = false;  // Underneath AstNodeAssign to clock
     bool m_inPre = false;  // Underneath AstAssignPre
     bool m_inPost = false;  // Underneath AstAssignPost/AstAlwaysPost
     bool m_inPostponed = false;  // Underneath AstAlwaysPostponed
@@ -502,20 +366,6 @@ class OrderBuildVisitor final : public VNVisitor {
                     //       latch?).
                     con = false;
                 }
-
-                // TODO: Explain how the following two exclusions are useful
-                if (varscp->varp()->attrClockEn() && !m_inPre && !m_inPost && !m_inClocked) {
-                    // 'clock_enable' attribute on this signal: user's worrying about it for us
-                    con = false;
-                }
-                if (m_inClkAss
-                    && (varscp->varp()->attrClocker() != VVarAttrClocker::CLOCKER_YES)) {
-                    // 'clocker' attribute on some other signal in same logic: same as
-                    // 'clock_enable' attribute above
-                    con = false;
-                    UINFO(4, "nodep used as clock_enable " << varscp << " in "
-                                                           << m_logicVxp->nodep() << endl);
-                }
             }
 
             // Roles of vertices:
@@ -551,10 +401,6 @@ class OrderBuildVisitor final : public VNVisitor {
                         // assignment.
                         varVxp->isDelayed(true);
                         UINFO(5, "     Found delayed assignment (post) " << varVxp << endl);
-                    } else if (varscp->varp()->attrClocker() == VVarAttrClocker::CLOCKER_YES) {
-                        // If the variable has the 'clocker' attribute, avoid making it
-                        // circular by adding a hard edge instead of normal cuttable edge.
-                        new OrderEdge(m_graphp, m_logicVxp, varVxp, WEIGHT_NORMAL);
                     } else {
                         new OrderComboCutEdge(m_graphp, m_logicVxp, varVxp);
                     }
@@ -671,27 +517,18 @@ class OrderBuildVisitor final : public VNVisitor {
     virtual void visit(AstAssignAlias* nodep) override {  //
         iterateLogic(nodep);
     }
-    virtual void visit(AstAssignW* nodep) override {
-        UASSERT_OBJ(!m_inClkAss, nodep, "Should not nest");
-        m_inClkAss = isClockerAssignment(nodep);
-        iterateLogic(nodep);
-        m_inClkAss = false;
-    }
+    virtual void visit(AstAssignW* nodep) override { iterateLogic(nodep); }
     virtual void visit(AstAssignPre* nodep) override {
-        UASSERT_OBJ(!m_inClkAss && !m_inPre, nodep, "Should not nest");
-        m_inClkAss = isClockerAssignment(nodep);
+        UASSERT_OBJ(!m_inPre, nodep, "Should not nest");
         m_inPre = true;
         iterateLogic(nodep);
         m_inPre = false;
-        m_inClkAss = false;
     }
     virtual void visit(AstAssignPost* nodep) override {
-        UASSERT_OBJ(!m_inClkAss && !m_inPost, nodep, "Should not nest");
-        m_inClkAss = isClockerAssignment(nodep);
+        UASSERT_OBJ(!m_inPost, nodep, "Should not nest");
         m_inPost = true;
         iterateLogic(nodep);
         m_inPost = false;
-        m_inClkAss = false;
     }
 
     //--- Verilator concoctions
@@ -1050,11 +887,14 @@ class OrderProcess final : VNDeleter {
 
     // STATE
     OrderGraph& m_graph;  // The ordering graph
+    // Variables written external to the code being ordered
+    const std::unordered_set<const AstVarScope*>& m_writtenExternally;
+    const OrderMode m_mode;  // Ordering mode
+
     OrderInputsVertex& m_inputsVtx;  // The singleton OrderInputsVertex
     SenTreeFinder m_finder;  // Global AstSenTree manager
     AstSenTree* const m_comboDomainp;  // The combinational domain AstSenTree
     AstSenTree* const m_deleteDomainp;  // Dummy AstSenTree indicating needs deletion
-    const bool m_settle;  // Ordering combinational logic for settle loop
     std::vector<AstActive*> m_resultST;  // The result nodes for a single threaded model
     AstExecGraph* m_resultMT = nullptr;  // The result node for a multi threaded model
 
@@ -1106,10 +946,13 @@ class OrderProcess final : VNDeleter {
 
     string cfuncName(AstNodeModule* modp, AstSenTree* domainp, AstScope* scopep,
                      AstNode* forWhatp) {
-        string name = m_settle              ? "_settle"
-                      : domainp->hasCombo() ? "_combo"
-                      : domainp->isMulti()  ? "_multiclk"
-                                            : "_sequent";
+        string name = m_mode == OrderMode::Settle         ? "_settle"
+                      : m_mode == OrderMode::ActiveRegion ? "_active"
+                      : m_mode == OrderMode::NBARegion    ? "_nba"
+                                                          : "";
+        name += domainp->hasCombo()  ? "_combo"  //
+                : domainp->isMulti() ? "_multiclk"
+                                     : "_sequent";
         name = name + "__" + scopep->nameDotless();
         const unsigned funcnum = m_funcNums.emplace(std::make_pair(modp, name), 0).first->second++;
         name = name + "__" + cvtToStr(funcnum);
@@ -1130,7 +973,7 @@ class OrderProcess final : VNDeleter {
         ++m_statCut[vertexp->type()];
         if (edgep) ++m_statCut[edgep->type()];
 
-        if (m_settle) return;
+        if (m_mode == OrderMode::Settle) return;
 
         if (vertexp->isClock()) {
             // Seems obvious; no warning yet
@@ -1290,13 +1133,15 @@ class OrderProcess final : VNDeleter {
     }
 
     // CONSTRUCTOR
-    OrderProcess(AstNetlist* netlistp, OrderGraph& graph, bool settle)
+    OrderProcess(AstNetlist* netlistp, OrderGraph& graph,
+                 const std::unordered_set<const AstVarScope*>& writtenExternally, OrderMode mode)
         : m_graph{graph}
+        , m_writtenExternally{writtenExternally}
+        , m_mode{mode}
         , m_inputsVtx{findInputVertex(graph)}
         , m_finder{netlistp}
         , m_comboDomainp{m_finder.getComb()}
-        , m_deleteDomainp{makeDeleteDomainSenTree(netlistp->fileline())}
-        , m_settle{settle} {
+        , m_deleteDomainp{makeDeleteDomainSenTree(netlistp->fileline())} {
         m_inputsVtx.domainp(m_comboDomainp);
         pushDeletep(m_deleteDomainp);
     }
@@ -1313,13 +1158,17 @@ class OrderProcess final : VNDeleter {
 
 public:
     // Order the logic
-    static std::vector<AstActive*> mainST(AstNetlist* netlistp, OrderGraph& graph, bool settle) {
-        OrderProcess visitor{netlistp, graph, settle};
+    static std::vector<AstActive*>
+    mainST(AstNetlist* netlistp, OrderGraph& graph,
+           const std::unordered_set<const AstVarScope*>& writtenExternally, OrderMode mode) {
+        OrderProcess visitor{netlistp, graph, writtenExternally, mode};
         visitor.process(false);
         return std::move(visitor.m_resultST);
     }
-    static AstExecGraph* mainMT(AstNetlist* netlistp, OrderGraph& graph) {
-        OrderProcess visitor{netlistp, graph, false};
+    static AstExecGraph* mainMT(AstNetlist* netlistp, OrderGraph& graph,
+                                const std::unordered_set<const AstVarScope*>& writtenExternally,
+                                OrderMode mode) {
+        OrderProcess visitor{netlistp, graph, writtenExternally, mode};
         visitor.process(true);
         return visitor.m_resultMT;
     }
@@ -1437,26 +1286,7 @@ void OrderProcess::processCircular() {
     // The change detect code will use this to force changedets
     for (V3GraphVertex* itp = m_graph.verticesBeginp(); itp; itp = itp->verticesNextp()) {
         if (OrderVarStdVertex* const vvertexp = dynamic_cast<OrderVarStdVertex*>(itp)) {
-            if (vvertexp->isClock() && !vvertexp->isFromInput()) {
-                // If a clock is generated internally, we need to do another
-                // loop through the entire evaluation.  This fixes races; see
-                // t_clk_dpulse test.
-                //
-                // This all seems to hinge on how the clock is generated. If
-                // it is generated by delayed assignment, we need the loop. If
-                // it is combinatorial, we do not (and indeed it will break
-                // other tests such as t_gated_clk_1.
-                if (!v3Global.opt.orderClockDly()) {
-                    UINFO(5, "Circular Clock, no-order-clock-delay " << vvertexp << endl);
-                    nodeMarkCircular(vvertexp, nullptr);
-                } else if (vvertexp->isDelayed()) {
-                    UINFO(5, "Circular Clock, delayed " << vvertexp << endl);
-                    nodeMarkCircular(vvertexp, nullptr);
-                } else {
-                    UINFO(5, "Circular Clock, not delayed " << vvertexp << endl);
-                }
-            }
-            // Also mark any cut edges
+            // Mark any cut edges
             for (V3GraphEdge* edgep = vvertexp->outBeginp(); edgep; edgep = edgep->outNextp()) {
                 if (edgep->weight() == 0) {  // was cut
                     OrderEdge* const oedgep = dynamic_cast<OrderEdge*>(edgep);
@@ -1517,7 +1347,7 @@ void OrderProcess::processDomainsIterate(OrderEitherVertex* vertexp) {
     //     else, if all inputs are from flops, it's end-of-sequential code
     //     else, it's full combo code
     if (vertexp->domainp()) return;  // Already processed, or sequential logic
-    if (m_settle) {
+    if (m_mode == OrderMode::Settle) {
         vertexp->domainp(m_comboDomainp);
         return;
     }
@@ -1535,6 +1365,10 @@ void OrderProcess::processDomainsIterate(OrderEitherVertex* vertexp) {
                 UASSERT(!fromVertexp->domainp()->hasStatic(), "Does not need ordering");
                 UASSERT(!fromVertexp->domainp()->hasInitial(), "Does not need ordering");
                 UASSERT(!fromVertexp->domainp()->hasFinal(), "Does not need ordering");
+
+                if (OrderVarVertex* const varVtxp = dynamic_cast<OrderVarVertex*>(fromVertexp)) {
+                    if (m_writtenExternally.count(varVtxp->varScp())) domainp = m_comboDomainp;
+                }
 
                 // Irrelevant input vertex (never triggered)
                 if (fromVertexp->domainp() == m_deleteDomainp) continue;
@@ -1601,8 +1435,8 @@ void OrderProcess::processEdgeReport() {
             std::ostringstream os;
             os.setf(std::ios::left);
             os << "  " << cvtToHex(vvertexp->varScp()) << " " << std::setw(50) << name << " ";
-            AstSenTree* const sentreep = vvertexp->domainp();
-            if (sentreep) V3EmitV::verilogForTree(sentreep, os);
+            //            AstSenTree* const sentreep = vvertexp->domainp();
+            //            if (sentreep) V3EmitV::verilogForTree(sentreep, os);
             report.push_back(os.str());
         }
     }
@@ -1764,7 +1598,7 @@ AstActive* OrderProcess::processMoveOneLogic(const OrderLogicVertex* lvertexp,
         // Just ignore sensitivities, we'll deal with them when we move statements that need them
     } else {  // Normal logic
         // Move the logic into a CFunc
-        nodep->unlinkFrBack();
+        if (nodep->backp()) nodep->unlinkFrBack();
 
         // Process procedures per statement (unless profCFuncs), so we can split CFuncs within
         // procedures. Everything else is handled in one go
@@ -1790,7 +1624,7 @@ AstActive* OrderProcess::processMoveOneLogic(const OrderLogicVertex* lvertexp,
                 newFuncpr = new AstCFunc(nodep->fileline(), name, scopep);
                 newFuncpr->isStatic(false);
                 newFuncpr->isLoose(true);
-                newFuncpr->slow(m_settle);
+                newFuncpr->slow(m_mode == OrderMode::Settle);
                 newStmtsr = 0;
                 scopep->addActivep(newFuncpr);
                 // Create top call to it
@@ -1958,8 +1792,13 @@ void OrderProcess::processMTasks() {
 // OrderVisitor - Top processing
 
 void OrderProcess::process(bool multiThreaded) {
+    string prefix = m_mode == OrderMode::Settle         ? "settle_"
+                    : m_mode == OrderMode::ActiveRegion ? "active_"
+                    : m_mode == OrderMode::NBARegion    ? "nba_"
+                                                        : "";
+
     // Dump data
-    m_graph.dumpDotFilePrefixed("orderg_pre");
+    m_graph.dumpDotFilePrefixed(prefix + "orderg_pre");
 
     // Break cycles. Each strongly connected subgraph (including cutable
     // edges) will have its own color, and corresponds to a loop in the
@@ -1967,12 +1806,12 @@ void OrderProcess::process(bool multiThreaded) {
     // edges are actually still there, just with weight 0).
     UINFO(2, "  Acyclic & Order...\n");
     m_graph.acyclic(&V3GraphEdge::followAlwaysTrue);
-    m_graph.dumpDotFilePrefixed("orderg_acyc");
+    m_graph.dumpDotFilePrefixed(prefix + "orderg_acyc");
 
     // Assign ranks so we know what to follow
     // Then, sort vertices and edges by that ordering
     m_graph.order();
-    m_graph.dumpDotFilePrefixed("orderg_order");
+    m_graph.dumpDotFilePrefixed(prefix + "orderg_order");
 
     // This finds everything that can be traced from an input (which by
     // definition are the source clocks). After this any vertex which was
@@ -1986,7 +1825,7 @@ void OrderProcess::process(bool multiThreaded) {
     // Assign logic vertices to new domains
     UINFO(2, "  Domains...\n");
     processDomains();
-    m_graph.dumpDotFilePrefixed("orderg_domain");
+    m_graph.dumpDotFilePrefixed(prefix + "orderg_domain");
 
     if (debug() && v3Global.opt.dumpTree()) processEdgeReport();
 
@@ -1994,11 +1833,11 @@ void OrderProcess::process(bool multiThreaded) {
         UINFO(2, "  Construct Move Graph...\n");
         processMoveBuildGraph();
         if (debug() >= 4) {
-            m_pomGraph.dumpDotFilePrefixed(
-                "ordermv_start");  // Different prefix (ordermv) as it's not the same graph
+            // Different prefix (ordermv) as it's not the same graph
+            m_pomGraph.dumpDotFilePrefixed(prefix + "ordermv_start");
         }
         m_pomGraph.removeRedundantEdges(&V3GraphEdge::followAlwaysTrue);
-        if (debug() >= 4) m_pomGraph.dumpDotFilePrefixed("ordermv_simpl");
+        if (debug() >= 4) m_pomGraph.dumpDotFilePrefixed(prefix + "ordermv_simpl");
 
         UINFO(2, "  Move...\n");
         processMove();
@@ -2012,37 +1851,27 @@ void OrderProcess::process(bool multiThreaded) {
     processSensitive();  // must be after processDomains
 
     // Dump data
-    m_graph.dumpDotFilePrefixed("orderg_done");
-    if (false && debug()) {
-        const string dfilename
-            = v3Global.opt.makeDir() + "/" + v3Global.opt.prefix() + "_INT_order";
-        const std::unique_ptr<std::ofstream> logp{V3File::new_ofstream(dfilename)};
-        if (logp->fail()) v3fatal("Can't write " << dfilename);
-        m_graph.dump(*logp);
-    }
+    m_graph.dumpDotFilePrefixed(prefix + "orderg_done");
 }
 
 //######################################################################
-// Order class functions
 
-void V3Order::orderMarkClocks(AstNetlist* netlistp) {
-    UINFO(2, __FUNCTION__ << ": " << endl);
-    // Propagate 'clocker' attribute through logic
-    OrderClkMarkVisitor::process(netlistp);
-}
+namespace V3Order {
 
-namespace V3Sched {
-
-std::vector<AstActive*>
-orderST(AstNetlist* netlistp, const std::vector<const V3Sched::LogicByScope*>& coll, bool settle) {
+std::vector<AstActive*> orderST(AstNetlist* netlistp,
+                                const std::vector<const V3Sched::LogicByScope*>& coll,
+                                const std::unordered_set<const AstVarScope*>& writtenExternally,
+                                OrderMode mode) {
     const std::unique_ptr<OrderGraph> graph = OrderBuildVisitor::process(netlistp, coll);
-    return OrderProcess::mainST(netlistp, *graph.get(), settle);
+    return OrderProcess::mainST(netlistp, *graph.get(), writtenExternally, mode);
 }
 
-AstExecGraph* orderMT(AstNetlist* netlistp,
-                      const std::vector<const V3Sched::LogicByScope*>& coll) {
+AstExecGraph* orderMT(AstNetlist* netlistp,  //
+                      const std::vector<const V3Sched::LogicByScope*>& coll,
+                      const std::unordered_set<const AstVarScope*>& writtenExternally,
+                      OrderMode mode) {
     const std::unique_ptr<OrderGraph> graph = OrderBuildVisitor::process(netlistp, coll);
-    return OrderProcess::mainMT(netlistp, *graph.get());
+    return OrderProcess::mainMT(netlistp, *graph.get(), writtenExternally, mode);
 }
 
-}  // namespace V3Sched
+}  // namespace V3Order
