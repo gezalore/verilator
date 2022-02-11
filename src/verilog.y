@@ -1861,7 +1861,7 @@ data_typeNoRef<nodeDTypep>:		// ==IEEE: data_type, excluding class_type etc refe
 										       SYMP,VFlagChildDType(),$1); }
 	|	ySTRING					{ $$ = new AstBasicDType($1,VBasicDTypeKwd::STRING); }
 	|	yCHANDLE				{ $$ = new AstBasicDType($1,VBasicDTypeKwd::CHANDLE); }
-	|	yEVENT					{ $$ = new AstBasicDType($1,VBasicDTypeKwd::EVENTVALUE); }
+	|	yEVENT					{ $$ = new AstBasicDType{$1, VBasicDTypeKwd::EVENT}; v3Global.setHasEvents(); }
 	//			// Rules overlap virtual_interface_declaration
 	//			// Parameters here are SV2009
 	//			// IEEE has ['.' modport] but that will conflict with port
@@ -2940,7 +2940,7 @@ senitem<senItemp>:		// IEEE: part of event_expression, non-'OR' ',' terms
 	;
 
 senitemVar<senItemp>:
-		idClassSel				{ $$ = new AstSenItem($1->fileline(), VEdgeType::ET_ANYEDGE, $1); }
+		idClassSel				{ $$ = new AstSenItem($1->fileline(), VEdgeType::ET_CHANGED, $1); }
 	;
 
 senitemEdge<senItemp>:		// IEEE: part of event_expression
@@ -3162,13 +3162,11 @@ statement_item<nodep>:		// IEEE: statement_item
 	|	yDISABLE yFORK ';'			{ $$ = new AstDisableFork($1); }
 	//			// IEEE: event_trigger
 	|	yP_MINUSGT idDotted/*hierarchical_identifier-event*/ ';'
-			{ // AssignDly because we don't have stratified queue, and need to
-			  // read events, clear next event, THEN apply this set
-			  $$ = new AstAssignDly($1, $2, new AstConst($1, AstConst::BitTrue())); }
+			{ $$ = new AstFireEvent($1, $2, false); }
 	//UNSUP	yP_MINUSGTGT delay_or_event_controlE hierarchical_identifier/*event*/ ';'	{ UNSUP }
 	//			// IEEE remove below
 	|	yP_MINUSGTGT delayE idDotted/*hierarchical_identifier-event*/ ';'
-			{ $$ = new AstAssignDly($1, $3, new AstConst($1, AstConst::BitTrue())); }
+			{ $$ = new AstFireEvent($1, $3, true); }
 	//
 	//			// IEEE: loop_statement
 	|	yFOREVER stmtBlock			{ $$ = new AstWhile($1,new AstConst($1, AstConst::BitTrue()), $2); }

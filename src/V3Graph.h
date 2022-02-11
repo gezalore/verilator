@@ -139,7 +139,7 @@ public:
     void orderPreRanked();
 
     /// Make acyclical (into a tree) by breaking a minimal subset of cutable edges.
-    void acyclic(V3EdgeFuncP edgeFuncp);
+    void acyclic(V3EdgeFuncP edgeFuncp, bool colorIsSCC = false);
 
     /// Remove any redundant edges, weights become MAX of any other weight
     void removeRedundantEdges(V3EdgeFuncP edgeFuncp);
@@ -218,6 +218,7 @@ public:
     virtual string dotShape() const { return ""; }
     virtual string dotStyle() const { return ""; }
     virtual string dotName() const { return ""; }
+    virtual string dotRank() const { return ""; }
     virtual uint32_t rankAdder() const { return 1; }
     virtual FileLine* fileline() const { return nullptr; }  // nullptr for unknown
     virtual int sortCmp(const V3GraphVertex* rhsp) const {

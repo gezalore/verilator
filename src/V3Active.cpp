@@ -206,8 +206,10 @@ class ActiveNamer final : public ActiveBaseVisitor {
 private:
     // STATE
     AstScope* m_scopep = nullptr;  // Current scope to add statement to
-    AstActive* m_iActivep = nullptr;  // For current scope, the IActive we're building
-    AstActive* m_cActivep = nullptr;  // For current scope, the SActive(combo) we're building
+    AstActive* m_sActivep = nullptr;  // For current scope, the Static active we're building
+    AstActive* m_iActivep = nullptr;  // For current scope, the Initial active we're building
+    AstActive* m_fActivep = nullptr;  // For current scope, the Final active we're building
+    AstActive* m_cActivep = nullptr;  // For current scope, the Combo active we're building
 
     // Map from AstSenTree (equivalence) to the corresponding AstActive created.
     std::unordered_map<VNRef<AstSenTree>, AstActive*> m_activeMap;
@@ -217,10 +219,13 @@ private:
         UASSERT_OBJ(m_scopep, nodep, "nullptr scope");
         m_scopep->addActivep(nodep);
     }
+
     // VISITORS
     virtual void visit(AstScope* nodep) override {
         m_scopep = nodep;
+        m_sActivep = nullptr;
         m_iActivep = nullptr;
+        m_fActivep = nullptr;
         m_cActivep = nullptr;
         m_activeMap.clear();
         iterateChildren(nodep);
@@ -237,23 +242,40 @@ private:
 public:
     // METHODS
     AstScope* scopep() { return m_scopep; }
-    AstActive* getCActive(FileLine* fl) {
-        if (!m_cActivep) {
-            m_cActivep = new AstActive(
-                fl, "combo", new AstSenTree(fl, new AstSenItem(fl, AstSenItem::Combo())));
-            m_cActivep->sensesStorep(m_cActivep->sensesp());
-            addActive(m_cActivep);
+
+    // Return an AstActive sensitive to the given special sensitivity class
+    template <typename SenItemKind> AstActive* getSpecialActive(FileLine* fl) {
+        static_assert(std::is_same<SenItemKind, AstSenItem::Static>::value
+                          || std::is_same<SenItemKind, AstSenItem::Initial>::value
+                          || std::is_same<SenItemKind, AstSenItem::Final>::value
+                          || std::is_same<SenItemKind, AstSenItem::Combo>::value,
+                      "Not special sensitivity");
+
+        AstActive** cachepp;
+        string name;
+        // TODO: 'constexpr' in C++17
+        if (std::is_same<SenItemKind, AstSenItem::Static>::value) {
+            cachepp = &m_sActivep;
+            name = "static";
+        } else if (std::is_same<SenItemKind, AstSenItem::Initial>::value) {
+            cachepp = &m_iActivep;
+            name = "initial";
+        } else if (std::is_same<SenItemKind, AstSenItem::Final>::value) {
+            cachepp = &m_fActivep;
+            name = "final";
+        } else {
+            cachepp = &m_cActivep;
+            name = "comb";
         }
-        return m_cActivep;
-    }
-    AstActive* getIActive(FileLine* fl) {
-        if (!m_iActivep) {
-            m_iActivep = new AstActive(
-                fl, "initial", new AstSenTree(fl, new AstSenItem(fl, AstSenItem::Initial())));
-            m_iActivep->sensesStorep(m_iActivep->sensesp());
-            addActive(m_iActivep);
+
+        AstActive*& cachep = *cachepp;
+        if (!cachep) {
+            AstSenTree* const senTreep = new AstSenTree{fl, new AstSenItem{fl, SenItemKind{}}};
+            cachep = new AstActive{fl, name, senTreep};
+            cachep->sensesStorep(cachep->sensesp());
+            addActive(cachep);
         }
-        return m_iActivep;
+        return cachep;
     }
 
     // Return an AstActive that is sensitive to a SenTree equivalent to the given sentreep.
@@ -406,9 +428,8 @@ private:
 
     // STATE
     ActiveNamer m_namer;  // Tracking of active names
-    AstCFunc* m_scopeFinalp = nullptr;  // Final function for this scope
-    bool m_itemCombo = false;  // Found a SenItem combo
     bool m_itemSequent = false;  // Found a SenItem sequential
+    bool m_itemChanged = false;  // Found a SenItem sequential with ET_CHANGED
 
     // VISITORS
     virtual void visit(AstScope* nodep) override {
@@ -416,70 +437,49 @@ private:
         UINFO(4, " SCOPE   " << nodep << endl);
         // Clear last scope's names, and collect this scope's existing names
         m_namer.main(nodep);
-        m_scopeFinalp = nullptr;
         iterateChildren(nodep);
     }
     virtual void visit(AstActive* nodep) override {
         // Actives are being formed, so we can ignore any already made
     }
     virtual void visit(AstInitialStatic* nodep) override {
-        // Relink to IACTIVE, unless already under it
-        UINFO(4, "    INITIAL " << nodep << endl);
         const ActiveDlyVisitor dlyvisitor{nodep, ActiveDlyVisitor::CT_INITIAL};
-        AstActive* const wantactivep = m_namer.getIActive(nodep->fileline());
+        AstActive* const wantactivep
+            = m_namer.getSpecialActive<AstSenItem::Static>(nodep->fileline());
         nodep->unlinkFrBack();
         wantactivep->addStmtsp(nodep);
     }
     virtual void visit(AstInitial* nodep) override {
-        // Relink to IACTIVE, unless already under it
-        UINFO(4, "    INITIAL " << nodep << endl);
         const ActiveDlyVisitor dlyvisitor{nodep, ActiveDlyVisitor::CT_INITIAL};
-        AstActive* const wantactivep = m_namer.getIActive(nodep->fileline());
-        nodep->unlinkFrBack();
-        wantactivep->addStmtsp(nodep);
-    }
-    virtual void visit(AstAssignAlias* nodep) override {
-        // Relink to CACTIVE, unless already under it
-        UINFO(4, "    ASSIGNW " << nodep << endl);
-        AstActive* const wantactivep = m_namer.getCActive(nodep->fileline());
-        nodep->unlinkFrBack();
-        wantactivep->addStmtsp(nodep);
-    }
-    virtual void visit(AstAssignW* nodep) override {
-        // Relink to CACTIVE, unless already under it
-        UINFO(4, "    ASSIGNW " << nodep << endl);
-        AstActive* const wantactivep = m_namer.getCActive(nodep->fileline());
-        nodep->unlinkFrBack();
-        wantactivep->addStmtsp(nodep);
-    }
-    virtual void visit(AstCoverToggle* nodep) override {
-        // Relink to CACTIVE, unless already under it
-        UINFO(4, "    COVERTOGGLE " << nodep << endl);
-        AstActive* const wantactivep = m_namer.getCActive(nodep->fileline());
+        AstActive* const wantactivep
+            = m_namer.getSpecialActive<AstSenItem::Initial>(nodep->fileline());
         nodep->unlinkFrBack();
         wantactivep->addStmtsp(nodep);
     }
     virtual void visit(AstFinal* nodep) override {
-        // Relink to CFUNC for the final
-        UINFO(4, "    FINAL " << nodep << endl);
-        if (!nodep->bodysp()) {  // Empty, Kill it.
-            VL_DO_DANGLING(nodep->unlinkFrBack()->deleteTree(), nodep);
-            return;
-        }
         const ActiveDlyVisitor dlyvisitor{nodep, ActiveDlyVisitor::CT_INITIAL};
-        if (!m_scopeFinalp) {
-            m_scopeFinalp = new AstCFunc(
-                nodep->fileline(), "_final_" + m_namer.scopep()->nameDotless(), m_namer.scopep());
-            m_scopeFinalp->dontCombine(true);
-            m_scopeFinalp->isFinal(true);
-            m_scopeFinalp->isStatic(false);
-            m_scopeFinalp->isLoose(true);
-            m_scopeFinalp->slow(true);
-            m_namer.scopep()->addActivep(m_scopeFinalp);
-        }
+        AstActive* const wantactivep
+            = m_namer.getSpecialActive<AstSenItem::Final>(nodep->fileline());
         nodep->unlinkFrBack();
-        m_scopeFinalp->addStmtsp(nodep->bodysp()->unlinkFrBackWithNext());
-        VL_DO_DANGLING(nodep->deleteTree(), nodep);
+        wantactivep->addStmtsp(nodep);
+    }
+    virtual void visit(AstAssignAlias* nodep) override {
+        AstActive* const wantactivep
+            = m_namer.getSpecialActive<AstSenItem::Combo>(nodep->fileline());
+        nodep->unlinkFrBack();
+        wantactivep->addStmtsp(nodep);
+    }
+    virtual void visit(AstAssignW* nodep) override {
+        AstActive* const wantactivep
+            = m_namer.getSpecialActive<AstSenItem::Combo>(nodep->fileline());
+        nodep->unlinkFrBack();
+        wantactivep->addStmtsp(nodep);
+    }
+    virtual void visit(AstCoverToggle* nodep) override {
+        AstActive* const wantactivep
+            = m_namer.getSpecialActive<AstSenItem::Combo>(nodep->fileline());
+        nodep->unlinkFrBack();
+        wantactivep->addStmtsp(nodep);
     }
 
     // METHODS
@@ -494,33 +494,24 @@ private:
         }
 
         // Read sensitivities
-        m_itemCombo = false;
+        m_itemChanged = false;
         m_itemSequent = false;
-        iterateAndNextNull(oldsensesp);
-        bool combo = m_itemCombo;
-        bool sequent = m_itemSequent;
-
-        if (!combo && !sequent) combo = true;  // If no list, Verilog 2000: always @ (*)
-        if (combo && sequent) {
-            nodep->v3warn(E_UNSUPPORTED, "Unsupported: Mixed edge (pos/negedge) and activity "
-                                         "(no edge) sensitive activity list");
-            sequent = false;
-        }
+        if (oldsensesp) iterateAndNextNull(oldsensesp);
+        const bool sequent = m_itemSequent || m_itemChanged;
+        const bool changed = m_itemChanged;
+        const bool combo = !sequent && !changed;
 
         AstActive* wantactivep = nullptr;
-        if (combo && !sequent) {
+        if (combo) {
             // Combo:  Relink to ACTIVE(combo)
-            wantactivep = m_namer.getCActive(nodep->fileline());
+            wantactivep = m_namer.getSpecialActive<AstSenItem::Combo>(nodep->fileline());
         } else {
             // Sequential: Build a ACTIVE(name)
             // OPTIMIZE: We could substitute a constant for things in the sense list, for example
             // always (posedge RESET) { if (RESET).... }  we know RESET is true.
             // Summarize a long list of combo inputs as just "combo"
-#ifndef __COVERITY__  // Else dead code on next line.
-            if (combo) {
-                oldsensesp->addSensesp(new AstSenItem(nodep->fileline(), AstSenItem::Combo()));
-            }
-#endif
+            //            oldsensesp->addSensesp(new AstSenItem(nodep->fileline(),
+            //            AstSenItem::Combo()));
             wantactivep = m_namer.getActive(nodep->fileline(), oldsensesp);
         }
 
@@ -534,14 +525,14 @@ private:
         wantactivep->addStmtsp(nodep);
 
         // Warn and/or convert any delayed assignments
-        if (combo && !sequent) {
+        if (combo) {
             const ActiveLatchCheckVisitor latchvisitor{nodep, kwd};
             if (kwd == VAlwaysKwd::ALWAYS_LATCH) {
                 ActiveDlyVisitor{nodep, ActiveDlyVisitor::CT_LATCH};
             } else {
                 ActiveDlyVisitor{nodep, ActiveDlyVisitor::CT_COMBO};
             }
-        } else if (!combo && sequent) {
+        } else {
             ActiveDlyVisitor{nodep, ActiveDlyVisitor::CT_SEQ};
         }
     }
@@ -574,28 +565,18 @@ private:
     virtual void visit(AstSenItem* nodep) override {
         if (nodep->varrefp()) {
             if (const AstBasicDType* const basicp = nodep->varrefp()->dtypep()->basicp()) {
-                if (basicp->isEventValue()) {
-                    // Events need to be treated as active high so we only activate on event being
-                    // 1
-                    UINFO(8, "Demote event to HIGHEDGE " << nodep << endl);
-                    nodep->edgeType(VEdgeType::ET_HIGHEDGE);
-                }
+                if (basicp->isEvent()) nodep->edgeType(VEdgeType::ET_EVENT);
             }
         }
-        if (nodep->edgeType() == VEdgeType::ET_ANYEDGE) {
-            m_itemCombo = true;
-            // Delete the sensitivity
-            // We'll add it as a generic COMBO SenItem in a moment.
-            VL_DO_DANGLING(nodep->unlinkFrBack()->deleteTree(), nodep);
-        } else if (nodep->varrefp()) {
-            // V3LinkResolve should have cleaned most of these up
-            if (!nodep->varrefp()->width1()) {
-                nodep->v3warn(E_UNSUPPORTED,
-                              "Unsupported: Non-single bit wide signal pos/negedge sensitivity: "
-                                  << nodep->varrefp()->prettyNameQ());
+        if (nodep->sensp()) {
+            if (nodep->edgeType() == VEdgeType::ET_CHANGED) {
+                m_itemChanged = true;
+            } else {
+                m_itemSequent = true;
             }
-            m_itemSequent = true;
-            nodep->varrefp()->varp()->usedClock(true);
+            nodep->sensp()->foreach<AstVarRef>([](const AstVarRef* refp) {  //
+                refp->varp()->usedClock(true);
+            });
         }
     }
 

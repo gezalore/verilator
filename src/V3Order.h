@@ -20,13 +20,30 @@
 #include "config_build.h"
 #include "verilatedos.h"
 
+#include <functional>
+#include <unordered_set>
+#include <vector>
+
+class AstCFunc;
 class AstNetlist;
+class AstSenTree;
+class AstVarScope;
+
+namespace V3Sched {
+struct LogicByScope;
+};
 
 //============================================================================
 
-class V3Order final {
-public:
-    static void orderAll(AstNetlist* nodep);
-};
+namespace V3Order {
+
+AstCFunc* order(AstNetlist* netlistp,  //
+                const std::vector<V3Sched::LogicByScope*>& logic,  //
+                const string& tag,  //
+                bool parallel,  //
+                bool slow,  //
+                std::function<AstSenTree*(const AstVarScope*)> externalDomain);
+
+};  // namespace V3Order
 
 #endif  // Guard

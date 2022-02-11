@@ -75,6 +75,7 @@ private:
     const bool m_elimDTypes;  // Allow removal of DTypes
     const bool m_elimCells;  // Allow removal of Cells
     bool m_sideEffect = false;  // Side effects discovered in assign RHS
+    AstScope* const m_scopeTopp;  // The top level AstScope
 
     // METHODS
     VL_DEBUG_FUNC;  // Declare debug()
@@ -131,7 +132,7 @@ private:
         // Class packages might have no children, but need to remain as
         // long as the class they refer to is needed
         if (VN_IS(m_modp, Class) || VN_IS(m_modp, ClassPackage)) nodep->user1Inc();
-        if (!nodep->isTop() && !nodep->varsp() && !nodep->blocksp() && !nodep->finalClksp()) {
+        if (!nodep->isTop() && !nodep->varsp() && !nodep->blocksp()) {
             m_scopesp.push_back(nodep);
         }
     }
@@ -427,9 +428,11 @@ public:
                 bool elimCells)
         : m_elimUserVars{elimUserVars}
         , m_elimDTypes{elimDTypes}
-        , m_elimCells{elimCells} {
+        , m_elimCells{elimCells}
+        , m_scopeTopp{nodep->topScopep() ? nodep->topScopep()->scopep() : nullptr} {
         // Prepare to remove some datatypes
         nodep->typeTablep()->clearCache();
+
         // Operate on whole netlist
         iterate(nodep);
 
