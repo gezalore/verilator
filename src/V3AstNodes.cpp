@@ -886,10 +886,10 @@ bool AstSenTree::hasClocked() const {
     }
     return false;
 }
-bool AstSenTree::hasSettle() const {
+bool AstSenTree::hasStatic() const {
     UASSERT_OBJ(sensesp(), this, "SENTREE without any SENITEMs under it");
     for (AstSenItem* senp = sensesp(); senp; senp = VN_AS(senp->nextp(), SenItem)) {
-        if (senp->isSettle()) return true;
+        if (senp->isStatic()) return true;
     }
     return false;
 }
@@ -897,6 +897,20 @@ bool AstSenTree::hasInitial() const {
     UASSERT_OBJ(sensesp(), this, "SENTREE without any SENITEMs under it");
     for (AstSenItem* senp = sensesp(); senp; senp = VN_AS(senp->nextp(), SenItem)) {
         if (senp->isInitial()) return true;
+    }
+    return false;
+}
+bool AstSenTree::hasSettle() const {
+    UASSERT_OBJ(sensesp(), this, "SENTREE without any SENITEMs under it");
+    for (AstSenItem* senp = sensesp(); senp; senp = VN_AS(senp->nextp(), SenItem)) {
+        if (senp->isSettle()) return true;
+    }
+    return false;
+}
+bool AstSenTree::hasFinal() const {
+    UASSERT_OBJ(sensesp(), this, "SENTREE without any SENITEMs under it");
+    for (AstSenItem* senp = sensesp(); senp; senp = VN_AS(senp->nextp(), SenItem)) {
+        if (senp->isFinal()) return true;
     }
     return false;
 }
