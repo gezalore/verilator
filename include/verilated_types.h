@@ -72,7 +72,7 @@ extern std::string VL_TO_STRING_W(int words, const WDataInP obj);
 #define VL_OUTW(name, msb, lsb, words) VlWide<words> name  ///< Declare output signal, 65+ bits
 
 //===================================================================
-// Event trigger vector
+// Activity trigger vector
 
 template <std::size_t T_size>  //
 class VlTriggerVec final {
@@ -110,6 +110,26 @@ public:
     void andNot(const VlTriggerVec<T_size>& a, const VlTriggerVec<T_size>& b) {
         for (size_t i = 0; i < T_size; ++i) m_flags[i] = a.m_flags[i] & !b.m_flags[i];
     }
+};
+
+//===================================================================
+// SystemVerilog event type
+
+class VlEvent final {
+    // MEMBERS
+    bool m_fired{false};  // Fired on this scheduling iteration
+    bool m_triggered{false};  // Triggered state of event persisting until next time step
+
+public:
+    // CONSTRUCTOR
+    VlEvent() = default;
+
+    // METHODS
+    void fire() { m_fired = m_triggered = true; }
+    bool isFired() const { return m_fired; }
+    bool isTriggered() const { return m_triggered; }
+    void clearFired() { m_fired = false; }
+    void clearTriggered() { m_triggered = false; }
 };
 
 //===================================================================

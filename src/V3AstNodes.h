@@ -934,7 +934,7 @@ public:
     }
     bool isBitLogic() const { return keyword().isBitLogic(); }
     bool isDouble() const { return keyword().isDouble(); }
-    bool isEventValue() const { return keyword().isEventValue(); }
+    bool isEvent() const { return keyword().isEvent(); }
     bool isOpaque() const { return keyword().isOpaque(); }
     bool isString() const { return keyword().isString(); }
     bool isZeroInit() const { return keyword().isZeroInit(); }
@@ -3606,6 +3606,20 @@ public:
     }
     ASTNODE_NODE_FUNCS(Release);
     AstNode* lhsp() const { return op1p(); }
+};
+
+class AstFireEvent final : public AstNodeStmt {
+    // '-> _' and '->> _' event trigger statements
+    bool m_delayed;  // Delayed (->>) vs non-delayed (->)
+public:
+    AstFireEvent(FileLine* fl, AstNode* operandp, bool delayed)
+        : ASTGEN_SUPER_FireEvent(fl)
+        , m_delayed{delayed} {
+        setOp1p(operandp);
+    }
+    ASTNODE_NODE_FUNCS(FireEvent);
+    AstNode* operandp() const { return op1p(); }
+    bool isDeleyed() const { return m_delayed; }
 };
 
 class AstAssignPre final : public AstNodeAssign {
