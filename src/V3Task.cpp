@@ -1062,8 +1062,8 @@ private:
             // Create the global DPI export trigger flag the first time we encounter a DPI export.
             // This flag is set any time a DPI export is invoked, and cleared at the end of eval.
             FileLine* const fl = m_topScopep->fileline();
-            AstNodeDType* const dtypep = netlistp->findBasicDType(VBasicDTypeKwd::EVENTVALUE);
-            AstVar* const varp = new AstVar{fl, VVarType::VAR, "__Vdpi_export_trigger", dtypep};
+            const string name{"__Vdpi_export_trigger"};
+            AstVar* const varp = new AstVar{fl, VVarType::VAR, name, VFlagBitPacked{}, 1};
             m_topScopep->scopep()->modp()->addStmtp(varp);
             dpiExportTriggerp = new AstVarScope{fl, m_topScopep->scopep(), varp};
             m_topScopep->scopep()->addVarp(dpiExportTriggerp);

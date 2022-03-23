@@ -344,6 +344,8 @@ class EmitCModel final : public EmitCFunc {
 
         if (v3Global.opt.trace()) puts("vlSymsp->__Vm_activity = true;\n");
 
+        if (v3Global.hasEvents()) puts("vlSymsp->clearTriggeredEvents();\n");
+
         puts("if (VL_UNLIKELY(!vlSymsp->__Vm_didInit)) {\n");
         puts("vlSymsp->__Vm_didInit = true;\n");
         puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+ Initial\\n\"););\n");
