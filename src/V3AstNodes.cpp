@@ -708,6 +708,8 @@ AstNodeDType::CTypeRecursed AstNodeDType::cTypeRecurse(bool compound) const {
             info.m_type = "VlMTaskVertex";
         } else if (bdtypep->keyword() == VBasicDTypeKwd::TRIGGERVEC) {
             info.m_type = "VlTriggerVec<" + cvtToStr(dtypep->width()) + ">";
+        } else if (bdtypep->keyword().isEvent()) {
+            info.m_type = "VlEvent";
         } else if (dtypep->widthMin() <= 8) {  // Handle unpacked arrays; not bdtypep->width
             info.m_type = "CData" + bitvec;
         } else if (dtypep->widthMin() <= 16) {

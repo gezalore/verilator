@@ -193,7 +193,7 @@ class SenExprBuilder final {
     // STATE
     AstCFunc* const m_initp;  // The initialization function
     AstScope* const m_scopeTopp;  // Top level scope
-    std::vector<AstAssign*> m_updates;  // Update assignments
+    std::vector<AstNodeStmt*> m_updates;  // Update assignments
 
     std::unordered_map<VNRef<AstNode>, AstVarScope*> m_prev;
 
@@ -233,17 +233,6 @@ class SenExprBuilder final {
         FileLine* const flp = senItemp->fileline();
         AstNode* const senp = senItemp->sensp();
 
-        // Clear events TODO: fix...
-        if (AstVarRef* const refp = VN_CAST(senp, VarRef)) {
-            AstVarScope* const vscp = refp->varScopep();
-            const AstBasicDType* const basicp = vscp->dtypep()->basicp();
-            if (basicp && basicp->isEventValue()) {
-                AstNode* const lhsp = new AstVarRef{flp, vscp, VAccess::WRITE};
-                AstConst* const falsep = new AstConst{flp, AstConst::BitFalse()};
-                m_updates.push_back(new AstAssign{flp, lhsp, falsep});
-            }
-        }
-
         const auto currp = [=]() { return senp->cloneTree(false); };
         const auto prevp = [=]() { return new AstVarRef{flp, getPrev(senp), VAccess::READ}; };
         const auto lsb = [=](AstNodeMath* opp) { return new AstSel{flp, opp, 0, 1}; };
@@ -256,6 +245,36 @@ class SenExprBuilder final {
         case VEdgeType::ET_NEGEDGE: return lsb(new AstAnd{flp, new AstNot{flp, currp()}, prevp()});
         case VEdgeType::ET_HIGHEDGE: return currp();
         case VEdgeType::ET_LOWEDGE: return new AstNot{flp, currp()};
+        case VEdgeType::ET_EVENT: {
+            UASSERT_OBJ(v3Global.hasEvents(), senItemp, "Inconsistent");
+
+            {
+                // If the event is fired, set up the clearing process
+                AstCMethodHard* const callp = new AstCMethodHard{flp, currp(), "isFired"};
+                callp->dtypeSetBit();
+                AstIf* const ifp = new AstIf{flp, callp};
+                m_updates.push_back(ifp);
+
+                // Clear 'fired' state when done
+                AstCMethodHard* const clearp = new AstCMethodHard{flp, currp(), "clearFired"};
+                ifp->addIfsp(clearp);
+                clearp->dtypeSetVoid();
+                clearp->statement(true);
+
+                // Enqueue for clearing 'triggered' state on next eval
+                AstTextBlock* const blockp = new AstTextBlock{flp};
+                ifp->addIfsp(blockp);
+                const auto add = [&](const string& text) { blockp->addText(flp, text, true); };
+                add("vlSymsp->enqueueTriggeredEventForClearing(");
+                blockp->addNodep(currp());
+                add(");\n");
+            }
+
+            // Get 'fired' state
+            AstCMethodHard* const callp = new AstCMethodHard{flp, currp(), "isFired"};
+            callp->dtypeSetBit();
+            return callp;
+        }
         default: senItemp->v3fatalSrc("Unknown edge type"); return nullptr;  // LCOV_EXCL_LINE
         }
     }
@@ -273,12 +292,19 @@ public:
         return resultp;
     }
 
-    std::vector<AstAssign*> updates() { return std::move(m_updates); }
+    std::vector<AstNodeStmt*> updates() { return std::move(m_updates); }
 
     // CONSTRUCTOR
     explicit SenExprBuilder(AstNetlist* netlistp)
         : m_initp{netlistp->initp()}
-        , m_scopeTopp{netlistp->topScopep()->scopep()} {}
+        , m_scopeTopp{netlistp->topScopep()->scopep()} {
+        // If there is a DPI export trigger, always clear it after trigger computation
+        if (AstVarScope* const vscp = netlistp->dpiExportTriggerp()) {
+            FileLine* const flp = vscp->fileline();
+            AstVarRef* const refp = new AstVarRef{flp, vscp, VAccess::WRITE};
+            m_updates.push_back(new AstAssign{flp, refp, new AstConst{flp, AstConst::BitFalse{}}});
+        }
+    }
 };
 
 struct Triggers final {
@@ -382,15 +408,15 @@ static Triggers createTriggers(AstNetlist* netlistp) {
         //
         ++triggerNumber;
     });
-    for (AstAssign* const nodep : senExprBuilder.updates()) funcp->addStmtsp(nodep);
+    for (AstNodeStmt* const nodep : senExprBuilder.updates()) funcp->addStmtsp(nodep);
 
     // Add debug dumping section
     {
         AstTextBlock* const blockp = new AstTextBlock{flp};
         funcp->addStmtsp(blockp);
         const auto add = [&](const string& text) { blockp->addText(flp, text, true); };
-        add("#if VL_DEBUG\n");
-        add("if (VL_UNLIKELY(vlSelf->vlSymsp->_vm_contextp__->debug())) {\n");
+        add("#ifdef VL_DEBUG\n");
+        add("if (VL_UNLIKELY(vlSymsp->_vm_contextp__->debug())) {\n");
         AstCMethodHard* const callp
             = new AstCMethodHard{flp, new AstVarRef{flp, actTrigsp, VAccess::READ}, "any"};
         callp->dtypeSetBit();

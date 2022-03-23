@@ -267,6 +267,7 @@ public:
         ET_NEGEDGE,
         ET_HIGHEDGE,  // Is high now (latches)
         ET_LOWEDGE,  // Is low now (latches)
+        ET_EVENT,  // VlEvent::isFired
         // Involving an expression
         ET_TRUE,
         // Not involving anything
@@ -288,6 +289,7 @@ public:
             true,  // ET_NEGEDGE
             true,  // ET_HIGHEDGE
             true,  // ET_LOWEDGE
+            true,  // ET_EVENT
             true,  // ET_TRUE
 
             false,  // ET_COMBO
@@ -313,14 +315,15 @@ public:
     }
     const char* ascii() const {
         static const char* const names[]
-            = {"%E-edge", "CHANGED", "BOTH",   "POS",     "NEG",    "HIGH",  "LOW",
+            = {"%E-edge", "CHANGED", "BOTH",   "POS",     "NEG",    "HIGH",  "LOW",  "EVENT",
                "TRUE",    "COMBO",   "STATIC", "INITIAL", "SETTLE", "FINAL", "NEVER"};
         return names[m_e];
     }
     const char* verilogKwd() const {
         static const char* const names[]
-            = {"%E-edge", "[changed]", "edge",     "posedge",   "negedge",  "[high]",  "[low]",
-               "[true]",  "*",         "[static]", "[initial]", "[settle]", "[final]", "[never]"};
+            = {"%E-edge",  "[changed]", "edge",     "posedge", "negedge",
+               "[high]",   "[low]",     "[event]",  "[true]",  "*",
+               "[static]", "[initial]", "[settle]", "[final]", "[never]"};
         return names[m_e];
     }
     // Return true iff this and the other have mutually exclusive transitions
@@ -447,7 +450,7 @@ public:
         BIT,
         BYTE,
         CHANDLE,
-        EVENTVALUE,  // See comments in t_event_copy as to why this is EVENTVALUE
+        EVENT,
         INT,
         INTEGER,
         LOGIC,
@@ -507,7 +510,7 @@ public:
         case BIT: return 1;  // scalar, can't bit extract unless ranged
         case BYTE: return 8;
         case CHANDLE: return 64;
-        case EVENTVALUE: return 1;
+        case EVENT: return 1;
         case INT: return 32;
         case INTEGER: return 32;
         case LOGIC: return 1;  // scalar, can't bit extract unless ranged
@@ -530,15 +533,14 @@ public:
                || m_e == DOUBLE;
     }
     bool isUnsigned() const {
-        return m_e == CHANDLE || m_e == EVENTVALUE || m_e == STRING || m_e == SCOPEPTR
-               || m_e == CHARPTR || m_e == UINT32 || m_e == UINT64 || m_e == BIT || m_e == LOGIC
-               || m_e == TIME;
+        return m_e == CHANDLE || m_e == EVENT || m_e == STRING || m_e == SCOPEPTR || m_e == CHARPTR
+               || m_e == UINT32 || m_e == UINT64 || m_e == BIT || m_e == LOGIC || m_e == TIME;
     }
     bool isFourstate() const {
         return m_e == INTEGER || m_e == LOGIC || m_e == LOGIC_IMPLICIT || m_e == TIME;
     }
     bool isZeroInit() const {  // Otherwise initializes to X
-        return (m_e == BIT || m_e == BYTE || m_e == CHANDLE || m_e == EVENTVALUE || m_e == INT
+        return (m_e == BIT || m_e == BYTE || m_e == CHANDLE || m_e == EVENT || m_e == INT
                 || m_e == LONGINT || m_e == SHORTINT || m_e == STRING || m_e == DOUBLE);
     }
     bool isIntNumeric() const {  // Enum increment supported
@@ -556,11 +558,11 @@ public:
                 || m_e == DOUBLE || m_e == SHORTINT || m_e == UINT32 || m_e == UINT64);
     }
     bool isOpaque() const {  // IE not a simple number we can bit optimize
-        return (m_e == STRING || m_e == SCOPEPTR || m_e == CHARPTR || m_e == MTASKSTATE
-                || m_e == TRIGGERVEC || m_e == DOUBLE);
+        return (m_e == EVENT || m_e == STRING || m_e == SCOPEPTR || m_e == CHARPTR
+                || m_e == MTASKSTATE || m_e == TRIGGERVEC || m_e == DOUBLE);
     }
     bool isDouble() const { return m_e == DOUBLE; }
-    bool isEventValue() const { return m_e == EVENTVALUE; }
+    bool isEvent() const { return m_e == EVENT; }
     bool isString() const { return m_e == STRING; }
     bool isMTaskState() const { return m_e == MTASKSTATE; }
     // Does this represent a C++ LiteralType? (can be constexpr)

@@ -583,12 +583,7 @@ private:
     virtual void visit(AstSenItem* nodep) override {
         if (nodep->varrefp()) {
             if (const AstBasicDType* const basicp = nodep->varrefp()->dtypep()->basicp()) {
-                if (basicp->isEventValue()) {
-                    // Events need to be treated as active high so we only activate on event being
-                    // 1
-                    UINFO(8, "Demote event to HIGHEDGE " << nodep << endl);
-                    nodep->edgeType(VEdgeType::ET_HIGHEDGE);
-                }
+                if (basicp->isEvent()) nodep->edgeType(VEdgeType::ET_EVENT);
             }
         }
         if (nodep->sensp()) {

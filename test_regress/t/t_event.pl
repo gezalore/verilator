@@ -10,9 +10,6 @@ if (!$::Driver) { use FindBin; exec("$FindBin::Bin/bootstrap.pl", @ARGV, $0); di
 
 scenarios(simulator => 1);
 
-# TODO: fix events
-skip("Temporarily disabled with new scheduler");
-
 compile(
     );
 
