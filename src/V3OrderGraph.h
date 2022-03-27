@@ -171,16 +171,22 @@ public:
 
 class OrderLogicVertex final : public OrderEitherVertex {
     AstNode* const m_nodep;
+    AstSenTree* const m_hybridp;
 
 protected:
     OrderLogicVertex(V3Graph* graphp, const OrderLogicVertex& old)
         : OrderEitherVertex{graphp, old}
-        , m_nodep{old.m_nodep} {}
+        , m_nodep{old.m_nodep}
+        , m_hybridp{old.m_hybridp} {}
 
 public:
-    OrderLogicVertex(V3Graph* graphp, AstScope* scopep, AstSenTree* domainp, AstNode* nodep)
+    OrderLogicVertex(V3Graph* graphp, AstScope* scopep, AstSenTree* domainp, AstSenTree* hybridp,
+                     AstNode* nodep)
         : OrderEitherVertex{graphp, scopep, domainp}
-        , m_nodep{nodep} {}
+        , m_nodep{nodep}
+        , m_hybridp{hybridp} {
+        UASSERT_OBJ(!(domainp && hybridp), nodep, "Can't have bot domainp and hybridp set");
+    }
     virtual ~OrderLogicVertex() override = default;
     virtual OrderLogicVertex* clone(V3Graph* graphp) const override {
         return new OrderLogicVertex(graphp, *this);
@@ -192,6 +198,7 @@ public:
         return (cvtToHex(m_nodep) + "\\n " + cvtToStr(nodep()->typeName()));
     }
     AstNode* nodep() const { return m_nodep; }
+    AstSenTree* hybridp() const { return m_hybridp; }
     virtual string dotShape() const override {
         return VN_IS(m_nodep, Active) ? "doubleoctagon" : "rect";
     }

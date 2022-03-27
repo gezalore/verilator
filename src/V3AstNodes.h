@@ -3370,6 +3370,7 @@ public:
     //
     bool isClocked() const { return edgeType().clockedStmt(); }
     bool isCombo() const { return edgeType() == VEdgeType::ET_COMBO; }
+    bool isHybrid() const { return edgeType() == VEdgeType::ET_HYBRID; }
     bool isStatic() const { return edgeType() == VEdgeType::ET_STATIC; }
     bool isInitial() const { return edgeType() == VEdgeType::ET_INITIAL; }
     bool isSettle() const { return edgeType() == VEdgeType::ET_SETTLE; }
@@ -3404,6 +3405,7 @@ public:
     bool hasSettle() const;  // Includes a SETTLE SenItem
     bool hasFinal() const;  // Includes a FINAL SenItem
     bool hasCombo() const;  // Includes a COMBO SenItem
+    bool hasHybrid() const;  // Includes a HYBRID SenItem
 };
 
 class AstFinal final : public AstNodeProcedure {
@@ -5441,19 +5443,21 @@ class AstActive final : public AstNode {
 private:
     string m_name;
     AstSenTree* m_sensesp;
+    AstSenTree* m_triggerp;
 
 public:
     AstActive(FileLine* fl, const string& name, AstSenTree* sensesp)
         : ASTGEN_SUPER_Active(fl) {
         m_name = name;  // Copy it
         UASSERT(sensesp, "Sensesp required arg");
-        m_sensesp = sensesp;
+        m_sensesp = m_triggerp = sensesp;
     }
     ASTNODE_NODE_FUNCS(Active)
     virtual void dump(std::ostream& str = std::cout) const override;
     virtual string name() const override { return m_name; }
     virtual const char* broken() const override {
         BROKEN_RTN(m_sensesp && !m_sensesp->brokeExists());
+        BROKEN_RTN(m_triggerp && !m_triggerp->brokeExists());
         return nullptr;
     }
     virtual void cloneRelink() override {
@@ -5461,10 +5465,16 @@ public:
             m_sensesp = m_sensesp->clonep();
             UASSERT(m_sensesp, "Bad clone cross link: " << this);
         }
+        if (m_triggerp->clonep()) {
+            m_sensesp = m_triggerp->clonep();
+            UASSERT(m_triggerp, "Bad clone cross link: " << this);
+        }
     }
     // Statements are broken into pieces, as some must come before others.
-    void sensesp(AstSenTree* nodep) { m_sensesp = nodep; }
+    void sensesp(AstSenTree* nodep) { m_sensesp = m_triggerp = nodep; }
     AstSenTree* sensesp() const { return m_sensesp; }
+    void triggerp(AstSenTree* nodep) { m_triggerp = nodep; }
+    AstSenTree* triggerp() const { return m_triggerp; }
     // op1 = Sensitivity tree, if a clocked block in early stages
     void sensesStorep(AstSenTree* nodep) { addOp1p(nodep); }
     AstSenTree* sensesStorep() const { return VN_AS(op1p(), SenTree); }

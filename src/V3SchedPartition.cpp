@@ -88,9 +88,12 @@ public:
 
 class SchedGraphBuilder final : public VNVisitor {
     // NODE STATE
-    // AstVarScope::user1() -> SchedVarVertx
+    // AstVarScope::user1() -> SchedVarVertex
     // AstSenItem::user1p() -> SchedSenVertex
+    // AstVarScope::user2() -> bool: Read of this AstVarScope triggers this logic.
+    //                         Used only for hybrid logic.
     const VNUser1InUse m_user1InUse;
+    const VNUser2InUse m_user2InUse;
 
     // STATE
     V3Graph* const m_graphp = new V3Graph;  // The dataflow graph being built
@@ -98,6 +101,8 @@ class SchedGraphBuilder final : public VNVisitor {
     std::unordered_map<VNRef<AstSenItem>, SchedSenVertex*> m_senVertices;
     AstScope* m_scopep = nullptr;  // AstScope of the current AstActive
     AstSenTree* m_senTreep = nullptr;  // AstSenTree of the current AstActive
+    // Predicate for whether a read of the given variable triggers this block
+    std::function<bool(AstVarScope*)> m_readTriggersThisLogic;
 
     VL_DEBUG_FUNC;
 
@@ -143,35 +148,29 @@ class SchedGraphBuilder final : public VNVisitor {
         SchedLogicVertex* const logicVtxp
             = new SchedLogicVertex{m_graphp, m_scopep, m_senTreep, nodep};
 
-        if (m_senTreep->hasClocked()) {
-            // Sequential logic
+        // Clocked or hybrid logic has explicit sensitivity, so add edge from sensitivity vertex
+        if (!m_senTreep->hasCombo()) {
             m_senTreep->foreach<AstSenItem>([=](AstSenItem* senItemp) {
-                UASSERT_OBJ(senItemp->isClocked(), nodep,
+                UASSERT_OBJ(senItemp->isClocked() || senItemp->isHybrid(), nodep,
                             "Non-clocked SenItem under clocked SenTree");
                 V3GraphVertex* const eventVtxp = getSenVertex(senItemp);
                 new V3GraphEdge{m_graphp, eventVtxp, logicVtxp, 10};
             });
-            nodep->foreach<AstVarRef>([=](const AstVarRef* vrefp) {
-                if (vrefp->access().isReadOnly()) return;
-                SchedVarVertex* const varVtxp = getVarVertex(vrefp->varScopep());
-                new V3GraphEdge{m_graphp, logicVtxp, varVtxp, 10};
-            });
-        } else {
-            UASSERT_OBJ(m_senTreep->hasCombo(), nodep, "Unknown sensitivity");
-            // Combinational logic
-            nodep->foreach<AstVarRef>([=](const AstVarRef* vrefp) {
-                SchedVarVertex* const varVtxp = getVarVertex(vrefp->varScopep());
-
-                if (vrefp->access().isReadOrRW()) {
-                    new V3GraphEdge{m_graphp, varVtxp, logicVtxp, 10};
-                }
-                if (vrefp->access().isWriteOrRW()) {
-                    new V3GraphEdge{m_graphp, logicVtxp, varVtxp, 10};
-                }
-            });
         }
 
-        // If the logic calls a DPI import, it might trigger the dpiExportTriggerp
+        // Add edges based on references
+        nodep->foreach<AstVarRef>([=](const AstVarRef* vrefp) {
+            AstVarScope* const vscp = vrefp->varScopep();
+            SchedVarVertex* const varVtxp = getVarVertex(vscp);
+            if (vrefp->access().isReadOrRW() && m_readTriggersThisLogic(vscp)) {
+                new V3GraphEdge{m_graphp, varVtxp, logicVtxp, 10};
+            }
+            if (vrefp->access().isWriteOrRW()) {
+                new V3GraphEdge{m_graphp, logicVtxp, varVtxp, 10};
+            }
+        });
+
+        // If the logic calls a DPI import, it might fire the DPI Export trigger
         if (AstVarScope* const dpiExporTrigger = v3Global.rootp()->dpiExportTriggerp()) {
             nodep->foreach<AstCCall>([=](const AstCCall* callp) {
                 if (!callp->funcp()->dpiImportWrapper()) return;
@@ -184,8 +183,17 @@ class SchedGraphBuilder final : public VNVisitor {
     // VISIT methods
     virtual void visit(AstActive* nodep) override {
         AstSenTree* const senTreep = nodep->sensesp();
-        UASSERT_OBJ(senTreep->hasClocked() || senTreep->hasCombo(), nodep, "Unhandled");
+        UASSERT_OBJ(senTreep->hasClocked() || senTreep->hasCombo() || senTreep->hasHybrid(), nodep,
+                    "Unhandled");
         UASSERT_OBJ(!m_senTreep, nodep, "Should not nest");
+
+        // Mark explicit sensitivities as not triggering these blocks
+        if (senTreep->hasHybrid()) {
+            AstNode::user2ClearTree();
+            senTreep->foreach<AstVarRef>([](const AstVarRef* refp) {  //
+                refp->varScopep()->user2(true);
+            });
+        }
 
         m_senTreep = senTreep;
         iterateChildrenConst(nodep);
@@ -215,7 +223,8 @@ class SchedGraphBuilder final : public VNVisitor {
 
     virtual void visit(AstNode* nodep) override { iterateChildrenConst(nodep); }
 
-    SchedGraphBuilder(const LogicByScope& clockedLogic, const LogicByScope& combinationalLogic) {
+    SchedGraphBuilder(const LogicByScope& clockedLogic, const LogicByScope& combinationalLogic,
+                      const LogicByScope& hybridLogic) {
         // Build the data flow graph
         const auto iter = [this](const LogicByScope& lbs) {
             for (const auto& pair : lbs) {
@@ -224,16 +233,24 @@ class SchedGraphBuilder final : public VNVisitor {
                 m_scopep = nullptr;
             }
         };
+        // Clocked logic is never triggered by reads
+        m_readTriggersThisLogic = [](AstVarScope*) { return false; };
         iter(clockedLogic);
+        // Combinational logic is always triggered by reads
+        m_readTriggersThisLogic = [](AstVarScope*) { return true; };
         iter(combinationalLogic);
+        // Hybrid logic is triggered by all reads, except for reads of the explicit sensitivities
+        m_readTriggersThisLogic = [](AstVarScope* vscp) { return !vscp->user2(); };
+        iter(hybridLogic);
     }
 
 public:
     // Build the dataflow graph for partitioning
     static std::unique_ptr<V3Graph> build(const LogicByScope& clockedLogic,
-                                          const LogicByScope& combinationalLogic) {
-        return std::unique_ptr<V3Graph>{
-            SchedGraphBuilder{clockedLogic, combinationalLogic}.m_graphp};
+                                          const LogicByScope& combinationalLogic,
+                                          const LogicByScope& hybridLogic) {
+        SchedGraphBuilder visitor{clockedLogic, combinationalLogic, hybridLogic};
+        return std::unique_ptr<V3Graph>{visitor.m_graphp};
     }
 };
 
@@ -278,12 +295,13 @@ void colorActiveRegion(const V3Graph& graph) {
 
 }  // namespace
 
-LogicRegions partition(LogicByScope& clockedLogic, LogicByScope& combinationalLogic) {
+LogicRegions partition(LogicByScope& clockedLogic, LogicByScope& combinationalLogic,
+                       LogicByScope& hybridLogic) {
     UINFO(2, __FUNCTION__ << ": " << endl);
 
     // Build the graph
     const std::unique_ptr<V3Graph> graphp
-        = SchedGraphBuilder::build(clockedLogic, combinationalLogic);
+        = SchedGraphBuilder::build(clockedLogic, combinationalLogic, hybridLogic);
     if (debug() > 6) graphp->dumpDotFilePrefixed("sched");
 
     // Partition into Active and NBA regions
@@ -357,6 +375,7 @@ LogicRegions partition(LogicByScope& clockedLogic, LogicByScope& combinationalLo
     // Clean up remains of inputs
     clockedLogic.deleteActives();
     combinationalLogic.deleteActives();
+    hybridLogic.deleteActives();
 
     return result;
 }
