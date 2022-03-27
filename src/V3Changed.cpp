@@ -327,9 +327,13 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
         nextp = nodep->nextp();
         if (AstEval* const evalp = VN_CAST(nodep, Eval)) {
             // Construct change detect functions for this eval
-            const auto& pair = ChangedConsVisitor::main(netlistp, evalp);
-            AstCFunc* const cdSnapFuncp = pair.first;
-            AstCFunc* const cdCheckFuncp = pair.second;
+            AstCFunc* cdSnapFuncp = nullptr;
+            AstCFunc* cdCheckFuncp = nullptr;
+            if (evalp->kind() == VEvalKind::SETTLE) {
+                const auto& pair = ChangedConsVisitor::main(netlistp, evalp);
+                cdSnapFuncp = pair.first;
+                cdCheckFuncp = pair.second;
+            }
             UASSERT_OBJ(!!cdSnapFuncp == !!cdCheckFuncp, evalp, "Inconsistent");
 
             FileLine* const flp = evalp->fileline();

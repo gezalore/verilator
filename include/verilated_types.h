@@ -922,6 +922,13 @@ template <class T_Value, std::size_t T_Depth> struct VlUnpacked final {
     T_Value& operator[](size_t index) { return m_storage[index]; }
     const T_Value& operator[](size_t index) const { return m_storage[index]; }
 
+    bool operator!=(const VlUnpacked<T_Value, T_Depth>& that) const {
+        for (int i = 0; i < T_Depth; ++i) {
+            if (m_storage[i] != that.m_storage[i]) return true;
+        }
+        return false;
+    }
+
     // Dumping. Verilog: str = $sformatf("%p", assoc)
     std::string to_string() const {
         std::string out = "'{";

@@ -239,7 +239,8 @@ class SenExprBuilder final {
 
         // All event signals should be 1-bit at this point
         switch (senItemp->edgeType()) {
-        case VEdgeType::ET_CHANGED: return new AstNeq(flp, currp(), prevp());
+        case VEdgeType::ET_CHANGED:
+        case VEdgeType::ET_HYBRID: return new AstNeq(flp, currp(), prevp());
         case VEdgeType::ET_BOTHEDGE: return lsb(new AstXor{flp, currp(), prevp()});
         case VEdgeType::ET_POSEDGE: return lsb(new AstAnd{flp, currp(), new AstNot{flp, prevp()}});
         case VEdgeType::ET_NEGEDGE: return lsb(new AstAnd{flp, new AstNot{flp, currp()}, prevp()});
@@ -332,7 +333,7 @@ static Triggers createTriggers(AstNetlist* netlistp) {
 
     uint32_t uniqueTriggers = 0;
     topScopep->senTreesp()->foreachAndNext<AstSenTree>([&](const AstSenTree* senTreep) {
-        if (!senTreep->hasClocked()) return;
+        if (!senTreep->hasClocked() && !senTreep->hasHybrid()) return;
         uniqueTriggers++;
     });
 
@@ -381,7 +382,7 @@ static Triggers createTriggers(AstNetlist* netlistp) {
     SenExprBuilder senExprBuilder{netlistp};
     AstNode* debugp = nullptr;
     topScopep->senTreesp()->foreachAndNext<AstSenTree>([&](const AstSenTree* senTreep) {  //
-        if (!senTreep->hasClocked()) return;
+        if (!senTreep->hasClocked() && !senTreep->hasHybrid()) return;
 
         // Create the trigger AstSenTrees
         triggers.preTrigSenTree[senTreep] = getSenTrue(preTrigsp, triggerNumber);
@@ -468,17 +469,19 @@ static void createActive(AstNetlist* netlistp, LogicRegions& logicRegions,
     clearTrigger(netlistp, evalp, netlistp->preTrigsp());
     clearTrigger(netlistp, evalp, netlistp->actTrigsp());
 
-    // Update sensitivity lists
+    // Update sensitivity lists, but remember original triggers
     logicRegions.m_pre.foreach ([&](AstScope*, AstActive* activep) {
-        const AstSenTree* const senTreep = activep->sensesp();
+        AstSenTree* const senTreep = activep->sensesp();
         if (senTreep->hasCombo()) return;
         activep->sensesp(triggers.preTrigSenTree.at(senTreep));
+        activep->triggerp(senTreep);
     });
 
     logicRegions.m_active.foreach ([&](AstScope*, AstActive* activep) {
-        const AstSenTree* const senTreep = activep->sensesp();
+        AstSenTree* const senTreep = activep->sensesp();
         if (senTreep->hasCombo()) return;
         activep->sensesp(triggers.actTrigSenTree.at(senTreep));
+        activep->triggerp(senTreep);
     });
 
     // Order it TODO: there can only be a single ExecGraph right now, use it for the NBA
@@ -505,9 +508,10 @@ static void createNBA(AstNetlist* netlistp, LogicRegions& logicRegions,
 
     // Update sensitivity lists
     logicRegions.m_nba.foreach ([&](AstScope*, AstActive* activep) {
-        const AstSenTree* const senTreep = activep->sensesp();
+        AstSenTree* const senTreep = activep->sensesp();
         if (senTreep->hasCombo()) return;
         activep->sensesp(triggers.nbaTrigSenTree.at(senTreep));
+        activep->triggerp(senTreep);
     });
 
     // Order it
@@ -525,26 +529,24 @@ static void createNBA(AstNetlist* netlistp, LogicRegions& logicRegions,
     logicRegions.m_nba.deleteActives();
 }
 
+static void addRegionStats(const string name, const LogicByScope& lbs) {
+    uint64_t size = 0;
+    lbs.foreach ([&](AstScope*, AstActive* activep) {
+        for (AstNode* nodep = activep->stmtsp(); nodep; nodep = nodep->nextp()) {
+            size += nodep->nodeCount();
+        }
+    });
+    V3Stats::addStat("Scheduling, " + name, size);
+}
+
 void schedule(AstNetlist* netlistp) {
     LogicClasses logicClasses = gatherLogicClasses(netlistp);
 
-    const auto addRegionStats = [&](const string name, const LogicByScope& lbs) {
-        uint64_t size = 0;
-        lbs.foreach ([&](AstScope*, AstActive* activep) {
-            for (AstNode* nodep = activep->stmtsp(); nodep; nodep = nodep->nextp()) {
-                size += nodep->nodeCount();
-            }
-        });
-        V3Stats::addStat(name, size);
-    };
-
     if (v3Global.opt.stats()) {
-        addRegionStats("Scheduling, size of class: static", logicClasses.m_statics);
-        addRegionStats("Scheduling, size of class: initial", logicClasses.m_initial);
-        addRegionStats("Scheduling, size of class: settle", logicClasses.m_settle);
-        addRegionStats("Scheduling, size of class: clocked", logicClasses.m_clocked);
-        addRegionStats("Scheduling, size of class: combinational", logicClasses.m_comb);
-        addRegionStats("Scheduling, size of class: final", logicClasses.m_final);
+        addRegionStats("size of class: static", logicClasses.m_statics);
+        addRegionStats("size of class: initial", logicClasses.m_initial);
+        addRegionStats("size of class: settle", logicClasses.m_settle);
+        addRegionStats("size of class: final", logicClasses.m_final);
     }
 
     createStatic(netlistp, logicClasses);
@@ -555,24 +557,23 @@ void schedule(AstNetlist* netlistp) {
     createSettle(netlistp, logicClasses);
     V3Global::dumpCheckGlobalTree("sched-settle", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 
-    LogicRegions logicRegions = V3Sched::partition(logicClasses.m_clocked, logicClasses.m_comb);
+    // Note: breakCycles also removes corresponding logic from logicClasses.m_comb;
+    logicClasses.m_hybrid = breakCycles(netlistp, logicClasses.m_comb);
 
     if (v3Global.opt.stats()) {
-        addRegionStats("Scheduling, size of region: Active Pre", logicRegions.m_pre);
-        addRegionStats("Scheduling, size of region: Active", logicRegions.m_active);
-        addRegionStats("Scheduling, size of region: NBA", logicRegions.m_nba);
+        addRegionStats("size of class: clocked", logicClasses.m_clocked);
+        addRegionStats("size of class: combinational", logicClasses.m_comb);
+        addRegionStats("size of class: hybrid", logicClasses.m_hybrid);
     }
 
-    // Gather variables written in other regions
-    std::unordered_set<const AstVarScope*> writtenExternally;
-    const auto gather = [&](AstScope*, AstActive* activep) {
-        activep->foreach<AstVarRef>([&](const AstVarRef* refp) {
-            if (refp->access().isReadOnly()) return;
-            writtenExternally.insert(refp->varScopep());
-        });
-    };
-    logicRegions.m_pre.foreach (gather);
-    logicRegions.m_active.foreach (gather);
+    LogicRegions logicRegions
+        = partition(logicClasses.m_clocked, logicClasses.m_comb, logicClasses.m_hybrid);
+
+    if (v3Global.opt.stats()) {
+        addRegionStats("size of region: Active Pre", logicRegions.m_pre);
+        addRegionStats("size of region: Active", logicRegions.m_active);
+        addRegionStats("size of region: NBA", logicRegions.m_nba);
+    }
 
     Triggers triggers = createTriggers(netlistp);
 

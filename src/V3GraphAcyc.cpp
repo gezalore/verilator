@@ -190,7 +190,7 @@ public:
         for (OrigEdgeList* ip : m_origEdgeDelp) delete ip;
         m_origEdgeDelp.clear();
     }
-    void main();
+    void main(bool colorIsSCC);
 };
 
 //--------------------------------------------------------------------
@@ -535,11 +535,11 @@ bool GraphAcyc::placeIterate(GraphAcycVertex* vertexp, uint32_t currentRank) {
 
 //----- Main algorithm entry point
 
-void GraphAcyc::main() {
+void GraphAcyc::main(bool colorIsSCC) {
     m_breakGraph.userClearEdges();
 
     // Color based on possible loops
-    m_origGraphp->stronglyConnected(m_origEdgeFuncp);
+    if (!colorIsSCC) m_origGraphp->stronglyConnected(m_origEdgeFuncp);
 
     // Make a new graph with vertices that have only a single vertex
     // for each group of old vertices that are interconnected with unbreakable
@@ -570,9 +570,9 @@ void GraphAcyc::main() {
     if (debug() >= 6) m_breakGraph.dumpDotFilePrefixed("acyc_done");
 }
 
-void V3Graph::acyclic(V3EdgeFuncP edgeFuncp) {
+void V3Graph::acyclic(V3EdgeFuncP edgeFuncp, bool colorIsSCC) {
     UINFO(4, "Acyclic\n");
     GraphAcyc acyc(this, edgeFuncp);
-    acyc.main();
+    acyc.main(colorIsSCC);
     UINFO(4, "Acyclic done\n");
 }

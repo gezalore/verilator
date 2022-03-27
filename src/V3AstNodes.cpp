@@ -944,6 +944,13 @@ bool AstSenTree::hasCombo() const {
     }
     return false;
 }
+bool AstSenTree::hasHybrid() const {
+    UASSERT_OBJ(sensesp(), this, "SENTREE without any SENITEMs under it");
+    for (AstSenItem* senp = sensesp(); senp; senp = VN_AS(senp->nextp(), SenItem)) {
+        if (senp->isHybrid()) return true;
+    }
+    return false;
+}
 
 AstTypeTable::AstTypeTable(FileLine* fl)
     : ASTGEN_SUPER_TypeTable(fl) {
