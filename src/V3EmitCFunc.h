@@ -125,6 +125,7 @@ private:
 protected:
     EmitCLazyDecls m_lazyDecls;  // Visitor for emitting lazy declarations
     bool m_useSelfForThis = false;  // Replace "this" with "vlSelf"
+    bool m_execTrace = false;  // Tracing execution in this function
     const AstNodeModule* m_modp = nullptr;  // Current module being emitted
     const AstCFunc* m_cfuncp = nullptr;  // Current function being emitted
 
@@ -212,21 +213,34 @@ public:
         }
         puts(" {\n");
 
+        bool hasVlSymsp = false;
         if (nodep->isLoose()) {
             m_lazyDecls.declared(nodep);  // Defined here, so no longer needs declaration
             if (!nodep->isStatic()) {  // Standard prologue
                 m_useSelfForThis = true;
                 puts("if (false && vlSelf) {}  // Prevent unused\n");
-                if (!VN_IS(m_modp, Class)) puts(symClassAssign());
+                if (!VN_IS(m_modp, Class)) {
+                    puts(symClassAssign());
+                    hasVlSymsp = true;
+                }
             }
         }
+
+        // Emit function name as static data
+        puts("static const char __VfuncName[] = \"");
+        puts(prefixNameProtect(m_modp));
+        puts((nodep->isLoose() ? "__" : "::"));
+        puts(nodep->nameProtect());
+        puts("\";\n");
+
+        m_execTrace = v3Global.opt.profExec() && hasVlSymsp;
+
+        if (m_execTrace) puts("VL_EXEC_TRACE_ADD_RECORD(vlSymsp).enter(__VfuncName);\n");
 
         // "+" in the debug indicates a print from the model
         puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+  ");
         for (int i = 0; i < m_modp->level(); ++i) { puts("  "); }
-        puts(prefixNameProtect(m_modp));
-        puts(nodep->isLoose() ? "__" : "::");
-        puts(nodep->nameProtect() + "\\n\"); );\n");
+        puts("%s\\n\", __VfuncName););\n");
 
         for (AstNode* subnodep = nodep->argsp(); subnodep; subnodep = subnodep->nextp()) {
             if (AstVar* const varp = VN_CAST(subnodep, Var)) {
@@ -250,6 +264,9 @@ public:
             putsDecoration("// Final\n");
             iterateAndNextNull(nodep->finalsp());
         }
+
+        if (m_execTrace) puts("VL_EXEC_TRACE_ADD_RECORD(vlSymsp).exit();\n");
+        m_execTrace = false;
 
         if (!m_blkChangeDetVec.empty()) puts("return __req;\n");
 
@@ -497,6 +514,7 @@ public:
         }
     }
     virtual void visit(AstCReturn* nodep) override {
+        if (m_execTrace) puts("VL_EXEC_TRACE_ADD_RECORD(vlSymsp).exit();\n");
         puts("return (");
         iterateAndNextNull(nodep->lhsp());
         puts(");\n");

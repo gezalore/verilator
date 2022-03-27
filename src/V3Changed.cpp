@@ -513,6 +513,13 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
         return resp;
     };
 
+    const auto profilerEvent = [&](const string& name) {
+        AstTextBlock* const blockp = new AstTextBlock{flp};
+        const auto add = [&](const string& text) { blockp->addText(flp, text, true); };
+        add("VL_EXEC_TRACE_ADD_RECORD(vlSymsp).event(" + name + ");\n");
+        return blockp;
+    };
+
     AstVarScope* const preTrigsp = netlistp->preTrigsp();
     AstVarScope* const actTrigsp = netlistp->actTrigsp();
     AstVarScope* const nbaTrigsp = netlistp->nbaTrigsp();
@@ -536,6 +543,7 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
                 actLoopp->addBodysp(ifp);
                 ifp->addIfsp(setVar(actCondp, 1));
                 ifp->addIfsp(incrementIterationCount(actCountp, "Active"));
+                if (v3Global.opt.profExec()) ifp->addIfsp(profilerEvent("\"Active Eval\""));
 
                 // Compute the pre triggers
                 {
@@ -566,8 +574,9 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
         {
             AstIf* const ifp = makeRegionIf(nbaCountp, nbaTrigsp);
             nbaLoopp->addBodysp(ifp);
-            ifp->addIfsp(incrementIterationCount(nbaCountp, "NBA"));
             ifp->addIfsp(setVar(nbaCondp, 1));
+            ifp->addIfsp(incrementIterationCount(nbaCountp, "NBA"));
+            if (v3Global.opt.profExec()) ifp->addIfsp(profilerEvent("\"NBA Eval\""));
             ifp->addIfsp(new AstCCall{flp, nbaFuncp});
         }
     }));

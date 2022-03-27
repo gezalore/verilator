@@ -167,6 +167,7 @@ void VlExecutionProfiler::dump(const char* filenamep, uint64_t tickEnd)
             case VlExecutionRecord::Type::EVAL_END:
             case VlExecutionRecord::Type::EVAL_LOOP_BEGIN:
             case VlExecutionRecord::Type::EVAL_LOOP_END:
+            case VlExecutionRecord::Type::EXIT:
                 // No payload
                 fprintf(fp, "\n");
                 break;
@@ -179,6 +180,16 @@ void VlExecutionProfiler::dump(const char* filenamep, uint64_t tickEnd)
             case VlExecutionRecord::Type::MTASK_END: {
                 const auto& payload = er.m_payload.mtaskEnd;
                 fprintf(fp, " id %u predictCost %u\n", payload.m_id, payload.m_predictCost);
+                break;
+            }
+            case VlExecutionRecord::Type::ENTER: {
+                const auto& payload = er.m_payload.enter;
+                fprintf(fp, " %s\n", payload.m_name);
+                break;
+            }
+            case VlExecutionRecord::Type::EVENT: {
+                const auto& payload = er.m_payload.event;
+                fprintf(fp, " %s\n", payload.m_name);
                 break;
             }
             default: abort();  // LCOV_EXCL_LINE

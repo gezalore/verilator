@@ -67,7 +67,10 @@ inline QData VL_CPU_TICK() {
     _VL_FOREACH_APPLY(macro, EVAL_LOOP_BEGIN) \
     _VL_FOREACH_APPLY(macro, EVAL_LOOP_END) \
     _VL_FOREACH_APPLY(macro, MTASK_BEGIN) \
-    _VL_FOREACH_APPLY(macro, MTASK_END)
+    _VL_FOREACH_APPLY(macro, MTASK_END) \
+    _VL_FOREACH_APPLY(macro, ENTER) \
+    _VL_FOREACH_APPLY(macro, EXIT) \
+    _VL_FOREACH_APPLY(macro, EVENT)
 // clang-format on
 
 class VlExecutionRecord final {
@@ -96,6 +99,12 @@ class VlExecutionRecord final {
             uint32_t m_id;  // MTask id
             uint32_t m_predictCost;  // How long scheduler predicted would take
         } mtaskEnd;
+        struct {
+            const char* m_name;  // Name of section (function) being entered
+        } enter;
+        struct {
+            const char* m_name;  // Name of event
+        } event;
     };
 
     // STATE
@@ -127,6 +136,15 @@ public:
         m_payload.mtaskEnd.m_id = id;
         m_payload.mtaskEnd.m_predictCost = predictCost;
         m_type = Type::MTASK_END;
+    }
+    void enter(const char* name) {
+        m_payload.enter.m_name = name;
+        m_type = Type::ENTER;
+    }
+    void exit() { m_type = Type::EXIT; }
+    void event(const char* name) {
+        m_payload.event.m_name = name;
+        m_type = Type::EVENT;
     }
 };
 

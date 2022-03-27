@@ -128,6 +128,7 @@ class EmitCGatherDependencies final : VNVisitor {
         // declaration of the receiver class, but their body very likely includes at least one
         // relative reference, so we are probably not loosing much.
         addModDependency(EmitCParentModule::get(cfuncp));
+        if (v3Global.opt.usesProfiler()) addSymsDependency();
         iterate(cfuncp);
     }
 
