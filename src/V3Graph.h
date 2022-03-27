@@ -139,7 +139,7 @@ public:
     void orderPreRanked();
 
     /// Make acyclical (into a tree) by breaking a minimal subset of cutable edges.
-    void acyclic(V3EdgeFuncP edgeFuncp);
+    void acyclic(V3EdgeFuncP edgeFuncp, bool colorIsSCC = false);
 
     /// Remove any redundant edges, weights become MAX of any other weight
     void removeRedundantEdges(V3EdgeFuncP edgeFuncp);

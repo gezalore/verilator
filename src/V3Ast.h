@@ -270,8 +270,9 @@ public:
         ET_EVENT,  // VlEvent::isFired
         // Involving an expression
         ET_TRUE,
-        // Not involving anything
+        //
         ET_COMBO,  // Sensitive to all combo inputs to this block
+        ET_HYBRID,  // This is like ET_COMB, but with explicit sensitivity to an expression
         ET_STATIC,  // static variable initializers (runs before 'initial')
         ET_INITIAL,  // 'initial' statements
         ET_SETTLE,  // Combinational statements for resolution after 'initial' statements
@@ -293,6 +294,7 @@ public:
             true,  // ET_TRUE
 
             false,  // ET_COMBO
+            false,  // ET_HYBRID
             false,  // ET_STATIC
             false,  // ET_INITIAL
             false,  // ET_SETTLE
@@ -315,15 +317,15 @@ public:
     }
     const char* ascii() const {
         static const char* const names[]
-            = {"%E-edge", "CHANGED", "BOTH",   "POS",     "NEG",    "HIGH",  "LOW",  "EVENT",
-               "TRUE",    "COMBO",   "STATIC", "INITIAL", "SETTLE", "FINAL", "NEVER"};
+            = {"%E-edge", "CHANGED", "BOTH",   "POS",    "NEG",     "HIGH",   "LOW",   "EVENT",
+               "TRUE",    "COMBO",   "HYBRID", "STATIC", "INITIAL", "SETTLE", "FINAL", "NEVER"};
         return names[m_e];
     }
     const char* verilogKwd() const {
         static const char* const names[]
-            = {"%E-edge",  "[changed]", "edge",     "posedge", "negedge",
-               "[high]",   "[low]",     "[event]",  "[true]",  "*",
-               "[static]", "[initial]", "[settle]", "[final]", "[never]"};
+            = {"%E-edge",   "[changed]", "edge",    "posedge", "negedge",  "[high]",
+               "[low]",     "[event]",   "[true]",  "*",       "[hybrid]", "[static]",
+               "[initial]", "[settle]",  "[final]", "[never]"};
         return names[m_e];
     }
     // Return true iff this and the other have mutually exclusive transitions

@@ -71,6 +71,7 @@ struct LogicClasses final {
     LogicByScope m_final;
     LogicByScope m_comb;
     LogicByScope m_clocked;
+    LogicByScope m_hybrid;
 
     LogicClasses() = default;
     VL_UNCOPYABLE(LogicClasses);
@@ -93,7 +94,9 @@ void schedule(AstNetlist*);
 
 void splitCheck(AstCFunc* funcp);
 
-LogicRegions partition(LogicByScope& clockedLogic, LogicByScope& combinationalLogic);
+LogicByScope breakCycles(AstNetlist* netlistp, LogicByScope& combinationalLogic);
+LogicRegions partition(LogicByScope& clockedLogic, LogicByScope& combinationalLogic,
+                       LogicByScope& hybridLogic);
 
 }  // namespace V3Sched
 
