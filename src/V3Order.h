@@ -26,6 +26,7 @@
 class AstActive;
 class AstExecGraph;
 class AstNetlist;
+class AstSenTree;
 class AstVarScope;
 
 namespace V3Sched {
@@ -35,14 +36,13 @@ struct LogicByScope;
 //============================================================================
 
 namespace V3Order {
-enum class OrderMode { Settle, Eval, ActiveRegion, NBARegion };
+enum class OrderMode { Settle, InputComb, ActiveRegion, NBARegion };
 
 std::vector<AstActive*> orderST(  //
-    AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&,
-    const std::unordered_set<const AstVarScope*>& writtenExternally, OrderMode);
+    AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&, OrderMode,
+    AstSenTree* inputChanged = nullptr);
 AstExecGraph* orderMT(  //
-    AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&,
-    const std::unordered_set<const AstVarScope*>& writtenExternally, OrderMode);
+    AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&, OrderMode);
 };  // namespace V3Order
 
 #endif  // Guard

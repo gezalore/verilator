@@ -442,16 +442,14 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
     funcp->entryPoint(true);
     netlistp->evalp(funcp);
 
+    if (AstCFunc* const evalIncombp = netlistp->evalIncombp()) {
+        funcp->addStmtsp(new AstCCall{flp, evalIncombp});
+    }
+
     const auto setVar = [&](AstVarScope* cntp, uint32_t val) {
         AstVarRef* const refp = new AstVarRef{flp, cntp, VAccess::WRITE};
         AstConst* const zerop = new AstConst{flp, AstConst::DtypedValue{}, cntp->dtypep(), val};
         return new AstAssign{flp, refp, zerop};
-    };
-
-    const auto testZero = [&](AstVarScope* cntp) -> AstNodeMath* {
-        AstVarRef* const refp = new AstVarRef{flp, cntp, VAccess::READ};
-        AstConst* const zerop = new AstConst{flp, AstConst::DtypedValue{}, cntp->dtypep(), 0};
-        return new AstEq{flp, refp, zerop};
     };
 
     const auto buildLoop
@@ -476,9 +474,7 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
         AstVarRef* const refp = new AstVarRef{flp, trigsp, VAccess::READ};
         AstCMethodHard* const callp = new AstCMethodHard{flp, refp, "any"};
         callp->dtypeSetBit();
-        AstNodeMath* const firstp = testZero(cntp);
-        AstNodeMath* const condp = new AstOr{flp, firstp, callp};
-        return new AstIf{flp, condp};
+        return new AstIf{flp, callp};
     };
 
     const auto incrementIterationCount = [&](AstVarScope* cntp, const string& name) {

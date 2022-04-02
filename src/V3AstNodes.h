@@ -9404,6 +9404,7 @@ private:
     AstPackage* m_dollarUnitPkgp = nullptr;  // $unit
     AstCFunc* m_initp = nullptr;  // The '_eval_initial' function
     AstCFunc* m_evalp = nullptr;  // The '_eval' function
+    AstCFunc* m_evalIncombp = nullptr;  // The '_eval_incomb' function
     AstCFunc* m_compTrigsp = nullptr;  // The trigger computation function
     AstVarScope* m_preTrigsp = nullptr;  // The Active region Ast*Pre triggers
     AstVarScope* m_actTrigsp = nullptr;  // The Active region triggers
@@ -9427,6 +9428,7 @@ public:
         BROKEN_RTN(m_dollarUnitPkgp && !m_dollarUnitPkgp->brokeExists());
         BROKEN_RTN(m_initp && !m_initp->brokeExists());
         BROKEN_RTN(m_evalp && !m_evalp->brokeExists());
+        BROKEN_RTN(m_evalIncombp && !m_evalIncombp->brokeExists());
         BROKEN_RTN(m_dpiExportTriggerp && !m_dpiExportTriggerp->brokeExists());
         BROKEN_RTN(m_topScopep && !m_topScopep->brokeExists());
         return nullptr;
@@ -9463,6 +9465,8 @@ public:
 
     AstCFunc* evalp() const { return m_evalp; }
     void evalp(AstCFunc* evalp) { m_evalp = evalp; }
+    AstCFunc* evalIncombp() const { return m_evalIncombp; }
+    void evalIncombp(AstCFunc* funcp) { m_evalIncombp = funcp; }
 
     AstCFunc* compTrigsp() const { return m_compTrigsp; }
     void compTrigsp(AstCFunc* funcp) { m_compTrigsp = funcp; }
