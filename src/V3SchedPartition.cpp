@@ -81,9 +81,11 @@ public:
         , m_vscp{vscp} {}
     string name() const override { return m_vscp->name(); }
     string dotShape() const override {
-        return m_vscp->varp()->isNonOutput() ? "invhouse" : "ellipse";
+        return m_vscp->scopep()->isTop() && m_vscp->varp()->isNonOutput() ? "invhouse" : "ellipse";
     }
-    string dotColor() const override { return m_vscp->varp()->isNonOutput() ? "green" : "black"; }
+    string dotColor() const override {
+        return m_vscp->scopep()->isTop() && m_vscp->varp()->isNonOutput() ? "green" : "black";
+    }
 };
 
 class SchedGraphBuilder final : public VNVisitor {
