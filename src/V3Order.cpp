@@ -1473,7 +1473,7 @@ AstActive* OrderProcess::processMoveOneLogic(const OrderLogicVertex* lvertexp,
     AstNode* nodep = lvertexp->nodep();
     AstNodeModule* const modp = scopep->modp();
     UASSERT(modp, "nullptr");
-    if (VN_IS(nodep, SenTree)) {
+    if (VN_IS(nodep, Active)) {
         // Just ignore sensitivities, we'll deal with them when we move statements that need them
     } else {  // Normal logic
         // Move the logic into a CFunc

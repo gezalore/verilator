@@ -436,19 +436,6 @@ static Triggers createTriggers(AstNetlist* netlistp) {
     return triggers;
 }
 
-static const std::unordered_set<const AstVarScope*>
-gatherWritten(const std::vector<const V3Sched::LogicByScope*>& coll) {
-    std::unordered_set<const AstVarScope*> result;
-    for (const auto& lbs : coll) {
-        lbs->foreach ([&](AstScope*, AstActive* activep) {
-            activep->foreach<AstVarRef>([&](const AstVarRef* refp) {
-                if (refp->access().isReadOnly()) return;
-                result.insert(refp->varScopep());
-            });
-        });
-    }
-    return result;
-}
 
 static void clearTrigger(AstNetlist* netlistp, AstEval* evalp, AstVarScope* trigp) {
     FileLine* const flp = evalp->fileline();
@@ -461,8 +448,7 @@ static void clearTrigger(AstNetlist* netlistp, AstEval* evalp, AstVarScope* trig
     evalp->addFinalp(callp);
 }
 
-static void createActive(AstNetlist* netlistp, LogicRegions& logicRegions,
-                         const std::unordered_set<const AstVarScope*>& writtenExternally,
+static void createActive(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
                          const Triggers& triggers) {
     AstEval* const evalp = makeEval(netlistp, VEvalKind::ACTIVE);
 
@@ -484,23 +470,31 @@ static void createActive(AstNetlist* netlistp, LogicRegions& logicRegions,
         activep->triggerp(senTreep);
     });
 
+    replicas.foreach ([&](AstScope*, AstActive* activep) {
+        AstSenTree* const senTreep = activep->sensesp();
+        if (senTreep->hasCombo()) return;
+        activep->sensesp(triggers.actTrigSenTree.at(senTreep));
+        activep->triggerp(senTreep);
+    });
+
     // Order it TODO: there can only be a single ExecGraph right now, use it for the NBA
     //    if (v3Global.opt.mtasks()) {
     //        AstExecGraph* const execGraphp = orderMT(netlistp, coll);
     //        evalp->addBodyp(execGraphp);
     //    } else {
-    const auto activeps = V3Order::orderST(netlistp, {&logicRegions.m_pre, &logicRegions.m_active},
-                                           writtenExternally, V3Order::OrderMode::ActiveRegion);
+    const auto activeps
+        = V3Order::orderST(netlistp, {&logicRegions.m_pre, &logicRegions.m_active, &replicas}, {},
+                           V3Order::OrderMode::ActiveRegion);
     for (AstActive* const activep : activeps) evalp->addBodyp(activep);
     //    }
 
     // Dispose of the remnants of the inputs
     logicRegions.m_pre.deleteActives();
     logicRegions.m_active.deleteActives();
+    replicas.deleteActives();
 }
 
-static void createNBA(AstNetlist* netlistp, LogicRegions& logicRegions,
-                      const std::unordered_set<const AstVarScope*>& writtenExternally,
+static void createNBA(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
                       const Triggers& triggers) {
     AstEval* const evalp = makeEval(netlistp, VEvalKind::NBA);
 
@@ -514,19 +508,27 @@ static void createNBA(AstNetlist* netlistp, LogicRegions& logicRegions,
         activep->triggerp(senTreep);
     });
 
+    replicas.foreach ([&](AstScope*, AstActive* activep) {
+        AstSenTree* const senTreep = activep->sensesp();
+        if (senTreep->hasCombo()) return;
+        activep->sensesp(triggers.nbaTrigSenTree.at(senTreep));
+        activep->triggerp(senTreep);
+    });
+
     // Order it
     if (v3Global.opt.mtasks()) {
         AstExecGraph* const execGraphp = V3Order::orderMT(
-            netlistp, {&logicRegions.m_nba}, writtenExternally, V3Order::OrderMode::NBARegion);
+            netlistp, {&logicRegions.m_nba, &replicas}, {}, V3Order::OrderMode::NBARegion);
         evalp->addBodyp(execGraphp);
     } else {
-        const auto activeps = V3Order::orderST(netlistp, {&logicRegions.m_nba}, writtenExternally,
+        const auto activeps = V3Order::orderST(netlistp, {&logicRegions.m_nba, &replicas}, {},
                                                V3Order::OrderMode::NBARegion);
         for (AstActive* const activep : activeps) evalp->addBodyp(activep);
     }
 
     // Dispose of the remnants of the inputs
     logicRegions.m_nba.deleteActives();
+    replicas.deleteActives();
 }
 
 static void addRegionStats(const string name, const LogicByScope& lbs) {
@@ -575,12 +577,20 @@ void schedule(AstNetlist* netlistp) {
         addRegionStats("size of region: NBA", logicRegions.m_nba);
     }
 
-    Triggers triggers = createTriggers(netlistp);
+    LogicReplicas logicReplicas = replicateLogic(logicRegions);
 
-    const auto writtenExtToAct = gatherWritten({&logicRegions.m_nba});
-    const auto writtenExtToNBA = gatherWritten({&logicRegions.m_pre, &logicRegions.m_active});
-    createActive(netlistp, logicRegions, writtenExtToAct, triggers);
-    createNBA(netlistp, logicRegions, writtenExtToNBA, triggers);
+    if (v3Global.opt.stats()) {
+        addRegionStats("size of replicated logic: Input", logicReplicas.m_input);
+        addRegionStats("size of replicated logic: Active", logicReplicas.m_active);
+        addRegionStats("size of replicated logic: NBA", logicReplicas.m_nba);
+    }
+
+    const Triggers triggers = createTriggers(netlistp);
+
+    // TODO: createInputCombo
+    createActive(netlistp, logicRegions, logicReplicas.m_active, triggers);
+    createNBA(netlistp, logicRegions, logicReplicas.m_nba, triggers);
+
     V3Global::dumpCheckGlobalTree("sched-eval", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 }
 

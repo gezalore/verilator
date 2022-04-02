@@ -90,6 +90,17 @@ struct LogicRegions final {
     LogicRegions& operator=(LogicRegions&&) = default;
 };
 
+struct LogicReplicas final {
+    LogicByScope m_input;
+    LogicByScope m_active;
+    LogicByScope m_nba;
+
+    LogicReplicas() = default;
+    VL_UNCOPYABLE(LogicReplicas);
+    LogicReplicas(LogicReplicas&&) = default;
+    LogicReplicas& operator=(LogicReplicas&&) = default;
+};
+
 void schedule(AstNetlist*);
 
 void splitCheck(AstCFunc* funcp);
@@ -97,6 +108,7 @@ void splitCheck(AstCFunc* funcp);
 LogicByScope breakCycles(AstNetlist* netlistp, LogicByScope& combinationalLogic);
 LogicRegions partition(LogicByScope& clockedLogic, LogicByScope& combinationalLogic,
                        LogicByScope& hybridLogic);
+LogicReplicas replicateLogic(LogicRegions&);
 
 }  // namespace V3Sched
 
