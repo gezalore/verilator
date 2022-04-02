@@ -436,7 +436,6 @@ static Triggers createTriggers(AstNetlist* netlistp) {
     return triggers;
 }
 
-
 static void clearTrigger(AstNetlist* netlistp, AstEval* evalp, AstVarScope* trigp) {
     FileLine* const flp = evalp->fileline();
 
