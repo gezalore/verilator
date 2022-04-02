@@ -934,7 +934,8 @@ public:
     }
     bool isBitLogic() const { return keyword().isBitLogic(); }
     bool isDouble() const { return keyword().isDouble(); }
-    bool isEvent() const { return keyword().isEvent(); }
+    bool isEvent() const { return keyword() == VBasicDTypeKwd::EVENT; }
+    bool isTriggerVec() const { return keyword() == VBasicDTypeKwd::TRIGGERVEC; }
     bool isOpaque() const { return keyword().isOpaque(); }
     bool isString() const { return keyword().isString(); }
     bool isZeroInit() const { return keyword().isZeroInit(); }
@@ -8846,38 +8847,21 @@ public:
 class AstEval final : public AstNode {
     // An evaluation function, constructed incrementally around the scheduling phase
     const VEvalKind m_kind;  // Eval flavour
-    AstVarScope* m_iterCountp = nullptr;  // Region iteration count
 
 public:
     AstEval(FileLine* fl, VEvalKind kind)
         : ASTGEN_SUPER_Eval(fl)
         , m_kind{kind} {}
     ASTNODE_NODE_FUNCS(Eval)
-    virtual const char* broken() const override {
-        BROKEN_RTN((m_iterCountp && !m_iterCountp->brokeExists()));
-        return nullptr;
-    }
     virtual bool maybePointedTo() const override { return true; }
     virtual void dump(std::ostream& str) const override;
     virtual string name() const override;
-    // op1: out-of-loop stat initialization statements
-    //    AstNodeStmt* clearp() const { return VN_AS(op1p(), NodeStmt); }
-    //    void addClearp(AstNodeStmt* stmtp) { addOp1p(reinterpret_cast<AstNode*>(stmtp)); }
-    // op2: initial statements
-    AstNodeStmt* initp() const { return VN_AS(op2p(), NodeStmt); }
-    void addInitp(AstNodeStmt* stmtp) { addOp2p(reinterpret_cast<AstNode*>(stmtp)); }
-    // op3: body of function
-    AstNode* bodyp() const { return op3p(); }
-    void addBodyp(AstActive* activep) { addOp3p(reinterpret_cast<AstNode*>(activep)); }
-    void addBodyp(AstExecGraph* execGraphp) { addOp3p(reinterpret_cast<AstNode*>(execGraphp)); }
-    // op4: final Statements
-    AstNodeStmt* finalp() const { return VN_AS(op4p(), NodeStmt); }
-    void addFinalp(AstNodeStmt* stmtp) { addOp4p(reinterpret_cast<AstNode*>(stmtp)); }
+    // op1: body of function
+    AstNode* bodyp() const { return op1p(); }
+    void addBodyp(AstNode* activep) { addOp1p(activep); }
     //
     VEvalKind kind() const { return m_kind; }
     bool isSlow() const { return m_kind == VEvalKind::SETTLE; }
-    //    AstVarScope* iterCountp() const { return m_iterCountp; }
-    //    void iterCountp(AstVarScope* vscp) { m_iterCountp = vscp; }
 };
 
 //======================================================================
@@ -9402,7 +9386,6 @@ private:
     AstTypeTable* const m_typeTablep;  // Reference to top type table, for faster lookup
     AstConstPool* const m_constPoolp;  // Reference to constant pool, for faster lookup
     AstPackage* m_dollarUnitPkgp = nullptr;  // $unit
-    AstCFunc* m_initp = nullptr;  // The '_eval_initial' function
     AstCFunc* m_evalp = nullptr;  // The '_eval' function
     AstCFunc* m_evalIncombp = nullptr;  // The '_eval_incomb' function
     AstCFunc* m_compTrigsp = nullptr;  // The trigger computation function
@@ -9426,7 +9409,6 @@ public:
         BROKEN_RTN(m_typeTablep && !m_typeTablep->brokeExists());
         BROKEN_RTN(m_constPoolp && !m_constPoolp->brokeExists());
         BROKEN_RTN(m_dollarUnitPkgp && !m_dollarUnitPkgp->brokeExists());
-        BROKEN_RTN(m_initp && !m_initp->brokeExists());
         BROKEN_RTN(m_evalp && !m_evalp->brokeExists());
         BROKEN_RTN(m_evalIncombp && !m_evalIncombp->brokeExists());
         BROKEN_RTN(m_dpiExportTriggerp && !m_dpiExportTriggerp->brokeExists());
@@ -9460,8 +9442,6 @@ public:
         }
         return m_dollarUnitPkgp;
     }
-    AstCFunc* initp() const { return m_initp; }
-    void initp(AstCFunc* initp) { m_initp = initp; }
 
     AstCFunc* evalp() const { return m_evalp; }
     void evalp(AstCFunc* evalp) { m_evalp = evalp; }

@@ -70,37 +70,19 @@ public:
 
 class ClockVisitor final : public VNVisitor {
 private:
-    // NODE STATE
-    // Cleared each Module:
-    //  AstVarScope::user1p()   -> AstVarScope*.  Temporary signal that was created.
-    const VNUser1InUse m_inuser1;
-
     // STATE
-    AstNodeModule* m_modp = nullptr;  // Current module
-    AstScope* m_scopep = nullptr;  // Current scope
-    AstCFunc* const m_initp;  // Top initial function (already created)
-    AstEval* m_evalp = nullptr;  // The current AstEval
     AstSenTree* m_lastSenp = nullptr;  // Last sensitivity match, so we can detect duplicates.
     AstIf* m_lastIfp = nullptr;  // Last sensitivity if active to add more under
 
     // METHODS
     VL_DEBUG_FUNC;  // Declare debug()
 
-    AstNode* createSenItemEquation(AstSenItem* nodep) {
-        UASSERT_OBJ(nodep->edgeType() == VEdgeType::ET_TRUE, nodep, "Should have been lowered");
-        return nodep->sensp()->cloneTree(false);
-    }
     AstNode* createSenseEquation(AstSenItem* nodesp) {
-        // Nodep may be a list of elements; we need to walk it
         AstNode* senEqnp = nullptr;
         for (AstSenItem* senp = nodesp; senp; senp = VN_AS(senp->nextp(), SenItem)) {
-            AstNode* const senOnep = createSenItemEquation(senp);
-            if (senEqnp) {
-                // Add new OR to the sensitivity list equation
-                senEqnp = new AstOr(senp->fileline(), senEqnp, senOnep);
-            } else {
-                senEqnp = senOnep;
-            }
+            UASSERT_OBJ(senp->edgeType() == VEdgeType::ET_TRUE, senp, "Should have been lowered");
+            AstNode* const senOnep = senp->sensp()->cloneTree(false);
+            senEqnp = senEqnp ? new AstOr{senp->fileline(), senEqnp, senOnep} : senOnep;
         }
         return senEqnp;
     }
@@ -115,41 +97,6 @@ private:
         m_lastIfp = nullptr;
     }
     // VISITORS
-    virtual void visit(AstTopScope* nodep) override {
-        UINFO(4, " TOPSCOPE   " << nodep << endl);
-        m_scopep = nodep->scopep();
-        UASSERT_OBJ(m_scopep, nodep,
-                    "No scope found on top level, perhaps you have no statements?");
-        // VV*****  We reset all user1p()
-        AstNode::user1ClearTree();
-        // Process the activates
-        iterateChildren(nodep);
-        UINFO(4, " TOPSCOPE iter done " << nodep << endl);
-        // Done, clear so we can detect errors
-        UINFO(4, " TOPSCOPEDONE " << nodep << endl);
-        clearLastSen();
-        m_scopep = nullptr;
-    }
-    virtual void visit(AstNodeModule* nodep) override {
-        // UINFO(4, " MOD   " << nodep << endl);
-        VL_RESTORER(m_modp);
-        {
-            m_modp = nodep;
-            iterateChildren(nodep);
-        }
-    }
-    virtual void visit(AstScope* nodep) override {
-        // UINFO(4, " SCOPE   " << nodep << endl);
-        m_scopep = nodep;
-        iterateChildren(nodep);
-        m_scopep = nullptr;
-    }
-    virtual void visit(AstEval* nodep) override {
-        UASSERT_OBJ(!m_evalp, nodep, "Should not nest");
-        m_evalp = nodep;
-        iterateChildren(nodep);
-        m_evalp = nullptr;
-    }
     virtual void visit(AstCoverToggle* nodep) override {
         // nodep->dumpTree(cout, "ct:");
         // COVERTOGGLE(INC, ORIG, CHANGE) ->
@@ -168,9 +115,8 @@ private:
         VL_DO_DANGLING(nodep->deleteTree(), nodep);
     }
     virtual void visit(AstSenTree* nodep) override {
-        // Delete it later; Actives still pointing to it
         nodep->unlinkFrBack();
-        pushDeletep(nodep);
+        pushDeletep(nodep);  // Delete it later, AstActives still pointing to it
     }
     virtual void visit(AstActive* nodep) override {
         // Careful if adding variables here, ACTIVES can be under other ACTIVES
@@ -213,12 +159,7 @@ private:
 
 public:
     // CONSTRUCTORS
-    explicit ClockVisitor(AstNetlist* netlistp)
-        : m_initp{netlistp->initp()} {
-        iterate(netlistp);
-        // Split large functions
-        V3Sched::splitCheck(m_initp);
-    }
+    explicit ClockVisitor(AstNetlist* netlistp) { iterate(netlistp); }
     virtual ~ClockVisitor() override = default;
 };
 

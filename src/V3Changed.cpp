@@ -347,15 +347,12 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
             default: topFuncp->entryPoint(true); break;
             }
 
-            if (evalp->initp()) topFuncp->addStmtsp(evalp->initp()->unlinkFrBackWithNext());
-
             if (cdSnapFuncp) {
                 // A change detect loop is required. Create a sub-function for the body
                 AstCFunc* const subFuncp = makeFuncp(evalp->name() + "__body", evalp->isSlow());
 
                 // Move the body under the sub-function
                 if (evalp->bodyp()) subFuncp->addStmtsp(evalp->bodyp()->unlinkFrBackWithNext());
-                if (evalp->finalp()) subFuncp->addStmtsp(evalp->finalp()->unlinkFrBackWithNext());
 
                 // Split it if needed
                 V3Sched::splitCheck(subFuncp);
@@ -423,9 +420,8 @@ void V3Changed::changedAll(AstNetlist* netlistp) {
                                                     new AstCCall{flp, cdCheckFuncp}});
                 }
             } else {
-                // No change detect needed. Simply use the top function as the body.
+                // No change detect needed. Use the top function as the body.
                 if (evalp->bodyp()) topFuncp->addStmtsp(evalp->bodyp()->unlinkFrBackWithNext());
-                if (evalp->finalp()) topFuncp->addStmtsp(evalp->finalp()->unlinkFrBackWithNext());
 
                 // Split it if needed
                 V3Sched::splitCheck(topFuncp);

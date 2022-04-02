@@ -706,9 +706,9 @@ AstNodeDType::CTypeRecursed AstNodeDType::cTypeRecurse(bool compound) const {
             info.m_type = "std::string";
         } else if (bdtypep->keyword().isMTaskState()) {
             info.m_type = "VlMTaskVertex";
-        } else if (bdtypep->keyword() == VBasicDTypeKwd::TRIGGERVEC) {
+        } else if (bdtypep->isTriggerVec()) {
             info.m_type = "VlTriggerVec<" + cvtToStr(dtypep->width()) + ">";
-        } else if (bdtypep->keyword().isEvent()) {
+        } else if (bdtypep->isEvent()) {
             info.m_type = "VlEvent";
         } else if (dtypep->widthMin() <= 8) {  // Handle unpacked arrays; not bdtypep->width
             info.m_type = "CData" + bitvec;
