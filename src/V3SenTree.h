@@ -36,6 +36,7 @@ private:
     // STATE
     AstTopScope* const m_topScopep;  // Top scope to add global SenTrees to
     std::unordered_set<VNRef<AstSenTree>> m_trees;  // Set of global SenTrees
+    AstSenTree* m_combop = nullptr;  // The unique combinational domain SenTree
 
     VL_UNCOPYABLE(SenTreeFinder);
 
@@ -50,6 +51,7 @@ public:
         for (AstSenTree* senTreep = m_topScopep->senTreesp(); senTreep;
              senTreep = VN_AS(senTreep->nextp(), SenTree)) {
             m_trees.emplace(*senTreep);
+            if (senTreep->hasCombo()) m_combop = senTreep;
         }
     }
 
@@ -72,11 +74,13 @@ public:
     // Return the global combinational AstSenTree.
     // If no such global SenTree exists create one and add it to the stored AstTopScope.
     AstSenTree* getComb() {
-        FileLine* const fl = m_topScopep->fileline();
-        AstSenTree* const combp = new AstSenTree{fl, new AstSenItem{fl, AstSenItem::Combo()}};
-        AstSenTree* const resultp = getSenTree(combp);
-        VL_DO_DANGLING(combp->deleteTree(), combp);  // getSenTree clones, so can delete
-        return resultp;
+        if (!m_combop) {
+            FileLine* const fl = m_topScopep->fileline();
+            AstSenTree* const combp = new AstSenTree{fl, new AstSenItem{fl, AstSenItem::Combo()}};
+            m_combop = getSenTree(combp);
+            VL_DO_DANGLING(combp->deleteTree(), combp);  // getSenTree clones, so can delete
+        }
+        return m_combop;
     }
 };
 
