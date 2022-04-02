@@ -101,7 +101,6 @@
 #include <sstream>
 #include <vector>
 #include <unordered_map>
-#include <unordered_set>
 
 using V3Order::OrderMode;
 
@@ -896,6 +895,7 @@ class OrderProcess final : VNDeleter {
 
     SenTreeFinder m_finder;  // Global AstSenTree manager
     AstSenTree* const m_deleteDomainp;  // Dummy AstSenTree indicating needs deletion
+    const string m_tag;  // Subtring to add to generated names
     std::vector<AstActive*> m_resultST;  // The result nodes for a single threaded model
     AstExecGraph* m_resultMT = nullptr;  // The result node for a multi threaded model
 
@@ -942,15 +942,10 @@ class OrderProcess final : VNDeleter {
 
     string cfuncName(AstNodeModule* modp, AstSenTree* domainp, AstScope* scopep,
                      AstNode* forWhatp) {
-        string name = m_mode == OrderMode::Settle         ? "_settle"
-                      : m_mode == OrderMode::InputComb    ? "_incomb"
-                      : m_mode == OrderMode::ActiveRegion ? "_active"
-                      : m_mode == OrderMode::NBARegion    ? "_nba"
-                                                          : "";
-        name += domainp->isMulti()     ? "_multiclk"
-                : domainp->hasCombo()  ? "_combo"
-                : domainp->hasHybrid() ? "_hybrid"
-                                       : "_sequent";
+        string name = "_" + m_tag;
+        name += m_mode == OrderMode::Settle || m_mode == OrderMode::InputComb || domainp->isMulti()
+                    ? "_comb"
+                    : "_sequent";
         name = name + "__" + scopep->nameDotless();
         const unsigned funcnum = m_funcNums.emplace(std::make_pair(modp, name), 0).first->second++;
         name = name + "__" + cvtToStr(funcnum);
@@ -991,7 +986,12 @@ class OrderProcess final : VNDeleter {
         , m_inputChanged{inputChanged}
         , m_mode{mode}
         , m_finder{netlistp}
-        , m_deleteDomainp{makeDeleteDomainSenTree(netlistp->fileline())} {
+        , m_deleteDomainp{makeDeleteDomainSenTree(netlistp->fileline())}
+        , m_tag{mode == OrderMode::Settle         ? "stl"
+                : mode == OrderMode::InputComb    ? "inc"
+                : mode == OrderMode::ActiveRegion ? "act"
+                : mode == OrderMode::NBARegion    ? "nba"
+                                                  : "<unreachable>"} {
         pushDeletep(m_deleteDomainp);
     }
 
@@ -1553,14 +1553,8 @@ void OrderProcess::processMTasks() {
 // OrderVisitor - Top processing
 
 void OrderProcess::process(bool multiThreaded) {
-    string prefix = m_mode == OrderMode::Settle         ? "settle_"
-                    : m_mode == OrderMode::InputComb    ? "incomb_"
-                    : m_mode == OrderMode::ActiveRegion ? "active_"
-                    : m_mode == OrderMode::NBARegion    ? "nba_"
-                                                        : "";
-
     // Dump data
-    m_graph.dumpDotFilePrefixed(prefix + "orderg_pre");
+    m_graph.dumpDotFilePrefixed(m_tag + "_orderg_pre");
 
     // Break cycles. Each strongly connected subgraph (including cutable
     // edges) will have its own color, and corresponds to a loop in the
@@ -1568,20 +1562,20 @@ void OrderProcess::process(bool multiThreaded) {
     // edges are actually still there, just with weight 0).
     UINFO(2, "  Acyclic & Order...\n");
     m_graph.acyclic(&V3GraphEdge::followAlwaysTrue);
-    m_graph.dumpDotFilePrefixed(prefix + "orderg_acyc");
+    m_graph.dumpDotFilePrefixed(m_tag + "_orderg_acyc");
 
     // Assign ranks so we know what to follow
     // Then, sort vertices and edges by that ordering
     m_graph.order();
-    m_graph.dumpDotFilePrefixed(prefix + "orderg_order");
+    m_graph.dumpDotFilePrefixed(m_tag + "_orderg_order");
 
     UINFO(2, "  Process Circulars...\n");
-    processCircular();  // must be before processDomains
+    processCircular();
 
     // Assign logic vertices to new domains
     UINFO(2, "  Domains...\n");
     processDomains();
-    m_graph.dumpDotFilePrefixed(prefix + "orderg_domain");
+    m_graph.dumpDotFilePrefixed(m_tag + "_orderg_domain");
 
     if (debug() && v3Global.opt.dumpTree()) processEdgeReport();
 
@@ -1590,10 +1584,10 @@ void OrderProcess::process(bool multiThreaded) {
         processMoveBuildGraph();
         if (debug() >= 4) {
             // Different prefix (ordermv) as it's not the same graph
-            m_pomGraph.dumpDotFilePrefixed(prefix + "ordermv_start");
+            m_pomGraph.dumpDotFilePrefixed(m_tag + "_ordermv_start");
         }
         m_pomGraph.removeRedundantEdges(&V3GraphEdge::followAlwaysTrue);
-        if (debug() >= 4) m_pomGraph.dumpDotFilePrefixed(prefix + "ordermv_simpl");
+        if (debug() >= 4) m_pomGraph.dumpDotFilePrefixed(m_tag + "_ordermv_simpl");
 
         UINFO(2, "  Move...\n");
         processMove();
@@ -1607,7 +1601,7 @@ void OrderProcess::process(bool multiThreaded) {
     processSensitive();  // must be after processDomains
 
     // Dump data
-    m_graph.dumpDotFilePrefixed(prefix + "orderg_done");
+    m_graph.dumpDotFilePrefixed(m_tag + "_orderg_done");
 }
 
 //######################################################################

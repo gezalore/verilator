@@ -38,7 +38,9 @@ LogicByScope LogicByScope::clone() const {
     return result;
 }
 
-static LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
+namespace {
+
+LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
     LogicClasses result;
 
     const auto moveIfNotEmpty
@@ -93,8 +95,8 @@ static LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
     return result;
 }
 
-static AstCFunc* makeTopFunction(AstNetlist* netlistp, const string& name, bool slow,
-                                 const string& returnType = "") {
+AstCFunc* makeTopFunction(AstNetlist* netlistp, const string& name, bool slow,
+                          const string& returnType = "") {
     AstScope* const scopeTopp = netlistp->topScopep()->scopep();
     AstCFunc* const funcp = new AstCFunc{netlistp->fileline(), name, scopeTopp, returnType};
     funcp->dontCombine(true);
@@ -108,14 +110,14 @@ static AstCFunc* makeTopFunction(AstNetlist* netlistp, const string& name, bool 
     return funcp;
 }
 
-static AstEval* makeEval(AstNetlist* netlistp, VEvalKind kind) {
+AstEval* makeEval(AstNetlist* netlistp, VEvalKind kind) {
     AstScope* const scopeTopp = netlistp->topScopep()->scopep();
     AstEval* const evalp = new AstEval{netlistp->fileline(), kind};
     scopeTopp->addActivep(evalp);
     return evalp;
 }
 
-static void orderSequentially(AstCFunc* funcp, const LogicByScope& logicByScope) {
+void orderSequentially(AstCFunc* funcp, const LogicByScope& logicByScope) {
     for (const auto& pair : logicByScope) {
         AstScope* const scopep = pair.first;
         // Create a sub-function per scope for combining
@@ -148,26 +150,25 @@ static void orderSequentially(AstCFunc* funcp, const LogicByScope& logicByScope)
     }
 }
 
-static void createStatic(AstNetlist* netlistp, const LogicClasses& logicClasses) {
+void createStatic(AstNetlist* netlistp, const LogicClasses& logicClasses) {
     AstCFunc* const funcp = makeTopFunction(netlistp, "_eval_static", /* slow: */ true);
     orderSequentially(funcp, logicClasses.m_statics);
     splitCheck(funcp);
 }
 
-static void createInitial(AstNetlist* netlistp, const LogicClasses& logicClasses) {
+AstCFunc* createInitial(AstNetlist* netlistp, const LogicClasses& logicClasses) {
     AstCFunc* const funcp = makeTopFunction(netlistp, "_eval_initial", /* slow: */ true);
     orderSequentially(funcp, logicClasses.m_initial);
-    // Not splitting yet as it is not final
-    netlistp->initp(funcp);
+    return funcp;  // Not splitting yet as it is not final
 }
 
-static void createFinal(AstNetlist* netlistp, const LogicClasses& logicClasses) {
+void createFinal(AstNetlist* netlistp, const LogicClasses& logicClasses) {
     AstCFunc* const funcp = makeTopFunction(netlistp, "_final", /* slow: */ true);
     orderSequentially(funcp, logicClasses.m_final);
     splitCheck(funcp);
 }
 
-static void createSettle(AstNetlist* netlistp, LogicClasses& logicClasses) {
+void createSettle(AstNetlist* netlistp, LogicClasses& logicClasses) {
     AstEval* const evalp = makeEval(netlistp, VEvalKind::SETTLE);
 
     // Clone, because ordering is destructive, but we still need them for "_eval"
@@ -216,7 +217,7 @@ class SenExprBuilder final {
         AstNode* const initp = v3Global.opt.xInitialEdge() ? new AstNot{flp, rdCurr()} : rdCurr();
         m_initp->addStmtsp(new AstAssign{flp, wrPrev(), initp});
 
-        // Add update >
+        // Add update
         m_updates.push_back(new AstAssign{flp, wrPrev(), rdCurr()});
 
         //
@@ -297,8 +298,8 @@ public:
     std::vector<AstNodeStmt*> updates() { return std::move(m_updates); }
 
     // CONSTRUCTOR
-    SenExprBuilder(AstNetlist* netlistp, const string& suffix)
-        : m_initp{netlistp->initp()}
+    SenExprBuilder(AstNetlist* netlistp, AstCFunc* initp, const string& suffix)
+        : m_initp{initp}
         , m_scopeTopp{netlistp->topScopep()->scopep()}
         , m_suffix{suffix} {
         // If there is a DPI export trigger, always clear it after trigger computation
@@ -316,7 +317,7 @@ struct Triggers final {
     std::unordered_map<const AstSenTree*, AstSenTree*> nbaTrigSenTree;
 };
 
-static Triggers createTriggers(AstNetlist* netlistp) {
+Triggers createTriggers(AstNetlist* netlistp, AstCFunc* initp) {
     AstTopScope* const topScopep = netlistp->topScopep();
     AstScope* const scopeTopp = topScopep->scopep();
     FileLine* const flp = scopeTopp->fileline();
@@ -349,9 +350,6 @@ static Triggers createTriggers(AstNetlist* netlistp) {
     AstVarScope* const preTrigsp = scopeTopp->createTemp("__VpreTriggered", tDtypep);
     AstVarScope* const actTrigsp = scopeTopp->createTemp("__VactTriggered", tDtypep);
     AstVarScope* const nbaTrigsp = scopeTopp->createTemp("__VnbaTriggered", tDtypep);
-    preTrigsp->varp()->noReset(true);
-    actTrigsp->varp()->noReset(true);
-    nbaTrigsp->varp()->noReset(true);
     netlistp->preTrigsp(preTrigsp);
     netlistp->actTrigsp(actTrigsp);
     netlistp->nbaTrigsp(nbaTrigsp);
@@ -385,7 +383,7 @@ static Triggers createTriggers(AstNetlist* netlistp) {
 
     // Populate
     uint32_t triggerNumber = 0;
-    SenExprBuilder senExprBuilder{netlistp, "act"};
+    SenExprBuilder senExprBuilder{netlistp, initp, "act"};
     AstNode* debugp = nullptr;
     topScopep->senTreesp()->foreachAndNext<AstSenTree>([&](const AstSenTree* senTreep) {  //
         if (!senTreep->hasClocked() && !senTreep->hasHybrid()) return;
@@ -442,7 +440,7 @@ static Triggers createTriggers(AstNetlist* netlistp) {
     return triggers;
 }
 
-static void clearTrigger(AstNetlist* netlistp, AstEval* evalp, AstVarScope* trigp) {
+void clearTrigger(AstNetlist* netlistp, AstEval* evalp, AstVarScope* trigp) {
     FileLine* const flp = evalp->fileline();
 
     // Clear triggers at the end
@@ -450,48 +448,36 @@ static void clearTrigger(AstNetlist* netlistp, AstEval* evalp, AstVarScope* trig
     AstCMethodHard* const callp = new AstCMethodHard{flp, refp, "clear"};
     callp->statement(true);
     callp->dtypeSetVoid();
-    evalp->addFinalp(callp);
+    evalp->addBodyp(callp);
 }
 
-static void createActive(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
-                         const Triggers& triggers) {
+void remapSensitivities(LogicByScope& lbs,
+                        std::unordered_map<const AstSenTree*, AstSenTree*> senTreeMap) {
+    // Update sensitivity lists, but remember original triggers
+    lbs.foreach ([&](AstScope*, AstActive* activep) {
+        AstSenTree* const senTreep = activep->sensesp();
+        if (senTreep->hasCombo()) return;
+        activep->sensesp(senTreeMap.at(senTreep));
+        activep->triggerp(senTreep);
+    });
+}
+
+void createActive(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
+                  const Triggers& triggers) {
     AstEval* const evalp = makeEval(netlistp, VEvalKind::ACTIVE);
 
-    clearTrigger(netlistp, evalp, netlistp->preTrigsp());
-    clearTrigger(netlistp, evalp, netlistp->actTrigsp());
+    remapSensitivities(logicRegions.m_pre, triggers.preTrigSenTree);
+    remapSensitivities(logicRegions.m_active, triggers.actTrigSenTree);
+    remapSensitivities(replicas, triggers.actTrigSenTree);
 
-    // Update sensitivity lists, but remember original triggers
-    logicRegions.m_pre.foreach ([&](AstScope*, AstActive* activep) {
-        AstSenTree* const senTreep = activep->sensesp();
-        if (senTreep->hasCombo()) return;
-        activep->sensesp(triggers.preTrigSenTree.at(senTreep));
-        activep->triggerp(senTreep);
-    });
-
-    logicRegions.m_active.foreach ([&](AstScope*, AstActive* activep) {
-        AstSenTree* const senTreep = activep->sensesp();
-        if (senTreep->hasCombo()) return;
-        activep->sensesp(triggers.actTrigSenTree.at(senTreep));
-        activep->triggerp(senTreep);
-    });
-
-    replicas.foreach ([&](AstScope*, AstActive* activep) {
-        AstSenTree* const senTreep = activep->sensesp();
-        if (senTreep->hasCombo()) return;
-        activep->sensesp(triggers.actTrigSenTree.at(senTreep));
-        activep->triggerp(senTreep);
-    });
-
-    // Order it TODO: there can only be a single ExecGraph right now, use it for the NBA
-    //    if (v3Global.opt.mtasks()) {
-    //        AstExecGraph* const execGraphp = orderMT(netlistp, coll);
-    //        evalp->addBodyp(execGraphp);
-    //    } else {
+    // TODO: there can only be a single ExecGraph right now, use it for the NBA
     const auto activeps
         = V3Order::orderST(netlistp, {&logicRegions.m_pre, &logicRegions.m_active, &replicas},
                            V3Order::OrderMode::ActiveRegion);
     for (AstActive* const activep : activeps) evalp->addBodyp(activep);
-    //    }
+
+    clearTrigger(netlistp, evalp, netlistp->preTrigsp());
+    clearTrigger(netlistp, evalp, netlistp->actTrigsp());
 
     // Dispose of the remnants of the inputs
     logicRegions.m_pre.deleteActives();
@@ -499,26 +485,12 @@ static void createActive(AstNetlist* netlistp, LogicRegions& logicRegions, Logic
     replicas.deleteActives();
 }
 
-static void createNBA(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
-                      const Triggers& triggers) {
+void createNBA(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
+               const Triggers& triggers) {
     AstEval* const evalp = makeEval(netlistp, VEvalKind::NBA);
 
-    clearTrigger(netlistp, evalp, netlistp->nbaTrigsp());
-
-    // Update sensitivity lists
-    logicRegions.m_nba.foreach ([&](AstScope*, AstActive* activep) {
-        AstSenTree* const senTreep = activep->sensesp();
-        if (senTreep->hasCombo()) return;
-        activep->sensesp(triggers.nbaTrigSenTree.at(senTreep));
-        activep->triggerp(senTreep);
-    });
-
-    replicas.foreach ([&](AstScope*, AstActive* activep) {
-        AstSenTree* const senTreep = activep->sensesp();
-        if (senTreep->hasCombo()) return;
-        activep->sensesp(triggers.nbaTrigSenTree.at(senTreep));
-        activep->triggerp(senTreep);
-    });
+    remapSensitivities(logicRegions.m_nba, triggers.nbaTrigSenTree);
+    remapSensitivities(replicas, triggers.nbaTrigSenTree);
 
     // Order it
     if (v3Global.opt.mtasks()) {
@@ -531,12 +503,14 @@ static void createNBA(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByS
         for (AstActive* const activep : activeps) evalp->addBodyp(activep);
     }
 
+    clearTrigger(netlistp, evalp, netlistp->nbaTrigsp());
+
     // Dispose of the remnants of the inputs
     logicRegions.m_nba.deleteActives();
     replicas.deleteActives();
 }
 
-static void createInputComb(AstNetlist* netlistp, LogicByScope& logic) {
+void createInputComb(AstNetlist* netlistp, AstCFunc* initp, LogicByScope& logic) {
     // Nothing to do if no combinational logic is sensitive to top level inputs
     if (logic.empty()) return;
 
@@ -576,7 +550,7 @@ static void createInputComb(AstNetlist* netlistp, LogicByScope& logic) {
     // Create trigger AstSenTrees. Defer adding the new AstSenTrees to topScopep as we are
     // iterating the same list of nodes below.
     std::vector<AstSenTree*> newSenTreeps;
-    const auto getSenTrue = [&](uint32_t index) {  //
+    const auto getSenTrue = [&](uint32_t index) {
         AstCMethodHard* const senp = getTrigRef(index, VAccess::READ);
         AstSenItem* const senItemp = new AstSenItem{flp, VEdgeType::ET_TRUE, senp};
         AstSenTree* const senTreep = new AstSenTree{flp, senItemp};
@@ -585,7 +559,7 @@ static void createInputComb(AstNetlist* netlistp, LogicByScope& logic) {
     };
 
     // Create the function
-    AstCFunc* const funcp = makeTopFunction(netlistp, "_eval_incomb", false);
+    AstCFunc* const funcp = makeTopFunction(netlistp, "_eval_comb_inputs", false);
     netlistp->evalIncombp(funcp);
 
     const auto setVar = [&](AstVarScope* cntp, uint32_t val) {
@@ -620,7 +594,7 @@ static void createInputComb(AstNetlist* netlistp, LogicByScope& logic) {
     // Rest are for hybrid logic
     uint32_t triggerNumber = 1;
     std::unordered_map<const AstSenTree*, AstSenTree*> trigSenTree;
-    SenExprBuilder senExprBuilder{netlistp, "ico"};
+    SenExprBuilder senExprBuilder{netlistp, initp, "ico"};
     for (const AstSenTree* const senTreep : triggers) {
         // Create the trigger AstSenTrees
         trigSenTree[senTreep] = getSenTrue(triggerNumber);
@@ -648,83 +622,93 @@ static void createInputComb(AstNetlist* netlistp, LogicByScope& logic) {
         flp, new AstVarRef{flp, counterp, VAccess::WRITE},
         new AstAdd{flp, new AstVarRef{flp, counterp, VAccess::READ}, new AstConst{flp, 1}}});
 
-    // Update sensitivities
-    logic.foreach ([&](AstScope*, AstActive* activep) {
-        AstSenTree* const senTreep = activep->sensesp();
-        if (senTreep->hasCombo()) return;
-        activep->sensesp(trigSenTree.at(senTreep));
-        activep->triggerp(senTreep);
-    });
+    remapSensitivities(logic, trigSenTree);
 
-    // Order and add to function
-    const auto activeps
-        = V3Order::orderST(netlistp, {&logic}, V3Order::OrderMode::InputComb, inputChanged);
-    for (AstActive* const activep : activeps) ifp->addIfsp(activep);
+    // Order and add to loop body via sub-function
+    {
+        AstCFunc* const bodyp = makeTopFunction(netlistp, "_eval_ico", false);
+        bodyp->entryPoint(false);
+        ifp->addIfsp(new AstCCall{flp, bodyp});
+        const auto activeps
+            = V3Order::orderST(netlistp, {&logic}, V3Order::OrderMode::InputComb, inputChanged);
+        for (AstActive* const activep : activeps) bodyp->addStmtsp(activep);
+    }
 
     logic.deleteActives();
 }
 
-static void addRegionStats(const string name, const LogicByScope& lbs) {
-    uint64_t size = 0;
-    lbs.foreach ([&](AstScope*, AstActive* activep) {
-        for (AstNode* nodep = activep->stmtsp(); nodep; nodep = nodep->nextp()) {
-            size += nodep->nodeCount();
-        }
-    });
-    V3Stats::addStat("Scheduling, " + name, size);
-}
+}  // namespace
 
 void schedule(AstNetlist* netlistp) {
+    const auto addSizeStat = [](const string name, const LogicByScope& lbs) {
+        uint64_t size = 0;
+        lbs.foreachLogic([&](AstNode* nodep) { size += nodep->nodeCount(); });
+        V3Stats::addStat("Scheduling, " + name, size);
+    };
+
     LogicClasses logicClasses = gatherLogicClasses(netlistp);
 
     if (v3Global.opt.stats()) {
-        addRegionStats("size of class: static", logicClasses.m_statics);
-        addRegionStats("size of class: initial", logicClasses.m_initial);
-        addRegionStats("size of class: settle", logicClasses.m_settle);
-        addRegionStats("size of class: final", logicClasses.m_final);
+        V3Stats::statsStage("sched-gather");
+        addSizeStat("size of class: static", logicClasses.m_statics);
+        addSizeStat("size of class: initial", logicClasses.m_initial);
+        addSizeStat("size of class: settle", logicClasses.m_settle);
+        addSizeStat("size of class: final", logicClasses.m_final);
     }
 
     createStatic(netlistp, logicClasses);
-    createInitial(netlistp, logicClasses);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-static");
+
+    AstCFunc* const initp = createInitial(netlistp, logicClasses);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-initial");
+
     createFinal(netlistp, logicClasses);
-    V3Global::dumpCheckGlobalTree("sched-simple", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-final");
 
     createSettle(netlistp, logicClasses);
-    V3Global::dumpCheckGlobalTree("sched-settle", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-settle");
 
     // Note: breakCycles also removes corresponding logic from logicClasses.m_comb;
     logicClasses.m_hybrid = breakCycles(netlistp, logicClasses.m_comb);
-
     if (v3Global.opt.stats()) {
-        addRegionStats("size of class: clocked", logicClasses.m_clocked);
-        addRegionStats("size of class: combinational", logicClasses.m_comb);
-        addRegionStats("size of class: hybrid", logicClasses.m_hybrid);
+        addSizeStat("size of class: clocked", logicClasses.m_clocked);
+        addSizeStat("size of class: combinational", logicClasses.m_comb);
+        addSizeStat("size of class: hybrid", logicClasses.m_hybrid);
+        V3Stats::statsStage("sched-break-cycles");
     }
 
     LogicRegions logicRegions
         = partition(logicClasses.m_clocked, logicClasses.m_comb, logicClasses.m_hybrid);
-
     if (v3Global.opt.stats()) {
-        addRegionStats("size of region: Active Pre", logicRegions.m_pre);
-        addRegionStats("size of region: Active", logicRegions.m_active);
-        addRegionStats("size of region: NBA", logicRegions.m_nba);
+        addSizeStat("size of region: Active Pre", logicRegions.m_pre);
+        addSizeStat("size of region: Active", logicRegions.m_active);
+        addSizeStat("size of region: NBA", logicRegions.m_nba);
+        V3Stats::statsStage("sched-partition");
     }
 
     LogicReplicas logicReplicas = replicateLogic(logicRegions);
-
     if (v3Global.opt.stats()) {
-        addRegionStats("size of replicated logic: Input", logicReplicas.m_input);
-        addRegionStats("size of replicated logic: Active", logicReplicas.m_active);
-        addRegionStats("size of replicated logic: NBA", logicReplicas.m_nba);
+        addSizeStat("size of replicated logic: Input", logicReplicas.m_input);
+        addSizeStat("size of replicated logic: Active", logicReplicas.m_active);
+        addSizeStat("size of replicated logic: NBA", logicReplicas.m_nba);
+        V3Stats::statsStage("sched-replicate");
     }
 
-    const Triggers triggers = createTriggers(netlistp);
+    const Triggers triggers = createTriggers(netlistp, initp);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-triggers");
 
-    createInputComb(netlistp, logicReplicas.m_input);
+    createInputComb(netlistp, initp, logicReplicas.m_input);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-ico");
+
     createActive(netlistp, logicRegions, logicReplicas.m_active, triggers);
-    createNBA(netlistp, logicRegions, logicReplicas.m_nba, triggers);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-act");
 
-    V3Global::dumpCheckGlobalTree("sched-eval", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
+    createNBA(netlistp, logicRegions, logicReplicas.m_nba, triggers);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-nba");
+
+    splitCheck(initp);
+
+    V3Global::dumpCheckGlobalTree("sched", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 }
 
 void splitCheck(AstCFunc* ofuncp) {
