@@ -208,7 +208,6 @@ private:
     AstScope* m_scopep = nullptr;  // Current scope to add statement to
     AstActive* m_sActivep = nullptr;  // For current scope, the Static active we're building
     AstActive* m_iActivep = nullptr;  // For current scope, the Initial active we're building
-    AstActive* m_rActivep = nullptr;  // For current scope, the Settle active we're building
     AstActive* m_fActivep = nullptr;  // For current scope, the Final active we're building
     AstActive* m_cActivep = nullptr;  // For current scope, the Combo active we're building
 
@@ -226,7 +225,6 @@ private:
         m_scopep = nodep;
         m_sActivep = nullptr;
         m_iActivep = nullptr;
-        m_rActivep = nullptr;
         m_fActivep = nullptr;
         m_cActivep = nullptr;
         m_activeMap.clear();
@@ -249,7 +247,6 @@ public:
     template <typename SenItemKind> AstActive* getSpecialActive(FileLine* fl) {
         static_assert(std::is_same<SenItemKind, AstSenItem::Static>::value
                           || std::is_same<SenItemKind, AstSenItem::Initial>::value
-                          || std::is_same<SenItemKind, AstSenItem::Settle>::value
                           || std::is_same<SenItemKind, AstSenItem::Final>::value
                           || std::is_same<SenItemKind, AstSenItem::Combo>::value,
                       "Not special sensitivity");
@@ -263,9 +260,6 @@ public:
         } else if (std::is_same<SenItemKind, AstSenItem::Initial>::value) {
             cachepp = &m_iActivep;
             name = "initial";
-        } else if (std::is_same<SenItemKind, AstSenItem::Settle>::value) {
-            cachepp = &m_rActivep;
-            name = "settle";
         } else if (std::is_same<SenItemKind, AstSenItem::Final>::value) {
             cachepp = &m_fActivep;
             name = "final";
@@ -529,18 +523,6 @@ private:
         // Move node to new active
         nodep->unlinkFrBack();
         wantactivep->addStmtsp(nodep);
-
-        // If the item contains a 'changed' sensitivity, also run it in the initial block.
-        // TODO: explain why: to respect the initial x->non-x resolution that only happens with
-        //       Verilator
-        if (changed) {
-            // TODO: this should go into Settle rather than Initial....
-            AstActive* const activep
-                = m_namer.getSpecialActive<AstSenItem::Settle>(nodep->fileline());
-            AstNode* const clonep = nodep->cloneTree(false);
-            activep->addStmtsp(clonep);
-            ActiveDlyVisitor{clonep, ActiveDlyVisitor::CT_LATCH};
-        }
 
         // Warn and/or convert any delayed assignments
         if (combo) {

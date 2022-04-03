@@ -28,7 +28,6 @@
 //
 //      V3GraphEdge
 //        OrderEdge
-//          OrderComboCutEdge
 //          OrderPostCutEdge
 //          OrderPreCutEdge
 //*************************************************************************
@@ -415,26 +414,6 @@ public:
                              V3GraphVertex* top) const override {
         return new OrderEdge(graphp, fromp, top, *this);
     }
-};
-
-class OrderComboCutEdge final : public OrderEdge {
-    // Edge created from output of combo logic
-    // Breakable if the output var is also a input,
-    // in which case we'll need a change detect loop around this var.
-    OrderComboCutEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top,
-                      const OrderComboCutEdge& old)
-        : OrderEdge{graphp, fromp, top, old} {}
-
-public:
-    OrderComboCutEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top)
-        : OrderEdge{graphp, fromp, top, WEIGHT_COMBO, CUTABLE} {}
-    virtual OrderVEdgeType type() const override { return OrderVEdgeType::EDGE_COMBOCUT; }
-    virtual ~OrderComboCutEdge() override = default;
-    virtual OrderComboCutEdge* clone(V3Graph* graphp, V3GraphVertex* fromp,
-                                     V3GraphVertex* top) const override {
-        return new OrderComboCutEdge(graphp, fromp, top, *this);
-    }
-    virtual string dotColor() const override { return "yellowGreen"; }
 };
 
 class OrderPostCutEdge final : public OrderEdge {

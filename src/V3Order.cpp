@@ -413,7 +413,7 @@ class OrderBuildVisitor final : public VNVisitor {
                     if (m_inPost) {
                         new OrderPostCutEdge(m_graphp, m_logicVxp, varVxp);
                     } else {
-                        new OrderComboCutEdge(m_graphp, m_logicVxp, varVxp);
+                        new OrderEdge(m_graphp, m_logicVxp, varVxp, WEIGHT_NORMAL);
                     }
 
                     // Add edge from produced VarPostVertex -> to producing LogicVertex
@@ -483,7 +483,7 @@ class OrderBuildVisitor final : public VNVisitor {
         // We just need to add an edge to the enclosing logic vertex (the vertex for the
         // AstAlways).
         OrderVarVertex* const varVxp = getVarVertex(nodep->varScopep(), VarVertexType::STD);
-        new OrderComboCutEdge(m_graphp, m_logicVxp, varVxp);
+        new OrderEdge(m_graphp, m_logicVxp, varVxp, WEIGHT_NORMAL);
         // Only used for ordering, so we can get rid of it here
         nodep->unlinkFrBack();
         VL_DO_DANGLING(pushDeletep(nodep), nodep);
@@ -914,7 +914,6 @@ class OrderProcess final : VNDeleter {
     VL_DEBUG_FUNC;  // Declare debug()
 
     void process(bool multiThreaded);
-    void processCircular();
     void processSensitive();
     void processDomains();
     void processDomainsIterate(OrderEitherVertex* vertexp);
@@ -953,15 +952,6 @@ class OrderProcess final : VNDeleter {
             name += "__PROF__" + forWhatp->fileline()->profileFuncname();
         }
         return name;
-    }
-
-    void nodeMarkCircular(OrderVarVertex* vertexp, OrderEdge* edgep) {
-        UASSERT_OBJ(m_mode == OrderMode::Settle, vertexp->varScp(),
-                    "Loops should have been broken explicitly");
-
-        vertexp->varScp()->circular(true);
-        ++m_statCut[vertexp->type()];
-        if (edgep) ++m_statCut[edgep->type()];
     }
 
     // Make a domain that merges the two domains
@@ -1043,33 +1033,6 @@ inline void OrderMoveDomScope::movedVertex(OrderProcess* opp, OrderMoveVertex* v
 }
 
 //######################################################################
-// OrderVisitor - Circular detection
-
-void OrderProcess::processCircular() {
-    // Take broken edges and add circular flags
-    // The change detect code will use this to force changedets
-    for (V3GraphVertex* itp = m_graph.verticesBeginp(); itp; itp = itp->verticesNextp()) {
-        if (OrderVarStdVertex* const vvertexp = dynamic_cast<OrderVarStdVertex*>(itp)) {
-            // Mark any cut edges
-            for (V3GraphEdge* edgep = vvertexp->outBeginp(); edgep; edgep = edgep->outNextp()) {
-                if (edgep->weight() == 0) {  // was cut
-                    OrderEdge* const oedgep = dynamic_cast<OrderEdge*>(edgep);
-                    UASSERT_OBJ(oedgep, vvertexp->varScp(), "Cutable edge not of proper type");
-                    UINFO(6, "      CutCircularO: " << vvertexp->name() << endl);
-                    nodeMarkCircular(vvertexp, oedgep);
-                }
-            }
-            for (V3GraphEdge* edgep = vvertexp->inBeginp(); edgep; edgep = edgep->inNextp()) {
-                if (edgep->weight() == 0) {  // was cut
-                    OrderEdge* const oedgep = dynamic_cast<OrderEdge*>(edgep);
-                    UASSERT_OBJ(oedgep, vvertexp->varScp(), "Cutable edge not of proper type");
-                    UINFO(6, "      CutCircularI: " << vvertexp->name() << endl);
-                    nodeMarkCircular(vvertexp, oedgep);
-                }
-            }
-        }
-    }
-}
 
 void OrderProcess::processSensitive() {
     // Sc sensitives are required on all inputs that go to a combo
@@ -1568,9 +1531,6 @@ void OrderProcess::process(bool multiThreaded) {
     // Then, sort vertices and edges by that ordering
     m_graph.order();
     m_graph.dumpDotFilePrefixed(m_tag + "_orderg_order");
-
-    UINFO(2, "  Process Circulars...\n");
-    processCircular();
 
     // Assign logic vertices to new domains
     UINFO(2, "  Domains...\n");

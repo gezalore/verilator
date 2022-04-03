@@ -2386,6 +2386,7 @@ public:
     // Create new MODULETEMP variable under this scope
     AstVarScope* createTemp(const string& name, unsigned width);
     AstVarScope* createTemp(const string& name, AstNodeDType* dtypep);
+    AstVarScope* createTempLike(const string& name, AstVarScope* vscp);
 };
 
 class AstTopScope final : public AstNode {
@@ -3326,7 +3327,6 @@ public:
     class Illegal {};  // for constructor type-overload selection
     class Static {};  // for constructor type-overload selection
     class Initial {};  // for constructor type-overload selection
-    class Settle {};  // for constructor type-overload selection
     class Final {};  // for constructor type-overload selection
     class Never {};  // for constructor type-overload selection
     AstSenItem(FileLine* fl, VEdgeType edgeType, AstNode* senp)
@@ -3346,9 +3346,6 @@ public:
     AstSenItem(FileLine* fl, Initial)
         : ASTGEN_SUPER_SenItem(fl)
         , m_edgeType{VEdgeType::ET_INITIAL} {}
-    AstSenItem(FileLine* fl, Settle)
-        : ASTGEN_SUPER_SenItem(fl)
-        , m_edgeType{VEdgeType::ET_SETTLE} {}
     AstSenItem(FileLine* fl, Final)
         : ASTGEN_SUPER_SenItem(fl)
         , m_edgeType{VEdgeType::ET_FINAL} {}
@@ -3374,7 +3371,6 @@ public:
     bool isHybrid() const { return edgeType() == VEdgeType::ET_HYBRID; }
     bool isStatic() const { return edgeType() == VEdgeType::ET_STATIC; }
     bool isInitial() const { return edgeType() == VEdgeType::ET_INITIAL; }
-    bool isSettle() const { return edgeType() == VEdgeType::ET_SETTLE; }
     bool isFinal() const { return edgeType() == VEdgeType::ET_FINAL; }
     bool isIllegal() const { return edgeType() == VEdgeType::ET_ILLEGAL; }
     bool isNever() const { return edgeType() == VEdgeType::ET_NEVER; }
@@ -3403,7 +3399,6 @@ public:
     bool hasClocked() const;  // Includes a clocked statement
     bool hasStatic() const;  // Includes a STATIC SenItem
     bool hasInitial() const;  // Includes a INITIAL SenItem
-    bool hasSettle() const;  // Includes a SETTLE SenItem
     bool hasFinal() const;  // Includes a FINAL SenItem
     bool hasCombo() const;  // Includes a COMBO SenItem
     bool hasHybrid() const;  // Includes a HYBRID SenItem
@@ -4858,24 +4853,6 @@ public:
     AstJumpLabel* labelp() const { return m_labelp; }
 };
 
-class AstChangeDet final : public AstNodeStmt {
-    // A comparison to determine change detection, common & must be fast.
-public:
-    // Null lhs+rhs used to indicate change needed with no spec vars
-    AstChangeDet(FileLine* fl, AstNode* lhsp, AstNode* rhsp)
-        : ASTGEN_SUPER_ChangeDet(fl) {
-        setNOp1p(lhsp);
-        setNOp2p(rhsp);
-    }
-    ASTNODE_NODE_FUNCS(ChangeDet)
-    AstNode* lhsp() const { return op1p(); }
-    AstNode* rhsp() const { return op2p(); }
-    virtual bool isGateOptimizable() const override { return false; }
-    virtual bool isPredictOptimizable() const override { return false; }
-    virtual int instrCount() const override { return widthInstrs() * 2; }  // xor, or/logor
-    virtual bool same(const AstNode* samep) const override { return true; }
-};
-
 class AstConsAssoc final : public AstNodeMath {
     // Construct an assoc array and return object, '{}
     // Parents: math
@@ -5483,7 +5460,6 @@ public:
     void addStmtsp(AstNode* nodep) { addOp2p(nodep); }
     // METHODS
     bool hasClocked() const { return m_sensesp->hasClocked(); }
-    bool hasSettle() const { return m_sensesp->hasSettle(); }
     bool hasCombo() const { return m_sensesp->hasCombo(); }
 };
 
@@ -8844,26 +8820,6 @@ public:
     virtual bool same(const AstNode* samep) const override { return true; }
 };
 
-class AstEval final : public AstNode {
-    // An evaluation function, constructed incrementally around the scheduling phase
-    const VEvalKind m_kind;  // Eval flavour
-
-public:
-    AstEval(FileLine* fl, VEvalKind kind)
-        : ASTGEN_SUPER_Eval(fl)
-        , m_kind{kind} {}
-    ASTNODE_NODE_FUNCS(Eval)
-    virtual bool maybePointedTo() const override { return true; }
-    virtual void dump(std::ostream& str) const override;
-    virtual string name() const override;
-    // op1: body of function
-    AstNode* bodyp() const { return op1p(); }
-    void addBodyp(AstNode* activep) { addOp1p(activep); }
-    //
-    VEvalKind kind() const { return m_kind; }
-    bool isSlow() const { return m_kind == VEvalKind::SETTLE; }
-};
-
 //======================================================================
 // Emitted file nodes
 
@@ -9387,13 +9343,6 @@ private:
     AstConstPool* const m_constPoolp;  // Reference to constant pool, for faster lookup
     AstPackage* m_dollarUnitPkgp = nullptr;  // $unit
     AstCFunc* m_evalp = nullptr;  // The '_eval' function
-    AstCFunc* m_evalIncombp = nullptr;  // The '_eval_incomb' function
-    AstCFunc* m_compTrigsp = nullptr;  // The trigger computation function
-    AstVarScope* m_preTrigsp = nullptr;  // The Active region Ast*Pre triggers
-    AstVarScope* m_actTrigsp = nullptr;  // The Active region triggers
-    AstVarScope* m_nbaTrigsp = nullptr;  // The NBA region triggers
-    AstVarScope* m_actCountp = nullptr;  // The Active region triggers
-    AstVarScope* m_nbaCountp = nullptr;  // The NBA region triggers
     AstVarScope* m_dpiExportTriggerp = nullptr;  // The DPI export trigger variable
     AstTopScope* m_topScopep = nullptr;  // The singleton AstTopScope under the top module
     VTimescale m_timeunit;  // Global time unit
@@ -9410,7 +9359,6 @@ public:
         BROKEN_RTN(m_constPoolp && !m_constPoolp->brokeExists());
         BROKEN_RTN(m_dollarUnitPkgp && !m_dollarUnitPkgp->brokeExists());
         BROKEN_RTN(m_evalp && !m_evalp->brokeExists());
-        BROKEN_RTN(m_evalIncombp && !m_evalIncombp->brokeExists());
         BROKEN_RTN(m_dpiExportTriggerp && !m_dpiExportTriggerp->brokeExists());
         BROKEN_RTN(m_topScopep && !m_topScopep->brokeExists());
         return nullptr;
@@ -9445,23 +9393,6 @@ public:
 
     AstCFunc* evalp() const { return m_evalp; }
     void evalp(AstCFunc* evalp) { m_evalp = evalp; }
-    AstCFunc* evalIncombp() const { return m_evalIncombp; }
-    void evalIncombp(AstCFunc* funcp) { m_evalIncombp = funcp; }
-
-    AstCFunc* compTrigsp() const { return m_compTrigsp; }
-    void compTrigsp(AstCFunc* funcp) { m_compTrigsp = funcp; }
-
-    AstVarScope* preTrigsp() const { return m_preTrigsp; }
-    void preTrigsp(AstVarScope* vscp) { m_preTrigsp = vscp; }
-    AstVarScope* actTrigsp() const { return m_actTrigsp; }
-    void actTrigsp(AstVarScope* vscp) { m_actTrigsp = vscp; }
-    AstVarScope* nbaTrigsp() const { return m_nbaTrigsp; }
-    void nbaTrigsp(AstVarScope* vscp) { m_nbaTrigsp = vscp; }
-    AstVarScope* actCountp() const { return m_actCountp; }
-    void actCountp(AstVarScope* vscp) { m_actCountp = vscp; }
-    AstVarScope* nbaCountp() const { return m_nbaCountp; }
-    void nbaCountp(AstVarScope* vscp) { m_nbaCountp = vscp; }
-
     AstVarScope* dpiExportTriggerp() const { return m_dpiExportTriggerp; }
     void dpiExportTriggerp(AstVarScope* varScopep) { m_dpiExportTriggerp = varScopep; }
     AstTopScope* topScopep() const { return m_topScopep; }

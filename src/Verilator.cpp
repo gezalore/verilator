@@ -29,7 +29,6 @@
 #include "V3Case.h"
 #include "V3Cast.h"
 #include "V3Cdc.h"
-#include "V3Changed.h"
 #include "V3Class.h"
 #include "V3Clean.h"
 #include "V3Clock.h"
@@ -388,9 +387,6 @@ static void process() {
             V3Const::constifyAll(v3Global.rootp());
             V3Life::lifeAll(v3Global.rootp());
         }
-
-        // Detect change loop
-        V3Changed::changedAll(v3Global.rootp());
 
         // Remove redundant vars
 #if 0  // TODO: fix and re-enable with new scheduler

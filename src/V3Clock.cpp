@@ -136,7 +136,7 @@ private:
             }
             // Move statements to if
             m_lastIfp->addIfsp(stmtsp);
-        } else if (nodep->hasCombo() || nodep->hasSettle()) {
+        } else if (nodep->hasCombo()) {
             clearLastSen();
             // Move statements to body
             relinker.relink(stmtsp);

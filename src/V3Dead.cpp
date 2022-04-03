@@ -120,14 +120,6 @@ private:
             }
         }
     }
-    virtual void visit(AstEval* nodep) override {
-        //        if (AstVarScope* const vscp = nodep->iterCountp()) {
-        //            vscp->user1Inc();
-        //            vscp->varp()->user1Inc();
-        //        }
-        iterateChildren(nodep);
-        m_scopeTopp->user1Inc();
-    }
     virtual void visit(AstCFunc* nodep) override {
         iterateChildren(nodep);
         checkAll(nodep);
@@ -440,18 +432,6 @@ public:
         , m_scopeTopp{nodep->topScopep() ? nodep->topScopep()->scopep() : nullptr} {
         // Prepare to remove some datatypes
         nodep->typeTablep()->clearCache();
-
-        const auto keep = [&](AstVarScope* vscp) {
-            if (!vscp) return;
-            vscp->user1Inc();
-            vscp->varp()->user1Inc();
-        };
-
-        keep(nodep->preTrigsp());
-        keep(nodep->actTrigsp());
-        keep(nodep->nbaTrigsp());
-        keep(nodep->actCountp());
-        keep(nodep->nbaCountp());
 
         // Operate on whole netlist
         iterate(nodep);

@@ -2163,15 +2163,6 @@ private:
             iterateChildren(nodep);
         }
     }
-    virtual void visit(AstEval* nodep) override {
-        // No ASSIGNW removals under evals, we've long eliminated INITIALs
-        // (We should perhaps rename the assignw's to just assigns)
-        VL_RESTORER(m_wremove);
-        {
-            m_wremove = false;
-            iterateChildren(nodep);
-        }
-    }
     virtual void visit(AstCFunc* nodep) override {
         // No ASSIGNW removals under funcs, we've long eliminated INITIALs
         // (We should perhaps rename the assignw's to just assigns)
@@ -2599,8 +2590,9 @@ private:
             if (nodep->isClocked()) {  // A constant can never get a pos/negedge
                 if (onlySenItemInSenTree(nodep)) {
                     if (nodep->edgeType() == VEdgeType::ET_CHANGED) {
+                        // TODO: This really is dodgy, but t_func_check relies on it
                         nodep->replaceWith(
-                            new AstSenItem(nodep->fileline(), AstSenItem::Settle()));
+                            new AstSenItem(nodep->fileline(), AstSenItem::Initial()));
                     } else {
                         nodep->replaceWith(new AstSenItem(nodep->fileline(), AstSenItem::Never()));
                     }

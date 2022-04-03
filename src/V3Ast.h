@@ -275,7 +275,6 @@ public:
         ET_HYBRID,  // This is like ET_COMB, but with explicit sensitivity to an expression
         ET_STATIC,  // static variable initializers (runs before 'initial')
         ET_INITIAL,  // 'initial' statements
-        ET_SETTLE,  // Combinational statements for resolution after 'initial' statements
         ET_FINAL,  // 'final' statements
         ET_NEVER  // Never occurs (optimized away)
     };
@@ -297,7 +296,6 @@ public:
             false,  // ET_HYBRID
             false,  // ET_STATIC
             false,  // ET_INITIAL
-            false,  // ET_SETTLE
             false,  // ET_FINAL
             false,  // ET_NEVER
         };
@@ -317,15 +315,15 @@ public:
     }
     const char* ascii() const {
         static const char* const names[]
-            = {"%E-edge", "CHANGED", "BOTH",   "POS",    "NEG",     "HIGH",   "LOW",   "EVENT",
-               "TRUE",    "COMBO",   "HYBRID", "STATIC", "INITIAL", "SETTLE", "FINAL", "NEVER"};
+            = {"%E-edge", "CHANGED", "BOTH",   "POS",    "NEG",     "HIGH",  "LOW",  "EVENT",
+               "TRUE",    "COMBO",   "HYBRID", "STATIC", "INITIAL", "FINAL", "NEVER"};
         return names[m_e];
     }
     const char* verilogKwd() const {
         static const char* const names[]
-            = {"%E-edge",   "[changed]", "edge",    "posedge", "negedge",  "[high]",
-               "[low]",     "[event]",   "[true]",  "*",       "[hybrid]", "[static]",
-               "[initial]", "[settle]",  "[final]", "[never]"};
+            = {"%E-edge",  "[changed]", "edge",      "posedge", "negedge",
+               "[high]",   "[low]",     "[event]",   "[true]",  "*",
+               "[hybrid]", "[static]",  "[initial]", "[final]", "[never]"};
         return names[m_e];
     }
     // Return true iff this and the other have mutually exclusive transitions
@@ -1104,13 +1102,13 @@ inline std::ostream& operator<<(std::ostream& os, const VUseType& rhs) {
 
 class VEvalKind final {
 public:
-    enum en : uint8_t { SETTLE, ACTIVE, NBA, _ENUM_MAX };
+    enum en : uint8_t { SETTLE, _ENUM_MAX };
     enum en m_e;
     // cppcheck-suppress noExplicitConstructor
     inline VEvalKind(en _e)
         : m_e{_e} {}
     const char* ascii() const {
-        static const char* const names[_ENUM_MAX] = {"SETTLE", "ACTIVE", "NBA"};
+        static const char* const names[_ENUM_MAX] = {"SETTLE"};
         return names[m_e];
     }
 };

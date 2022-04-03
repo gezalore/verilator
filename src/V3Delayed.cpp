@@ -385,7 +385,7 @@ private:
         VL_RESTORER(m_inInitial);
         {
             AstSenTree* const senTreep = nodep->sensesp();
-            m_inInitial = senTreep->hasStatic() || senTreep->hasInitial() || senTreep->hasSettle();
+            m_inInitial = senTreep->hasStatic() || senTreep->hasInitial();
             // Two sets to same variable in different actives must use different vars.
             AstNode::user3ClearTree();
             iterateChildren(nodep);
