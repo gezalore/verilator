@@ -15,7 +15,7 @@ compile(
     );
 
 if ($Self->{vlt_all}) {
-    file_grep($Self->{stats}, qr/Node count, IF  +\d+ +\d+ +\d+ +\d+ +(\d+)/, 13);
+    file_grep($Self->{stats}, qr/Node count, IF  +\d+ +\d+ +\d+ +\d+ +(\d+)/, 22);
 }
 
 ok(1);

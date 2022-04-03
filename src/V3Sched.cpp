@@ -51,7 +51,6 @@ LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
     netlistp->foreach<AstScope>([&](AstScope* scopep) {
         std::vector<AstActive*> statics;
         std::vector<AstActive*> initial;
-        std::vector<AstActive*> settle;
         std::vector<AstActive*> final;
         std::vector<AstActive*> comb;
         std::vector<AstActive*> clocked;
@@ -66,10 +65,6 @@ LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
                 UASSERT_OBJ(!senTreep->sensesp()->nextp(), activep,
                             "'initial' logic with additional sensitivities");
                 initial.push_back(activep);
-            } else if (senTreep->hasSettle()) {
-                UASSERT_OBJ(!senTreep->sensesp()->nextp(), activep,
-                            "settle logic with additional sensitivities");
-                settle.push_back(activep);
             } else if (senTreep->hasFinal()) {
                 UASSERT_OBJ(!senTreep->sensesp()->nextp(), activep,
                             "'final' logic with additional sensitivities");
@@ -86,7 +81,6 @@ LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
 
         moveIfNotEmpty(result.m_statics, scopep, statics);
         moveIfNotEmpty(result.m_initial, scopep, initial);
-        moveIfNotEmpty(result.m_settle, scopep, settle);
         moveIfNotEmpty(result.m_final, scopep, final);
         moveIfNotEmpty(result.m_comb, scopep, comb);
         moveIfNotEmpty(result.m_clocked, scopep, clocked);
@@ -95,14 +89,12 @@ LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
     return result;
 }
 
-AstCFunc* makeTopFunction(AstNetlist* netlistp, const string& name, bool slow,
-                          const string& returnType = "") {
+AstCFunc* makeSubFunction(AstNetlist* netlistp, const string& name, bool slow) {
     AstScope* const scopeTopp = netlistp->topScopep()->scopep();
-    AstCFunc* const funcp = new AstCFunc{netlistp->fileline(), name, scopeTopp, returnType};
+    AstCFunc* const funcp = new AstCFunc{netlistp->fileline(), name, scopeTopp, ""};
     funcp->dontCombine(true);
     funcp->isStatic(false);
     funcp->isLoose(true);
-    funcp->entryPoint(true);
     funcp->slow(slow);
     funcp->isConst(false);
     funcp->declPrivate(true);
@@ -110,11 +102,10 @@ AstCFunc* makeTopFunction(AstNetlist* netlistp, const string& name, bool slow,
     return funcp;
 }
 
-AstEval* makeEval(AstNetlist* netlistp, VEvalKind kind) {
-    AstScope* const scopeTopp = netlistp->topScopep()->scopep();
-    AstEval* const evalp = new AstEval{netlistp->fileline(), kind};
-    scopeTopp->addActivep(evalp);
-    return evalp;
+AstCFunc* makeTopFunction(AstNetlist* netlistp, const string& name, bool slow) {
+    AstCFunc* const funcp = makeSubFunction(netlistp, name, slow);
+    funcp->entryPoint(true);
+    return funcp;
 }
 
 void orderSequentially(AstCFunc* funcp, const LogicByScope& logicByScope) {
@@ -168,24 +159,6 @@ void createFinal(AstNetlist* netlistp, const LogicClasses& logicClasses) {
     splitCheck(funcp);
 }
 
-void createSettle(AstNetlist* netlistp, LogicClasses& logicClasses) {
-    AstEval* const evalp = makeEval(netlistp, VEvalKind::SETTLE);
-
-    // Clone, because ordering is destructive, but we still need them for "_eval"
-    LogicByScope comb = logicClasses.m_comb.clone();
-
-    // Order it (slow code, so always single threaded)
-    const auto activeps
-        = V3Order::orderST(netlistp, {&logicClasses.m_settle, &comb}, V3Order::OrderMode::Settle);
-
-    // Move the logic under the function being built
-    for (AstActive* const activep : activeps) evalp->addBodyp(activep);
-
-    // Dispose of the remnants of the inputs
-    logicClasses.m_settle.deleteActives();
-    comb.deleteActives();
-}
-
 class SenExprBuilder final {
     // NODE STATE
     // AstVarScope::user1p()  -> AstVarScope* : prev value variables
@@ -214,7 +187,7 @@ class SenExprBuilder final {
         const auto wrPrev = [=]() { return new AstVarRef(flp, prevp, VAccess::WRITE); };
 
         // Add the initializer init
-        AstNode* const initp = v3Global.opt.xInitialEdge() ? new AstNot{flp, rdCurr()} : rdCurr();
+        AstNode* const initp = rdCurr();
         m_initp->addStmtsp(new AstAssign{flp, wrPrev(), initp});
 
         // Add update
@@ -224,12 +197,12 @@ class SenExprBuilder final {
         return prevp;
     }
 
-    AstNode* createTerm(AstSenItem* senItemp) {
+    std::pair<AstNode*, bool> createTerm(AstSenItem* senItemp) {
         if (senItemp->edgeType() == VEdgeType::ET_ILLEGAL) {
             senItemp->v3warn(
                 E_UNSUPPORTED,
                 "Unsupported: Complicated event expression in sensitive activity list");
-            return nullptr;
+            return {nullptr, false};
         }
 
         FileLine* const flp = senItemp->fileline();
@@ -242,12 +215,18 @@ class SenExprBuilder final {
         // All event signals should be 1-bit at this point
         switch (senItemp->edgeType()) {
         case VEdgeType::ET_CHANGED:
-        case VEdgeType::ET_HYBRID: return new AstNeq(flp, currp(), prevp());
-        case VEdgeType::ET_BOTHEDGE: return lsb(new AstXor{flp, currp(), prevp()});
-        case VEdgeType::ET_POSEDGE: return lsb(new AstAnd{flp, currp(), new AstNot{flp, prevp()}});
-        case VEdgeType::ET_NEGEDGE: return lsb(new AstAnd{flp, new AstNot{flp, currp()}, prevp()});
-        case VEdgeType::ET_HIGHEDGE: return currp();
-        case VEdgeType::ET_LOWEDGE: return new AstNot{flp, currp()};
+        case VEdgeType::ET_HYBRID:  //
+            return {new AstNeq(flp, currp(), prevp()), true};
+        case VEdgeType::ET_BOTHEDGE:  //
+            return {lsb(new AstXor{flp, currp(), prevp()}), false};
+        case VEdgeType::ET_POSEDGE:  //
+            return {lsb(new AstAnd{flp, currp(), new AstNot{flp, prevp()}}), false};
+        case VEdgeType::ET_NEGEDGE:  //
+            return {lsb(new AstAnd{flp, new AstNot{flp, currp()}, prevp()}), false};
+        case VEdgeType::ET_HIGHEDGE:  //
+            return {currp(), false};
+        case VEdgeType::ET_LOWEDGE:  //
+            return {new AstNot{flp, currp()}, false};
         case VEdgeType::ET_EVENT: {
             UASSERT_OBJ(v3Global.hasEvents(), senItemp, "Inconsistent");
 
@@ -276,23 +255,30 @@ class SenExprBuilder final {
             // Get 'fired' state
             AstCMethodHard* const callp = new AstCMethodHard{flp, currp(), "isFired"};
             callp->dtypeSetBit();
-            return callp;
+            return {callp, false};
         }
-        default: senItemp->v3fatalSrc("Unknown edge type"); return nullptr;  // LCOV_EXCL_LINE
+        default:
+            senItemp->v3fatalSrc("Unknown edge type");
+            return {nullptr, false};  // LCOV_EXCL_LINE
         }
     }
 
 public:
-    AstNode* build(const AstSenTree* senTreep) {
+    // Returns the expression computing the trigger, and a bool indicating that
+    // this trigger should be fired on the first evaluation (at initialization)
+    std::pair<AstNode*, bool> build(const AstSenTree* senTreep) {
         FileLine* const flp = senTreep->fileline();
         AstNode* resultp = nullptr;
+        bool firedAtInitialization = false;
         for (AstSenItem* senItemp = senTreep->sensesp(); senItemp;
              senItemp = VN_AS(senItemp->nextp(), SenItem)) {
-            if (AstNode* const termp = createTerm(senItemp)) {
+            const auto& pair = createTerm(senItemp);
+            if (AstNode* const termp = pair.first) {
                 resultp = resultp ? new AstOr{flp, resultp, termp} : termp;
+                firedAtInitialization |= pair.second;
             }
         }
-        return resultp;
+        return {resultp, firedAtInitialization};
     }
 
     std::vector<AstNodeStmt*> updates() { return std::move(m_updates); }
@@ -311,57 +297,89 @@ public:
     }
 };
 
-struct Triggers final {
-    std::unordered_map<const AstSenTree*, AstSenTree*> preTrigSenTree;
-    std::unordered_map<const AstSenTree*, AstSenTree*> actTrigSenTree;
-    std::unordered_map<const AstSenTree*, AstSenTree*> nbaTrigSenTree;
+std::vector<const AstSenTree*> getSenTreesUsedBy(std::vector<const LogicByScope*> lbsps) {
+    const VNUser1InUse user1InUse;
+    std::vector<const AstSenTree*> result;
+    for (const LogicByScope* const lbsp : lbsps) {
+        lbsp->foreach ([&](AstScope*, AstActive* activep) {
+            AstSenTree* const senTreep = activep->sensesp();
+            if (senTreep->user1SetOnce()) return;
+            if (senTreep->hasClocked() || senTreep->hasHybrid()) result.push_back(senTreep);
+        });
+    }
+    return result;
+}
+
+AstAssign* setVar(AstVarScope* vscp, uint32_t val) {
+    FileLine* const flp = vscp->fileline();
+    AstVarRef* const refp = new AstVarRef{flp, vscp, VAccess::WRITE};
+    AstConst* const zerop = new AstConst{flp, AstConst::DtypedValue{}, vscp->dtypep(), val};
+    return new AstAssign{flp, refp, zerop};
 };
 
-Triggers createTriggers(AstNetlist* netlistp, AstCFunc* initp) {
+struct TriggerKit {
+    // The TRIGGERVEC AstVarScope representing these trigger flags
+    AstVarScope* const m_vscp;
+    // The AstCFunc that computes the current active triggers
+    AstCFunc* const m_funcp;
+    // The map from input sensitivity list to trigger sensitivitylist
+    const std::unordered_map<const AstSenTree*, AstSenTree*> m_map;
+
+    VL_UNCOPYABLE(TriggerKit);
+    TriggerKit(TriggerKit&& other) = default;
+    TriggerKit& operator=(TriggerKit&&) = default;
+
+    // Create an AstSenTree that is sensitive to trigger 0. Must not exist yet!
+    AstSenTree* createFirstTriggerRef(AstNetlist* netlistp) const {
+        AstTopScope* const topScopep = netlistp->topScopep();
+        FileLine* const flp = topScopep->fileline();
+        AstVarRef* const vrefp = new AstVarRef{flp, m_vscp, VAccess::READ};
+        AstCMethodHard* callp = new AstCMethodHard{flp, vrefp, "at", new AstConst{flp, 0}};
+        callp->dtypeSetBit();
+        callp->pure(true);
+        AstSenItem* const senItemp = new AstSenItem{flp, VEdgeType::ET_TRUE, callp};
+        AstSenTree* const resultp = new AstSenTree{flp, senItemp};
+        topScopep->addSenTreep(resultp);
+        return resultp;
+    }
+
+    // Utility that assigns the 0 index trigger to fire when the given variable is zero
+    void addFirstIterationTriggerAssignment(AstVarScope* counterp) const {
+        FileLine* const flp = counterp->fileline();
+        AstVarRef* const vrefp = new AstVarRef{flp, m_vscp, VAccess::WRITE};
+        AstCMethodHard* callp = new AstCMethodHard{flp, vrefp, "at", new AstConst{flp, 0}};
+        callp->dtypeSetBit();
+        callp->pure(true);
+        m_funcp->stmtsp()->addHereThisAsNext(new AstAssign{
+            flp, callp,
+            new AstEq{flp, new AstVarRef{flp, counterp, VAccess::READ}, new AstConst{flp, 0}}});
+    }
+};
+
+const TriggerKit createTriggers(AstNetlist* netlistp, AstCFunc* initp,
+                                std::vector<const AstSenTree*> senTreeps, const string& name,
+                                unsigned extra, bool slow = false) {
+    // TODO: don't generate empty trigger vectors
+
     AstTopScope* const topScopep = netlistp->topScopep();
     AstScope* const scopeTopp = topScopep->scopep();
     FileLine* const flp = scopeTopp->fileline();
 
-    Triggers triggers;
+    std::unordered_map<const AstSenTree*, AstSenTree*> map;
 
-    // Count the number of unique triggers, and also associate each unique AstSenTree with its
-    // trigger number.
+    const uint32_t nTriggers = senTreeps.size() + extra;
 
-    // Create the iteration counters
-    AstNodeDType* const cDtypep = netlistp->findUInt32DType();
-    AstVarScope* const actCountp = scopeTopp->createTemp("__VactIterCount", cDtypep);
-    AstVarScope* const nbaCountp = scopeTopp->createTemp("__VnbaIterCount", cDtypep);
-    netlistp->actCountp(actCountp);
-    netlistp->nbaCountp(nbaCountp);
-
-    uint32_t uniqueTriggers = 0;
-    if (topScopep->senTreesp()) {
-        // TODO: don't generate empty trigger vectors
-        topScopep->senTreesp()->foreachAndNext<AstSenTree>([&](const AstSenTree* senTreep) {
-            if (!senTreep->hasClocked() && !senTreep->hasHybrid()) return;
-            uniqueTriggers++;
-        });
-    }
-
-    // Create the triggered flags
-    AstBasicDType* const tDtypep = new AstBasicDType(
-        flp, VBasicDTypeKwd::TRIGGERVEC, VSigning::UNSIGNED, uniqueTriggers, uniqueTriggers);
+    // Create the TRIGGERVEC variable
+    AstBasicDType* const tDtypep = new AstBasicDType(flp, VBasicDTypeKwd::TRIGGERVEC,
+                                                     VSigning::UNSIGNED, nTriggers, nTriggers);
     netlistp->typeTablep()->addTypesp(tDtypep);
-    AstVarScope* const preTrigsp = scopeTopp->createTemp("__VpreTriggered", tDtypep);
-    AstVarScope* const actTrigsp = scopeTopp->createTemp("__VactTriggered", tDtypep);
-    AstVarScope* const nbaTrigsp = scopeTopp->createTemp("__VnbaTriggered", tDtypep);
-    netlistp->preTrigsp(preTrigsp);
-    netlistp->actTrigsp(actTrigsp);
-    netlistp->nbaTrigsp(nbaTrigsp);
+    AstVarScope* const vscp = scopeTopp->createTemp("__V" + name + "Triggered", tDtypep);
 
-    // The trigger check function
-    AstCFunc* const funcp = makeTopFunction(netlistp, "_eval_triggers", false);
-    netlistp->compTrigsp(funcp);
-
-    if (!topScopep->senTreesp()) return triggers;
+    // Create the trigger computation function TODO: this should be sub-function
+    AstCFunc* const funcp = makeSubFunction(netlistp, "_eval_triggers__" + name, slow);
 
     // Create a reference to a trigger flag
-    const auto getTrigRef = [&](AstVarScope* vscp, uint32_t index, VAccess access) {
+    const auto getTrigRef = [&](uint32_t index, VAccess access) {
         AstVarRef* const vrefp = new AstVarRef{flp, vscp, access};
         AstConst* const idxp = new AstConst{flp, index};
         AstCMethodHard* callp = new AstCMethodHard{flp, vrefp, "at", idxp};
@@ -370,52 +388,71 @@ Triggers createTriggers(AstNetlist* netlistp, AstCFunc* initp) {
         return callp;
     };
 
-    // Create trigger AstSenTrees. Defer adding the new AstSenTrees to topScopep as we are
-    // iterating the same list of nodes below.
-    std::vector<AstSenTree*> newSenTreeps;
-    const auto getSenTrue = [&](AstVarScope* vscp, uint32_t index) {  //
-        AstCMethodHard* const senp = getTrigRef(vscp, index, VAccess::READ);
-        AstSenItem* const senItemp = new AstSenItem{flp, VEdgeType::ET_TRUE, senp};
-        AstSenTree* const senTreep = new AstSenTree{flp, senItemp};
-        newSenTreeps.push_back(senTreep);
-        return senTreep;
+    // Add a debug dumping statement for this trigger
+    AstNode* debugp = nullptr;
+    const auto addDebug = [&](uint32_t index, const string& text = "") {
+        std::stringstream ss;
+        ss << "VL_DBG_MSGF(\"         Triggered " << name << " index " << cvtToStr(index);
+        if (!text.empty()) ss << ": " << text;
+        ss << "\\n\");\n";
+        const string message{ss.str()};
+
+        AstIf* const ifp = new AstIf{flp, getTrigRef(index, VAccess::READ)};
+        debugp = AstNode::addNext(debugp, ifp);
+        ifp->addIfsp(new AstText{flp, message, true});
     };
 
     // Populate
-    uint32_t triggerNumber = 0;
-    SenExprBuilder senExprBuilder{netlistp, initp, "act"};
-    AstNode* debugp = nullptr;
-    topScopep->senTreesp()->foreachAndNext<AstSenTree>([&](const AstSenTree* senTreep) {  //
-        if (!senTreep->hasClocked() && !senTreep->hasHybrid()) return;
+    for (unsigned i = 0; i < extra; ++i) addDebug(i);
+    uint32_t triggerNumber = extra;
+    SenExprBuilder senExprBuilder{netlistp, initp, name};
+    AstNode* initialTrigsp = nullptr;
+    for (const AstSenTree* const senTreep : senTreeps) {
+        UASSERT_OBJ(senTreep->hasClocked() || senTreep->hasHybrid(), senTreep,
+                    "Cannot create trigger expression for non-clocked sensitivity");
 
-        // Create the trigger AstSenTrees
-        triggers.preTrigSenTree[senTreep] = getSenTrue(preTrigsp, triggerNumber);
-        triggers.actTrigSenTree[senTreep] = getSenTrue(actTrigsp, triggerNumber);
-        triggers.nbaTrigSenTree[senTreep] = getSenTrue(nbaTrigsp, triggerNumber);
+        // Create the trigger AstSenTrees and associate it with the original AstSenTree
+        AstCMethodHard* const senp = getTrigRef(triggerNumber, VAccess::READ);
+        AstSenItem* const senItemp = new AstSenItem{flp, VEdgeType::ET_TRUE, senp};
+        AstSenTree* const trigpSenp = new AstSenTree{flp, senItemp};
+        topScopep->addSenTreep(trigpSenp);
+        map[senTreep] = trigpSenp;
 
         // Add the trigger computation
-        funcp->addStmtsp(new AstAssign{flp, getTrigRef(actTrigsp, triggerNumber, VAccess::WRITE),
-                                       senExprBuilder.build(senTreep)});
+        const auto& pair = senExprBuilder.build(senTreep);
+        funcp->addStmtsp(
+            new AstAssign{flp, getTrigRef(triggerNumber, VAccess::WRITE), pair.first});
 
-        // Add a debug dumping statement for this trigger
-        {
-            std::stringstream ss;
-            ss << "VL_DBG_MSGF(\"         Triggered: ";
-            V3EmitV::verilogForTree(senTreep, ss);
-            ss << "\\n\");\n";
-            const string message{ss.str()};
-
-            AstIf* const ifp = new AstIf{flp, getTrigRef(actTrigsp, triggerNumber, VAccess::READ)};
-            debugp = AstNode::addNext(debugp, ifp);
-            ifp->addIfsp(new AstText{flp, message, true});
+        // Add initialization time trigger
+        if (pair.second || v3Global.opt.xInitialEdge()) {
+            AstNode* const assignp = new AstAssign{flp, getTrigRef(triggerNumber, VAccess::WRITE),
+                                                   new AstConst{flp, 1}};
+            initialTrigsp = AstNode::addNext(initialTrigsp, assignp);
         }
+
+        // Add a debug statement for this trigger
+        std::stringstream ss;
+        V3EmitV::verilogForTree(senTreep, ss);
+        addDebug(triggerNumber, ss.str());
 
         //
         ++triggerNumber;
-    });
+    }
+    // Add the update statements
     for (AstNodeStmt* const nodep : senExprBuilder.updates()) funcp->addStmtsp(nodep);
 
-    // Add debug dumping section
+    // Add the initialization statements
+    if (initialTrigsp) {
+        AstVarScope* const vscp = scopeTopp->createTemp("__V" + name + "DidInit", 1);
+        AstVarRef* const condp = new AstVarRef{flp, vscp, VAccess::READ};
+        AstIf* const ifp = new AstIf{flp, new AstNot{flp, condp}};
+        funcp->addStmtsp(ifp);
+        ifp->branchPred(VBranchPred::BP_UNLIKELY);
+        ifp->addIfsp(setVar(vscp, 1));
+        ifp->addIfsp(initialTrigsp);
+    }
+
+    // Add the debug dumping section
     {
         AstTextBlock* const blockp = new AstTextBlock{flp};
         funcp->addStmtsp(blockp);
@@ -423,7 +460,7 @@ Triggers createTriggers(AstNetlist* netlistp, AstCFunc* initp) {
         add("#ifdef VL_DEBUG\n");
         add("if (VL_UNLIKELY(vlSymsp->_vm_contextp__->debug())) {\n");
         AstCMethodHard* const callp
-            = new AstCMethodHard{flp, new AstVarRef{flp, actTrigsp, VAccess::READ}, "any"};
+            = new AstCMethodHard{flp, new AstVarRef{flp, vscp, VAccess::READ}, "any"};
         callp->dtypeSetBit();
         AstIf* const ifp = new AstIf{flp, callp};
         blockp->addNodep(ifp);
@@ -434,21 +471,7 @@ Triggers createTriggers(AstNetlist* netlistp, AstCFunc* initp) {
         add("#endif\n");
     }
 
-    // Add new AstSenTrees under the netlist
-    for (AstSenTree* const senTreep : newSenTreeps) topScopep->addSenTreep(senTreep);
-
-    return triggers;
-}
-
-void clearTrigger(AstNetlist* netlistp, AstEval* evalp, AstVarScope* trigp) {
-    FileLine* const flp = evalp->fileline();
-
-    // Clear triggers at the end
-    AstVarRef* const refp = new AstVarRef{flp, trigp, VAccess::WRITE};
-    AstCMethodHard* const callp = new AstCMethodHard{flp, refp, "clear"};
-    callp->statement(true);
-    callp->dtypeSetVoid();
-    evalp->addBodyp(callp);
+    return {vscp, funcp, map};
 }
 
 void remapSensitivities(LogicByScope& lbs,
@@ -462,179 +485,308 @@ void remapSensitivities(LogicByScope& lbs,
     });
 }
 
-void createActive(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
-                  const Triggers& triggers) {
-    AstEval* const evalp = makeEval(netlistp, VEvalKind::ACTIVE);
+AstNode* buildLoop(AstNetlist* netlistp, const string& name,
+                   std::function<void(AstVarScope*, AstWhile*)> build)  //
+{
+    AstTopScope* const topScopep = netlistp->topScopep();
+    AstScope* const scopeTopp = topScopep->scopep();
+    FileLine* const flp = scopeTopp->fileline();
+    // Create the loop condition variable
+    AstVarScope* const condp = scopeTopp->createTemp("__V" + name + "Continue", 1);
+    // Initialize the loop condition variable to true
+    AstNode* const resp = setVar(condp, 1);
+    // Add the loop
+    AstWhile* const loopp = new AstWhile{flp, new AstVarRef{flp, condp, VAccess::READ}};
+    resp->addNext(loopp);
+    // Clear the loop condition variable in the loop
+    loopp->addBodysp(setVar(condp, 0));
+    // Build the body
+    build(condp, loopp);
+    // Done
+    return resp;
+};
 
-    remapSensitivities(logicRegions.m_pre, triggers.preTrigSenTree);
-    remapSensitivities(logicRegions.m_active, triggers.actTrigSenTree);
-    remapSensitivities(replicas, triggers.actTrigSenTree);
+AstNode* incrementIterationCount(AstNetlist* netlistp, AstVarScope* cntp, const string& name) {
+    FileLine* const flp = cntp->fileline();
+
+    AstNode* resp = nullptr;
+
+    // If we exceeded the iteration limit, die
+    {
+        AstTextBlock* const blockp = new AstTextBlock{flp};
+        const uint32_t limit = v3Global.opt.convergeLimit();
+        AstVarRef* const refp = new AstVarRef{flp, cntp, VAccess::READ};
+        AstConst* const constp = new AstConst{flp, AstConst::DtypedValue{}, cntp->dtypep(), limit};
+        AstNodeMath* const condp = new AstGt{flp, refp, constp};
+        AstIf* const ifp = new AstIf{flp, condp, blockp};
+        FileLine* const locp = netlistp->topModulep()->fileline();
+        const string& file = EmitCBaseVisitor::protect(locp->filename());
+        const string& line = cvtToStr(locp->lineno());
+        const auto add = [&](const string& text) { blockp->addText(flp, text, true); };
+        add("VL_FATAL_MT(\"" + file + "\", " + line + ", \"\", ");
+        add("\"" + name + " region did not converge.\");\n");
+        resp = ifp;
+    }
+
+    // Increment iteration count
+    {
+        AstVarRef* const wrefp = new AstVarRef{flp, cntp, VAccess::WRITE};
+        AstVarRef* const rrefp = new AstVarRef{flp, cntp, VAccess::READ};
+        AstConst* const onep = new AstConst{flp, AstConst::DtypedValue{}, cntp->dtypep(), 1};
+        resp->addNext(new AstAssign{flp, wrefp, new AstAdd{flp, rrefp, onep}});
+    }
+
+    return resp;
+};
+
+std::pair<AstVarScope*, AstNode*> makeEvalLoop(AstNetlist* netlistp, const string& tag,
+                                               const string& name, AstVarScope* trigVscp,
+                                               std::function<AstNode*()> computeTriggers,
+                                               std::function<AstNode*()> makeBody) {
+    UASSERT_OBJ(trigVscp->dtypep()->basicp()->isTriggerVec(), trigVscp, "Not TRIGGERVEC");
+    AstTopScope* const topScopep = netlistp->topScopep();
+    AstScope* const scopeTopp = topScopep->scopep();
+    FileLine* const flp = scopeTopp->fileline();
+
+    AstVarScope* const counterp = scopeTopp->createTemp("__V" + tag + "IterCount", 32);
+
+    AstNode* nodep = setVar(counterp, 0);
+    nodep->addNext(buildLoop(netlistp, tag, [&](AstVarScope* condp, AstWhile* loopp) {
+        // Compute triggers
+        loopp->addBodysp(computeTriggers());
+        // Invoke body if triggered
+        {
+            AstVarRef* const refp = new AstVarRef{flp, trigVscp, VAccess::READ};
+            AstCMethodHard* const callp = new AstCMethodHard{flp, refp, "any"};
+            callp->dtypeSetBit();
+            AstIf* const ifp = new AstIf{flp, callp};
+            loopp->addBodysp(ifp);
+            ifp->addIfsp(setVar(condp, 1));
+            ifp->addIfsp(incrementIterationCount(netlistp, counterp, name));
+            ifp->addIfsp(makeBody());
+        }
+    }));
+
+    return {counterp, nodep};
+}
+
+void createSettle(AstNetlist* netlistp, AstCFunc* initp, LogicClasses& logicClasses) {
+    AstCFunc* const funcp = makeTopFunction(netlistp, "_eval_settle", true);
+
+    // Clone, because ordering is destructive, but we still need them for "_eval"
+    LogicByScope comb = logicClasses.m_comb.clone();
+    LogicByScope hybrid = logicClasses.m_hybrid.clone();
+
+    // Nothing to do if there is no logic.
+    // While this is rare in real designs, it reduces noise in small tests.
+    if (comb.empty() && hybrid.empty()) return;
+
+    // Gather the relevant sensitivity expressions and create the trigger kit
+    const auto& senTreeps = getSenTreesUsedBy({&comb, &hybrid});
+    const TriggerKit& trig = createTriggers(netlistp, initp, senTreeps, "stl", 1, true);
+
+    // Remap sensitivities (comb has none, so only do the hybrid)
+    remapSensitivities(hybrid, trig.m_map);
+
+    // First trigger is for pure combinational triggers (first iteration)
+    AstSenTree* const inputChanged = trig.createFirstTriggerRef(netlistp);
+
+    // Create and Order the body function
+    AstCFunc* const stlFuncp = makeSubFunction(netlistp, "_eval_stl", true);
+    const auto activeps
+        = V3Order::orderST(netlistp, {&comb, &hybrid}, V3Order::OrderMode::Settle, inputChanged);
+    for (AstActive* const activep : activeps) stlFuncp->addStmtsp(activep);
+
+    // Dispose of the remnants of the inputs
+    comb.deleteActives();
+    hybrid.deleteActives();
+
+    // Create the eval loop
+    const auto& pair = makeEvalLoop(
+        netlistp, "stl", "Settle", trig.m_vscp,
+        [&]() {  // Trigger
+            return new AstCCall{stlFuncp->fileline(), trig.m_funcp};
+        },
+        [&]() {  // Body
+            return new AstCCall{stlFuncp->fileline(), stlFuncp};
+        });
+
+    // Add the first iteration trigger to the trigger computation function
+    trig.addFirstIterationTriggerAssignment(pair.first);
+
+    // Add the eval loop to the top function
+    funcp->addStmtsp(pair.second);
+}
+
+AstNode* createInputCombLoop(AstNetlist* netlistp, AstCFunc* initp, LogicByScope& logic) {
+    // Nothing to do if no combinational logic is sensitive to top level inputs
+    if (logic.empty()) return nullptr;
+
+    // Gather the relevant sensitivity expressions and create the trigger kit
+    const auto& senTreeps = getSenTreesUsedBy({&logic});
+    const TriggerKit& trig = createTriggers(netlistp, initp, senTreeps, "ico", 1);
+
+    // Remap sensitivities
+    remapSensitivities(logic, trig.m_map);
+
+    // First trigger is for pure combinational triggers (first iteration)
+    AstSenTree* const inputChanged = trig.createFirstTriggerRef(netlistp);
+
+    // Create and Order the body function
+    AstCFunc* const icoFuncp = makeSubFunction(netlistp, "_eval_ico", false);
+    const auto activeps
+        = V3Order::orderST(netlistp, {&logic}, V3Order::OrderMode::InputComb, inputChanged);
+    for (AstActive* const activep : activeps) icoFuncp->addStmtsp(activep);
+
+    // Dispose of the remnants of the inputs
+    logic.deleteActives();
+
+    // Create the eval loop
+    const auto& pair = makeEvalLoop(
+        netlistp, "ico", "Input combinational", trig.m_vscp,
+        [&]() {  // Trigger
+            return new AstCCall{icoFuncp->fileline(), trig.m_funcp};
+        },
+        [&]() {  // Body
+            return new AstCCall{icoFuncp->fileline(), icoFuncp};
+        });
+
+    // Add the first iteration trigger to the trigger computation function
+    trig.addFirstIterationTriggerAssignment(pair.first);
+
+    // Return the eval loop itself
+    return pair.second;
+}
+
+AstCFunc* createActive(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
+                       const std::unordered_map<const AstSenTree*, AstSenTree*>& preTrigMap,
+                       const std::unordered_map<const AstSenTree*, AstSenTree*>& actTrigMap) {
+    AstCFunc* const funcp = makeSubFunction(netlistp, "_eval_act", false);
+
+    remapSensitivities(logicRegions.m_pre, preTrigMap);
+    remapSensitivities(logicRegions.m_active, actTrigMap);
+    remapSensitivities(replicas, actTrigMap);
 
     // TODO: there can only be a single ExecGraph right now, use it for the NBA
     const auto activeps
         = V3Order::orderST(netlistp, {&logicRegions.m_pre, &logicRegions.m_active, &replicas},
                            V3Order::OrderMode::ActiveRegion);
-    for (AstActive* const activep : activeps) evalp->addBodyp(activep);
-
-    clearTrigger(netlistp, evalp, netlistp->preTrigsp());
-    clearTrigger(netlistp, evalp, netlistp->actTrigsp());
+    for (AstActive* const activep : activeps) funcp->addStmtsp(activep);
 
     // Dispose of the remnants of the inputs
     logicRegions.m_pre.deleteActives();
     logicRegions.m_active.deleteActives();
     replicas.deleteActives();
+
+    return funcp;
 }
 
-void createNBA(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
-               const Triggers& triggers) {
-    AstEval* const evalp = makeEval(netlistp, VEvalKind::NBA);
+AstCFunc* createNBA(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
+                    const std::unordered_map<const AstSenTree*, AstSenTree*>& nbaTrigMap) {
+    AstCFunc* const funcp = makeSubFunction(netlistp, "_eval_nba", false);
 
-    remapSensitivities(logicRegions.m_nba, triggers.nbaTrigSenTree);
-    remapSensitivities(replicas, triggers.nbaTrigSenTree);
+    remapSensitivities(logicRegions.m_nba, nbaTrigMap);
+    remapSensitivities(replicas, nbaTrigMap);
 
     // Order it
     if (v3Global.opt.mtasks()) {
         AstExecGraph* const execGraphp = V3Order::orderMT(
             netlistp, {&logicRegions.m_nba, &replicas}, V3Order::OrderMode::NBARegion);
-        evalp->addBodyp(execGraphp);
+        funcp->addStmtsp(execGraphp);
     } else {
         const auto activeps = V3Order::orderST(netlistp, {&logicRegions.m_nba, &replicas},
                                                V3Order::OrderMode::NBARegion);
-        for (AstActive* const activep : activeps) evalp->addBodyp(activep);
+        for (AstActive* const activep : activeps) funcp->addStmtsp(activep);
     }
-
-    clearTrigger(netlistp, evalp, netlistp->nbaTrigsp());
 
     // Dispose of the remnants of the inputs
     logicRegions.m_nba.deleteActives();
     replicas.deleteActives();
+
+    return funcp;
 }
 
-void createInputComb(AstNetlist* netlistp, AstCFunc* initp, LogicByScope& logic) {
-    // Nothing to do if no combinational logic is sensitive to top level inputs
-    if (logic.empty()) return;
-
+void createEval(AstNetlist* netlistp,  //
+                AstNode* icoLoop,  //
+                const TriggerKit& actTrig,  //
+                AstVarScope* preTrigsp,  //
+                AstVarScope* nbaTrigsp,  //
+                AstCFunc* actFuncp,  //
+                AstCFunc* nbaFuncp  //
+) {
+    FileLine* const flp = netlistp->fileline();
     AstTopScope* const topScopep = netlistp->topScopep();
     AstScope* const scopeTopp = topScopep->scopep();
-    FileLine* const flp = scopeTopp->fileline();
 
-    // Gather the unique senTrees used by the logic
-    std::vector<const AstSenTree*> triggers;
-    {
-        const VNUser1InUse user1InUse;
-        logic.foreach ([&](AstScope*, AstActive* activep) {
-            AstSenTree* const senTreep = activep->sensesp();
-            if (senTreep->user1SetOnce() || !senTreep->hasHybrid()) return;
-            triggers.push_back(senTreep);
-        });
-    }
+    AstCFunc* const funcp = makeTopFunction(netlistp, "_eval", false);
+    netlistp->evalp(funcp);
 
-    // Create the triggered flags
-    const size_t nTriggers = triggers.size() + 1;  // First one is always for pure comb logic
-    AstBasicDType* const tDtypep = new AstBasicDType(flp, VBasicDTypeKwd::TRIGGERVEC,
-                                                     VSigning::UNSIGNED, nTriggers, nTriggers);
-    netlistp->typeTablep()->addTypesp(tDtypep);
-    AstVarScope* const trigsp = scopeTopp->createTemp("__VicoTriggered", tDtypep);
-    trigsp->varp()->noReset(true);
+    // Start with the ico loop, if any
+    if (icoLoop) funcp->addStmtsp(icoLoop);
 
-    // Create a reference to a trigger flag
-    const auto getTrigRef = [&](uint32_t index, VAccess access) {
-        AstVarRef* const vrefp = new AstVarRef{flp, trigsp, access};
-        AstConst* const idxp = new AstConst{flp, index};
-        AstCMethodHard* callp = new AstCMethodHard{flp, vrefp, "at", idxp};
-        callp->dtypeSetBit();
-        callp->pure(true);
-        return callp;
-    };
+    // Create the active eval loop
+    AstNode* const activeEvalLoopp
+        = makeEvalLoop(
+              netlistp, "act", "Active", actTrig.m_vscp,
+              [&]() {  // Trigger
+                  return new AstCCall{flp, actTrig.m_funcp};
+              },
+              [&]() {  // Body
+                  AstNode* resultp = nullptr;
 
-    // Create trigger AstSenTrees. Defer adding the new AstSenTrees to topScopep as we are
-    // iterating the same list of nodes below.
-    std::vector<AstSenTree*> newSenTreeps;
-    const auto getSenTrue = [&](uint32_t index) {
-        AstCMethodHard* const senp = getTrigRef(index, VAccess::READ);
-        AstSenItem* const senItemp = new AstSenItem{flp, VEdgeType::ET_TRUE, senp};
-        AstSenTree* const senTreep = new AstSenTree{flp, senItemp};
-        newSenTreeps.push_back(senTreep);
-        return senTreep;
-    };
+                  // Compute the pre triggers
+                  {
+                      AstVarRef* const lhsp = new AstVarRef{flp, preTrigsp, VAccess::WRITE};
+                      AstVarRef* const opap = new AstVarRef{flp, actTrig.m_vscp, VAccess::READ};
+                      AstVarRef* const opbp = new AstVarRef{flp, nbaTrigsp, VAccess::READ};
+                      opap->addNext(opbp);
+                      AstCMethodHard* const callp = new AstCMethodHard{flp, lhsp, "andNot", opap};
+                      callp->statement(true);
+                      callp->dtypeSetVoid();
+                      resultp = AstNode::addNext(resultp, callp);
+                  }
 
-    // Create the function
-    AstCFunc* const funcp = makeTopFunction(netlistp, "_eval_comb_inputs", false);
-    netlistp->evalIncombp(funcp);
+                  // Latch the active trigger flags under the NBA trigger flags
+                  {
+                      AstVarRef* const lhsp = new AstVarRef{flp, nbaTrigsp, VAccess::WRITE};
+                      AstVarRef* const argp = new AstVarRef{flp, actTrig.m_vscp, VAccess::READ};
+                      AstCMethodHard* const callp = new AstCMethodHard{flp, lhsp, "set", argp};
+                      callp->statement(true);
+                      callp->dtypeSetVoid();
+                      resultp = AstNode::addNext(resultp, callp);
+                  }
 
-    const auto setVar = [&](AstVarScope* cntp, uint32_t val) {
-        AstVarRef* const refp = new AstVarRef{flp, cntp, VAccess::WRITE};
-        AstConst* const zerop = new AstConst{flp, AstConst::DtypedValue{}, cntp->dtypep(), val};
-        return new AstAssign{flp, refp, zerop};
-    };
+                  // Invoke body function
+                  return AstNode::addNext(resultp, new AstCCall{flp, actFuncp});
+              })
+              .second;
 
-    const auto testZero = [&](AstVarScope* cntp) -> AstNodeMath* {
-        AstVarRef* const refp = new AstVarRef{flp, cntp, VAccess::READ};
-        AstConst* const zerop = new AstConst{flp, AstConst::DtypedValue{}, cntp->dtypep(), 0};
-        return new AstEq{flp, refp, zerop};
-    };
+    // Create the NBA eval loop. This uses the Active eval loop in the trigger section.
+    AstNode* const nbaEvalLoopp
+        = makeEvalLoop(
+              netlistp, "nba", "NBA", nbaTrigsp,
+              [&]() {  // Trigger
+                  AstNode* resultp = nullptr;
 
-    // Create and initialize the iteration counter
-    AstVarScope* const counterp = scopeTopp->createTemp("__VicoIterCount", 32);
-    funcp->addStmtsp(setVar(counterp, 0));
+                  // Reset NBA triggers
+                  {
+                      AstVarRef* const refp = new AstVarRef{flp, nbaTrigsp, VAccess::WRITE};
+                      AstCMethodHard* const callp = new AstCMethodHard{flp, refp, "clear"};
+                      callp->statement(true);
+                      callp->dtypeSetVoid();
+                      resultp = AstNode::addNext(resultp, callp);
+                  }
 
-    // Create the loop condition variable
-    AstVarScope* const condp = scopeTopp->createTemp("__VicoContinue", 1);
-    funcp->addStmtsp(setVar(condp, 1));
-    // Add the loop
-    AstWhile* const loopp = new AstWhile{flp, new AstVarRef{flp, condp, VAccess::READ}};
-    funcp->addStmtsp(loopp);
-    // Clear the loop condition variable in the loop
-    loopp->addBodysp(setVar(condp, 0));
+                  // Run the Active eval loop
+                  return AstNode::addNext(resultp, activeEvalLoopp);
+              },
+              [&]() {  // Body
+                  return new AstCCall{flp, nbaFuncp};
+              })
+              .second;
 
-    // Compute trigger expressions
-    // First is for pure combinational triggers
-    AstSenTree* const inputChanged = getSenTrue(0);
-    loopp->addBodysp(new AstAssign{flp, getTrigRef(0, VAccess::WRITE), testZero(counterp)});
-    // Rest are for hybrid logic
-    uint32_t triggerNumber = 1;
-    std::unordered_map<const AstSenTree*, AstSenTree*> trigSenTree;
-    SenExprBuilder senExprBuilder{netlistp, initp, "ico"};
-    for (const AstSenTree* const senTreep : triggers) {
-        // Create the trigger AstSenTrees
-        trigSenTree[senTreep] = getSenTrue(triggerNumber);
-
-        // Add the trigger computation
-        loopp->addBodysp(new AstAssign{flp, getTrigRef(triggerNumber, VAccess::WRITE),
-                                       senExprBuilder.build(senTreep)});
-
-        //
-        ++triggerNumber;
-    }
-    for (AstNodeStmt* const nodep : senExprBuilder.updates()) loopp->addBodysp(nodep);
-    // Add new AstSenTrees under the netlist
-    for (AstSenTree* const senTreep : newSenTreeps) topScopep->addSenTreep(senTreep);
-
-    // Create if
-    AstCMethodHard* const callp
-        = new AstCMethodHard{flp, new AstVarRef{flp, trigsp, VAccess::READ}, "any"};
-    callp->dtypeSetBit();
-
-    AstIf* const ifp = new AstIf{flp, callp};
-    loopp->addBodysp(ifp);
-    ifp->addIfsp(setVar(condp, 1));
-    ifp->addIfsp(new AstAssign{
-        flp, new AstVarRef{flp, counterp, VAccess::WRITE},
-        new AstAdd{flp, new AstVarRef{flp, counterp, VAccess::READ}, new AstConst{flp, 1}}});
-
-    remapSensitivities(logic, trigSenTree);
-
-    // Order and add to loop body via sub-function
-    {
-        AstCFunc* const bodyp = makeTopFunction(netlistp, "_eval_ico", false);
-        bodyp->entryPoint(false);
-        ifp->addIfsp(new AstCCall{flp, bodyp});
-        const auto activeps
-            = V3Order::orderST(netlistp, {&logic}, V3Order::OrderMode::InputComb, inputChanged);
-        for (AstActive* const activep : activeps) bodyp->addStmtsp(activep);
-    }
-
-    logic.deleteActives();
+    // Add the NBA eval loop
+    funcp->addStmtsp(nbaEvalLoopp);
 }
 
 }  // namespace
@@ -652,7 +804,6 @@ void schedule(AstNetlist* netlistp) {
         V3Stats::statsStage("sched-gather");
         addSizeStat("size of class: static", logicClasses.m_statics);
         addSizeStat("size of class: initial", logicClasses.m_initial);
-        addSizeStat("size of class: settle", logicClasses.m_settle);
         addSizeStat("size of class: final", logicClasses.m_final);
     }
 
@@ -665,9 +816,6 @@ void schedule(AstNetlist* netlistp) {
     createFinal(netlistp, logicClasses);
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-final");
 
-    createSettle(netlistp, logicClasses);
-    if (v3Global.opt.stats()) V3Stats::statsStage("sched-settle");
-
     // Note: breakCycles also removes corresponding logic from logicClasses.m_comb;
     logicClasses.m_hybrid = breakCycles(netlistp, logicClasses.m_comb);
     if (v3Global.opt.stats()) {
@@ -676,6 +824,9 @@ void schedule(AstNetlist* netlistp) {
         addSizeStat("size of class: hybrid", logicClasses.m_hybrid);
         V3Stats::statsStage("sched-break-cycles");
     }
+
+    createSettle(netlistp, initp, logicClasses);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-settle");
 
     LogicRegions logicRegions
         = partition(logicClasses.m_clocked, logicClasses.m_comb, logicClasses.m_hybrid);
@@ -694,17 +845,53 @@ void schedule(AstNetlist* netlistp) {
         V3Stats::statsStage("sched-replicate");
     }
 
-    const Triggers triggers = createTriggers(netlistp, initp);
-    if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-triggers");
-
-    createInputComb(netlistp, initp, logicReplicas.m_input);
+    AstNode* const icoLoopp = createInputCombLoop(netlistp, initp, logicReplicas.m_input);
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-ico");
 
-    createActive(netlistp, logicRegions, logicReplicas.m_active, triggers);
+    const auto& senTreeps = getSenTreesUsedBy({&logicRegions.m_pre,  //
+                                               &logicRegions.m_active,  //
+                                               &logicRegions.m_nba});
+    const auto& actTrig = createTriggers(netlistp, initp, senTreeps, "act", 0);
+
+    AstTopScope* const topScopep = netlistp->topScopep();
+    AstScope* const scopeTopp = topScopep->scopep();
+
+    AstVarScope* const actTrigVscp = actTrig.m_vscp;
+    AstVarScope* const preTrigVscp = scopeTopp->createTempLike("__VpreTriggered", actTrigVscp);
+    AstVarScope* const nbaTrigVscp = scopeTopp->createTempLike("__VnbaTriggered", actTrigVscp);
+
+    const auto cloneMapWithNewTriggerReferences
+        = [=](std::unordered_map<const AstSenTree*, AstSenTree*> map, AstVarScope* vscp) {
+              // Copy map
+              auto newMap{map};
+              VNDeleter deleter;
+              // Replace references in each mapped value with a reference to the given vscp
+              for (auto& pair : newMap) {
+                  pair.second = pair.second->cloneTree(false);
+                  pair.second->foreach<AstVarRef>([&](AstVarRef* refp) {
+                      UASSERT_OBJ(refp->varScopep() == actTrigVscp, refp, "Unexpected reference");
+                      UASSERT_OBJ(refp->access() == VAccess::READ, refp, "Should be read ref");
+                      refp->replaceWith(new AstVarRef{refp->fileline(), vscp, VAccess::READ});
+                      deleter.pushDeletep(refp);
+                  });
+                  topScopep->addSenTreep(pair.second);
+              }
+              return newMap;
+          };
+
+    const auto& actTrigMap = actTrig.m_map;
+    const auto preTrigMap = cloneMapWithNewTriggerReferences(actTrigMap, preTrigVscp);
+    const auto nbaTrigMap = cloneMapWithNewTriggerReferences(actTrigMap, nbaTrigVscp);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-triggers");
+
+    AstCFunc* const actFuncp
+        = createActive(netlistp, logicRegions, logicReplicas.m_active, preTrigMap, actTrigMap);
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-act");
 
-    createNBA(netlistp, logicRegions, logicReplicas.m_nba, triggers);
+    AstCFunc* const nbaFuncp = createNBA(netlistp, logicRegions, logicReplicas.m_nba, nbaTrigMap);
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-nba");
+
+    createEval(netlistp, icoLoopp, actTrig, preTrigVscp, nbaTrigVscp, actFuncp, nbaFuncp);
 
     splitCheck(initp);
 

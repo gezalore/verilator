@@ -75,7 +75,6 @@ struct LogicByScope final : public std::vector<std::pair<AstScope*, std::vector<
 struct LogicClasses final {
     LogicByScope m_statics;
     LogicByScope m_initial;
-    LogicByScope m_settle;
     LogicByScope m_final;
     LogicByScope m_comb;
     LogicByScope m_clocked;

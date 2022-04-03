@@ -10,6 +10,8 @@ if (!$::Driver) { use FindBin; exec("$FindBin::Bin/bootstrap.pl", @ARGV, $0); di
 
 scenarios(simulator => 1);
 
+skip("No more IMPERFECTSCH warning");
+
 top_filename("t/t_order_clkinst.v");
 
 compile(

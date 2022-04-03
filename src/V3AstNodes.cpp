@@ -877,6 +877,10 @@ AstVarScope* AstScope::createTemp(const string& name, AstNodeDType* dtypep) {
     return vscp;
 }
 
+AstVarScope* AstScope::createTempLike(const string& name, AstVarScope* vscp) {
+    return createTemp(name, vscp->dtypep());
+}
+
 string AstScopeName::scopePrettyNameFormatter(AstText* scopeTextp) const {
     string out;
     for (AstText* textp = scopeTextp; textp; textp = VN_AS(textp->nextp(), Text)) {
@@ -920,13 +924,6 @@ bool AstSenTree::hasInitial() const {
     UASSERT_OBJ(sensesp(), this, "SENTREE without any SENITEMs under it");
     for (AstSenItem* senp = sensesp(); senp; senp = VN_AS(senp->nextp(), SenItem)) {
         if (senp->isInitial()) return true;
-    }
-    return false;
-}
-bool AstSenTree::hasSettle() const {
-    UASSERT_OBJ(sensesp(), this, "SENTREE without any SENITEMs under it");
-    for (AstSenItem* senp = sensesp(); senp; senp = VN_AS(senp->nextp(), SenItem)) {
-        if (senp->isSettle()) return true;
     }
     return false;
 }
@@ -1249,15 +1246,6 @@ void AstWhile::addNextStmt(AstNode* newp, AstNode* belowp) {
         belowp->addNextHere(newp);
     } else {
         belowp->v3fatalSrc("Doesn't look like this was really under the while");
-    }
-}
-
-string AstEval::name() const {
-    switch (kind().m_e) {
-    case VEvalKind::SETTLE: return "_eval_settle";
-    case VEvalKind::ACTIVE: return "_eval_active";
-    case VEvalKind::NBA: return "_eval_nba";
-    default: v3fatalSrc("unreachable");
     }
 }
 
@@ -1956,10 +1944,4 @@ void AstCFunc::dump(std::ostream& str) const {
 void AstCUse::dump(std::ostream& str) const {
     this->AstNode::dump(str);
     str << " [" << useType() << "]";
-}
-
-void AstEval::dump(std::ostream& str) const {
-    this->AstNode::dump(str);
-    str << " [" << kind() << "]";
-    if (isSlow()) str << " [SLOW]";
 }
