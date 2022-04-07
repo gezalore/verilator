@@ -24,8 +24,7 @@
 #include <unordered_set>
 #include <vector>
 
-class AstActive;
-class AstExecGraph;
+class AstCFunc;
 class AstNetlist;
 class AstSenTree;
 class AstVarScope;
@@ -37,14 +36,14 @@ struct LogicByScope;
 //============================================================================
 
 namespace V3Order {
-enum class OrderMode { Settle, InputComb, ActiveRegion, NBARegion };
 
-std::vector<AstActive*> orderST(  //
-    AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&, OrderMode,
-    std::function<AstSenTree*(const AstVarScope*)> externalDomain);
-AstExecGraph* orderMT(  //
-    AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&, OrderMode,
-    std::function<AstSenTree*(const AstVarScope*)> externalDomain);
+AstCFunc* order(AstNetlist* netlistp,  //
+                const std::vector<V3Sched::LogicByScope*>& logic,  //
+                const string& tag,  //
+                bool parallel,  //
+                bool slow,  //
+                std::function<AstSenTree*(const AstVarScope*)> externalDomain);
+
 };  // namespace V3Order
 
 #endif  // Guard

@@ -642,17 +642,6 @@
         </textblock>
       </cfunc>
       <cfunc loc="a,0,0,0,0" name="_eval_act"/>
-      <cfunc loc="a,0,0,0,0" name="_eval_nba">
-        <if loc="d,10,8,10,9">
-          <cmethodhard loc="d,10,8,10,9" name="at" dtype_id="8">
-            <varref loc="d,10,8,10,9" name="__VnbaTriggered" dtype_id="8"/>
-            <const loc="d,10,8,10,9" name="32&apos;h0" dtype_id="13"/>
-          </cmethodhard>
-          <begin>
-            <ccall loc="d,64,3,64,4" func="_nba_sequent__TOP__0"/>
-          </begin>
-        </if>
-      </cfunc>
       <cfunc loc="d,64,3,64,4" name="_nba_sequent__TOP__0">
         <var loc="d,22,13,22,16" name="__Vdly__t.cyc" dtype_id="4" vartype="integer" origName="__Vdly__t__DOT__cyc"/>
         <var loc="d,23,9,23,10" name="__Vdly__t.e" dtype_id="2" vartype="my_t" origName="__Vdly__t__DOT__e"/>
@@ -1466,6 +1455,17 @@
           <varref loc="d,64,3,64,4" name="__Vdly__t.e" dtype_id="10"/>
           <varref loc="d,64,3,64,4" name="t.e" dtype_id="10"/>
         </assignpost>
+      </cfunc>
+      <cfunc loc="a,0,0,0,0" name="_eval_nba">
+        <if loc="d,10,8,10,9">
+          <cmethodhard loc="d,10,8,10,9" name="at" dtype_id="8">
+            <varref loc="d,10,8,10,9" name="__VnbaTriggered" dtype_id="8"/>
+            <const loc="d,10,8,10,9" name="32&apos;h0" dtype_id="13"/>
+          </cmethodhard>
+          <begin>
+            <ccall loc="d,64,3,64,4" func="_nba_sequent__TOP__0"/>
+          </begin>
+        </if>
       </cfunc>
       <cfunc loc="a,0,0,0,0" name="_eval">
         <var loc="d,10,8,10,9" name="__VpreTriggered" dtype_id="6" vartype="VlTriggerVec" origName="__VpreTriggered"/>
