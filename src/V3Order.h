@@ -20,6 +20,7 @@
 #include "config_build.h"
 #include "verilatedos.h"
 
+#include <functional>
 #include <unordered_set>
 #include <vector>
 
@@ -40,9 +41,10 @@ enum class OrderMode { Settle, InputComb, ActiveRegion, NBARegion };
 
 std::vector<AstActive*> orderST(  //
     AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&, OrderMode,
-    AstSenTree* inputChanged = nullptr);
+    std::function<AstSenTree*(const AstVarScope*)> externalDomain);
 AstExecGraph* orderMT(  //
-    AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&, OrderMode);
+    AstNetlist*, const std::vector<const V3Sched::LogicByScope*>&, OrderMode,
+    std::function<AstSenTree*(const AstVarScope*)> externalDomain);
 };  // namespace V3Order
 
 #endif  // Guard

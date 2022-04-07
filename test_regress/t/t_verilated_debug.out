@@ -13,11 +13,6 @@ internalsDump:
 -V{t#,#}+    Vt_verilated_debug___024root___eval_initial__TOP
   Data: w96: 000000aa 000000bb 000000cc 
 -V{t#,#}+    Vt_verilated_debug___024root___eval_settle
--V{t#,#}+    Vt_verilated_debug___024root___eval_triggers__stl
--V{t#,#}         Triggered stl index 0
--V{t#,#}+    Vt_verilated_debug___024root___eval_stl
--V{t#,#}+    Vt_verilated_debug___024root___eval_triggers__stl
--V{t#,#}         No triggers active
 -V{t#,#}+ Eval
 -V{t#,#}+    Vt_verilated_debug___024root___eval
 -V{t#,#}+    Vt_verilated_debug___024root___eval_triggers__act

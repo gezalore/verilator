@@ -42,6 +42,24 @@ class ActiveTopVisitor final : public VNVisitor {
     // METHODS
     VL_DEBUG_FUNC;  // Declare debug()
 
+    static bool isInitial(AstNode* nodep) {
+        const VNUser1InUse user1InUse;
+        // TODO: implement AstNode::forall for speed
+        bool result = true;
+        nodep->foreach<AstVarRef>([&](AstVarRef* refp) {
+            if (!result) return;  // Short circuit
+            // TODO: We really need a live variable analysis pass. For now, use
+            //       tha same rudimentary assumption that V3Sched/V3Order uses.
+            AstVarScope* const vscp = refp->varScopep();
+            if (refp->access().isWriteOnly()) {
+                vscp->user1(true);
+            } else {
+                result = vscp->user1();
+            }
+        });
+        return result;
+    }
+
     // VISITORS
     virtual void visit(AstNodeModule* nodep) override {
         // Create required actives and add to module
@@ -80,8 +98,22 @@ class ActiveTopVisitor final : public VNVisitor {
             }
             nodep->sensesp(wantp);
         }
-        // No need to do statements under it, they're already moved.
-        // iterateChildren(nodep);
+
+        // If this is combinational logic that does not read any variables, then it really is an
+        // initial block in disguise, so move such logic under an Initial AstActive
+        // TODO: we should warn for these if they were 'always @*' as some (including strictly
+        //       compliant) simulators will never execute these.
+        if (nodep->sensesp()->hasCombo()) {
+            FileLine* const flp = nodep->fileline();
+            AstActive* initialp = nullptr;
+            for (AstNode *logicp = nodep->stmtsp(), *nextp; logicp; logicp = nextp) {
+                nextp = logicp->nextp();
+                if (!isInitial(logicp)) continue;
+                if (!initialp) initialp = new AstActive{flp, "", m_finder.getInitial()};
+                initialp->addStmtsp(logicp->unlinkFrBack());
+            }
+            if (initialp) nodep->addHereThisAsNext(initialp);
+        }
     }
     virtual void visit(AstNodeProcedure* nodep) override {  // LCOV_EXCL_LINE
         nodep->v3fatalSrc("Node should have been under ACTIVE");
