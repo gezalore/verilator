@@ -594,15 +594,9 @@ void createSettle(AstNetlist* netlistp, AstCFunc* initp, LogicClasses& logicClas
     // First trigger is for pure combinational triggers (first iteration)
     AstSenTree* const inputChanged = trig.createFirstTriggerRef(netlistp);
 
-    // Create and Order the body function
-    AstCFunc* const stlFuncp = makeSubFunction(netlistp, "_eval_stl", true);
-    const auto activeps = V3Order::orderST(netlistp, {&comb, &hybrid}, V3Order::OrderMode::Settle,
-                                           [=](const AstVarScope*) { return inputChanged; });
-    for (AstActive* const activep : activeps) stlFuncp->addStmtsp(activep);
-
-    // Dispose of the remnants of the inputs
-    comb.deleteActives();
-    hybrid.deleteActives();
+    // Create and the body function
+    AstCFunc* const stlFuncp = V3Order::order(netlistp, {&comb, &hybrid}, "stl", false, true,
+                                              [=](const AstVarScope*) { return inputChanged; });
 
     // Create the eval loop
     const auto& pair = makeEvalLoop(
@@ -649,15 +643,10 @@ AstNode* createInputCombLoop(AstNetlist* netlistp, AstCFunc* initp, LogicByScope
     // First trigger is for pure combinational triggers (first iteration)
     AstSenTree* const inputChanged = trig.createFirstTriggerRef(netlistp);
     // Create and Order the body function
-    AstCFunc* const icoFuncp = makeSubFunction(netlistp, "_eval_ico", false);
-    const auto activeps = V3Order::orderST(
-        netlistp, {&logic}, V3Order::OrderMode::InputComb, [=](const AstVarScope* vscp) {
+    AstCFunc* const icoFuncp = V3Order::order(
+        netlistp, {&logic}, "ico", false, false, [=](const AstVarScope* vscp) {
             return vscp->scopep()->isTop() && vscp->varp()->isNonOutput() ? inputChanged : nullptr;
         });
-    for (AstActive* const activep : activeps) icoFuncp->addStmtsp(activep);
-
-    // Dispose of the remnants of the inputs
-    logic.deleteActives();
 
     // Create the eval loop
     const auto& pair = makeEvalLoop(
@@ -674,56 +663,6 @@ AstNode* createInputCombLoop(AstNetlist* netlistp, AstCFunc* initp, LogicByScope
 
     // Return the eval loop itself
     return pair.second;
-}
-
-AstCFunc* createActive(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
-                       const std::unordered_map<const AstSenTree*, AstSenTree*>& preTrigMap,
-                       const std::unordered_map<const AstSenTree*, AstSenTree*>& actTrigMap) {
-    AstCFunc* const funcp = makeSubFunction(netlistp, "_eval_act", false);
-
-    remapSensitivities(logicRegions.m_pre, preTrigMap);
-    remapSensitivities(logicRegions.m_active, actTrigMap);
-    remapSensitivities(replicas, actTrigMap);
-
-    // TODO: there can only be a single ExecGraph right now, use it for the NBA
-    const auto activeps = V3Order::orderST(
-        netlistp, {&logicRegions.m_pre, &logicRegions.m_active, &replicas},
-        V3Order::OrderMode::ActiveRegion, [](const AstVarScope*) { return nullptr; });
-    for (AstActive* const activep : activeps) funcp->addStmtsp(activep);
-
-    // Dispose of the remnants of the inputs
-    logicRegions.m_pre.deleteActives();
-    logicRegions.m_active.deleteActives();
-    replicas.deleteActives();
-
-    return funcp;
-}
-
-AstCFunc* createNBA(AstNetlist* netlistp, LogicRegions& logicRegions, LogicByScope& replicas,
-                    const std::unordered_map<const AstSenTree*, AstSenTree*>& nbaTrigMap) {
-    AstCFunc* const funcp = makeSubFunction(netlistp, "_eval_nba", false);
-
-    remapSensitivities(logicRegions.m_nba, nbaTrigMap);
-    remapSensitivities(replicas, nbaTrigMap);
-
-    // Order it
-    if (v3Global.opt.mtasks()) {
-        const auto execGraphp = V3Order::orderMT(netlistp, {&logicRegions.m_nba, &replicas},
-                                                 V3Order::OrderMode::NBARegion,
-                                                 [](const AstVarScope*) { return nullptr; });
-        funcp->addStmtsp(execGraphp);
-    } else {
-        const auto activeps = V3Order::orderST(netlistp, {&logicRegions.m_nba, &replicas},
-                                               V3Order::OrderMode::NBARegion,
-                                               [](const AstVarScope*) { return nullptr; });
-        for (AstActive* const activep : activeps) funcp->addStmtsp(activep);
-    }
-
-    // Dispose of the remnants of the inputs
-    logicRegions.m_nba.deleteActives();
-    replicas.deleteActives();
-
-    return funcp;
 }
 
 void createEval(AstNetlist* netlistp,  //
@@ -863,13 +802,15 @@ void schedule(AstNetlist* netlistp) {
         V3Stats::statsStage("sched-replicate");
     }
 
+    // Create input combinational logic loop
     AstNode* const icoLoopp = createInputCombLoop(netlistp, initp, logicReplicas.m_input);
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-ico");
 
+    // Crate the Active/NBA triggers
     const auto& senTreeps = getSenTreesUsedBy({&logicRegions.m_pre,  //
                                                &logicRegions.m_active,  //
                                                &logicRegions.m_nba});
-    const auto& actTrig = createTriggers(netlistp, initp, senTreeps, "act", 0);
+    const TriggerKit& actTrig = createTriggers(netlistp, initp, senTreeps, "act", 0);
 
     AstTopScope* const topScopep = netlistp->topScopep();
     AstScope* const scopeTopp = topScopep->scopep();
@@ -902,13 +843,25 @@ void schedule(AstNetlist* netlistp) {
     const auto nbaTrigMap = cloneMapWithNewTriggerReferences(actTrigMap, nbaTrigVscp);
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-triggers");
 
-    AstCFunc* const actFuncp
-        = createActive(netlistp, logicRegions, logicReplicas.m_active, preTrigMap, actTrigMap);
+    // Create the Active region function
+    // TODO: there can only be a single ExecGraph right now, use it for the NBA
+    remapSensitivities(logicRegions.m_pre, preTrigMap);
+    remapSensitivities(logicRegions.m_active, actTrigMap);
+    remapSensitivities(logicReplicas.m_active, actTrigMap);
+    AstCFunc* const actFuncp = V3Order::order(
+        netlistp, {&logicRegions.m_pre, &logicRegions.m_active, &logicReplicas.m_active}, "act",
+        false, false, [](const AstVarScope*) { return nullptr; });
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-act");
 
-    AstCFunc* const nbaFuncp = createNBA(netlistp, logicRegions, logicReplicas.m_nba, nbaTrigMap);
+    // Create the NBA region function
+    remapSensitivities(logicRegions.m_nba, nbaTrigMap);
+    remapSensitivities(logicReplicas.m_nba, nbaTrigMap);
+    AstCFunc* const nbaFuncp
+        = V3Order::order(netlistp, {&logicRegions.m_nba, &logicReplicas.m_nba}, "nba",
+                         v3Global.opt.mtasks(), false, [](const AstVarScope*) { return nullptr; });
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-nba");
 
+    // Bold it all together
     createEval(netlistp, icoLoopp, actTrig, preTrigVscp, nbaTrigVscp, actFuncp, nbaFuncp);
 
     splitCheck(initp);

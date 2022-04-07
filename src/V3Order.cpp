@@ -102,8 +102,6 @@
 #include <vector>
 #include <unordered_map>
 
-using V3Order::OrderMode;
-
 //######################################################################
 // Utilities
 
@@ -571,7 +569,7 @@ class OrderBuildVisitor final : public VNVisitor {
     virtual void visit(AstNode* nodep) override { iterateChildren(nodep); }
 
     // CONSTRUCTOR
-    OrderBuildVisitor(AstNetlist* nodep, const std::vector<const V3Sched::LogicByScope*>& coll) {
+    OrderBuildVisitor(AstNetlist* nodep, const std::vector<V3Sched::LogicByScope*>& coll) {
         // Enable debugging (3 is default if global debug; we want acyc debugging)
         if (debug()) m_graphp->debug(5);
 
@@ -589,8 +587,8 @@ class OrderBuildVisitor final : public VNVisitor {
 public:
     // Process the netlist and return the constructed ordering graph. It's 'process' because
     // this visitor does change the tree (removes some nodes related to DPI export trigger).
-    static std::unique_ptr<OrderGraph>
-    process(AstNetlist* nodep, const std::vector<const V3Sched::LogicByScope*>& coll) {
+    static std::unique_ptr<OrderGraph> process(AstNetlist* nodep,
+                                               const std::vector<V3Sched::LogicByScope*>& coll) {
         return std::unique_ptr<OrderGraph>{OrderBuildVisitor{nodep, coll}.m_graphp};
     }
 };
@@ -894,13 +892,12 @@ class OrderProcess final : VNDeleter {
     // sensitivity expression that when triggered indicates the passed AstVarScope might have
     // changed external to the code being ordered.
     const std::function<AstSenTree*(const AstVarScope*)> m_externalDomain;
-    const OrderMode m_mode;  // Ordering mode
 
     SenTreeFinder m_finder;  // Global AstSenTree manager
     AstSenTree* const m_deleteDomainp;  // Dummy AstSenTree indicating needs deletion
     const string m_tag;  // Subtring to add to generated names
-    std::vector<AstActive*> m_resultST;  // The result nodes for a single threaded model
-    AstExecGraph* m_resultMT = nullptr;  // The result node for a multi threaded model
+    const bool m_slow;  // Ordering slow code
+    std::vector<AstNode*> m_result;  // The result nodes (~statements) in their sequential order
 
     AstCFunc* m_pomNewFuncp = nullptr;  // Current function being created
     int m_pomNewStmts = 0;  // Statements in function being created
@@ -944,9 +941,7 @@ class OrderProcess final : VNDeleter {
     string cfuncName(AstNodeModule* modp, AstSenTree* domainp, AstScope* scopep,
                      AstNode* forWhatp) {
         string name = "_" + m_tag;
-        name += m_mode == OrderMode::Settle || m_mode == OrderMode::InputComb || domainp->isMulti()
-                    ? "_comb"
-                    : "_sequent";
+        name += domainp->isMulti() ? "_comb" : "_sequent";
         name = name + "__" + scopep->nameDotless();
         const unsigned funcnum = m_funcNums.emplace(std::make_pair(modp, name), 0).first->second++;
         name = name + "__" + cvtToStr(funcnum);
@@ -973,18 +968,14 @@ class OrderProcess final : VNDeleter {
     }
 
     // CONSTRUCTOR
-    OrderProcess(AstNetlist* netlistp, OrderGraph& graph, OrderMode mode,
+    OrderProcess(AstNetlist* netlistp, OrderGraph& graph, const string& tag, bool slow,
                  std::function<AstSenTree*(const AstVarScope*)> externalDomain)
         : m_graph{graph}
         , m_externalDomain{externalDomain}
-        , m_mode{mode}
         , m_finder{netlistp}
         , m_deleteDomainp{makeDeleteDomainSenTree(netlistp->fileline())}
-        , m_tag{mode == OrderMode::Settle         ? "stl"
-                : mode == OrderMode::InputComb    ? "inc"
-                : mode == OrderMode::ActiveRegion ? "act"
-                : mode == OrderMode::NBARegion    ? "nba"
-                                                  : "<unreachable>"} {
+        , m_tag{tag}
+        , m_slow{slow} {
         pushDeletep(m_deleteDomainp);
     }
 
@@ -1000,18 +991,12 @@ class OrderProcess final : VNDeleter {
 
 public:
     // Order the logic
-    static std::vector<AstActive*>
-    mainST(AstNetlist* netlistp, OrderGraph& graph, OrderMode mode,
-           std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
-        OrderProcess visitor{netlistp, graph, mode, externalDomain};
-        visitor.process(false);
-        return std::move(visitor.m_resultST);
-    }
-    static AstExecGraph* mainMT(AstNetlist* netlistp, OrderGraph& graph, OrderMode mode,
-                                std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
-        OrderProcess visitor{netlistp, graph, mode, externalDomain};
-        visitor.process(true);
-        return visitor.m_resultMT;
+    static std::vector<AstNode*>
+    main(AstNetlist* netlistp, OrderGraph& graph, const string& tag, bool parallel, bool slow,
+         std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
+        OrderProcess visitor{netlistp, graph, tag, slow, externalDomain};
+        visitor.process(parallel);
+        return std::move(visitor.m_result);
     }
 };
 
@@ -1280,7 +1265,7 @@ void OrderProcess::processMoveOne(OrderMoveVertex* vertexp, OrderMoveDomScope* d
                              << " s=" << cvtToHex(scopep) << " " << lvertexp << endl);
     AstActive* const newActivep
         = processMoveOneLogic(lvertexp, m_pomNewFuncp /*ref*/, m_pomNewStmts /*ref*/);
-    if (newActivep) m_resultST.push_back(newActivep);
+    if (newActivep) m_result.push_back(newActivep);
     processMoveDoneOne(vertexp);
 }
 
@@ -1322,7 +1307,7 @@ AstActive* OrderProcess::processMoveOneLogic(const OrderLogicVertex* lvertexp,
                 newFuncpr = new AstCFunc(nodep->fileline(), name, scopep);
                 newFuncpr->isStatic(false);
                 newFuncpr->isLoose(true);
-                newFuncpr->slow(m_mode == OrderMode::Settle);
+                newFuncpr->slow(m_slow);
                 newStmtsr = 0;
                 scopep->addActivep(newFuncpr);
                 // Create top call to it
@@ -1429,8 +1414,7 @@ void OrderProcess::processMTasks() {
     // of the MTask graph.
     FileLine* const rootFlp = v3Global.rootp()->fileline();
     AstExecGraph* const execGraphp = new AstExecGraph{rootFlp, "eval"};
-
-    m_resultMT = execGraphp;
+    m_result.push_back(execGraphp);
 
     // Create CFuncs and bodies for each MTask.
     GraphStream<MTaskVxIdLessThan> emit_mtasks(&mtasks);
@@ -1538,19 +1522,36 @@ void OrderProcess::process(bool multiThreaded) {
 
 namespace V3Order {
 
-std::vector<AstActive*> orderST(AstNetlist* netlistp,
-                                const std::vector<const V3Sched::LogicByScope*>& coll,
-                                OrderMode mode,
-                                std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
-    const std::unique_ptr<OrderGraph> graph = OrderBuildVisitor::process(netlistp, coll);
-    return OrderProcess::mainST(netlistp, *graph.get(), mode, externalDomain);
-}
+AstCFunc* order(AstNetlist* netlistp,  //
+                const std::vector<V3Sched::LogicByScope*>& logic,  //
+                const string& tag,  //
+                bool parallel,  //
+                bool slow,  //
+                std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
+    // Order the code
+    const std::unique_ptr<OrderGraph> graph = OrderBuildVisitor::process(netlistp, logic);
+    const auto& nodeps
+        = OrderProcess::main(netlistp, *graph.get(), tag, parallel, slow, externalDomain);
 
-AstExecGraph* orderMT(AstNetlist* netlistp, const std::vector<const V3Sched::LogicByScope*>& coll,
-                      OrderMode mode,
-                      std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
-    const std::unique_ptr<OrderGraph> graph = OrderBuildVisitor::process(netlistp, coll);
-    return OrderProcess::mainMT(netlistp, *graph.get(), mode, externalDomain);
+    // Create the result function
+    AstScope* const scopeTopp = netlistp->topScopep()->scopep();
+    AstCFunc* const funcp = new AstCFunc{netlistp->fileline(), "_eval_" + tag, scopeTopp, ""};
+    funcp->dontCombine(true);
+    funcp->isStatic(false);
+    funcp->isLoose(true);
+    funcp->slow(slow);
+    funcp->isConst(false);
+    funcp->declPrivate(true);
+    scopeTopp->addActivep(funcp);
+
+    // Add ordered statements to the result function
+    for (AstNode* const nodep : nodeps) funcp->addStmtsp(nodep);
+
+    // Dispose of the remnants of the inputs
+    for (auto* const lbsp : logic) lbsp->deleteActives();
+
+    // Done
+    return funcp;
 }
 
 }  // namespace V3Order
