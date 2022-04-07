@@ -890,7 +890,10 @@ class OrderProcess final : VNDeleter {
 
     // STATE
     OrderGraph& m_graph;  // The ordering graph
-    AstSenTree* const m_inputChanged;  // AstSenTree signaling a top level input might have chagned
+    // This is a function provided by the invoker of the ordering that can and provide additional
+    // sensitivity expression that when triggered indicates the passed AstVarScope might have
+    // changed external to the code being ordered.
+    const std::function<AstSenTree*(const AstVarScope*)> m_externalDomain;
     const OrderMode m_mode;  // Ordering mode
 
     SenTreeFinder m_finder;  // Global AstSenTree manager
@@ -914,7 +917,6 @@ class OrderProcess final : VNDeleter {
     VL_DEBUG_FUNC;  // Declare debug()
 
     void process(bool multiThreaded);
-    void processSensitive();
     void processDomains();
     void processDomainsIterate(OrderEitherVertex* vertexp);
     void processEdgeReport();
@@ -971,9 +973,10 @@ class OrderProcess final : VNDeleter {
     }
 
     // CONSTRUCTOR
-    OrderProcess(AstNetlist* netlistp, OrderGraph& graph, OrderMode mode, AstSenTree* inputChanged)
+    OrderProcess(AstNetlist* netlistp, OrderGraph& graph, OrderMode mode,
+                 std::function<AstSenTree*(const AstVarScope*)> externalDomain)
         : m_graph{graph}
-        , m_inputChanged{inputChanged}
+        , m_externalDomain{externalDomain}
         , m_mode{mode}
         , m_finder{netlistp}
         , m_deleteDomainp{makeDeleteDomainSenTree(netlistp->fileline())}
@@ -997,15 +1000,16 @@ class OrderProcess final : VNDeleter {
 
 public:
     // Order the logic
-    static std::vector<AstActive*> mainST(AstNetlist* netlistp, OrderGraph& graph, OrderMode mode,
-                                          AstSenTree* inputChaned) {
-        OrderProcess visitor{netlistp, graph, mode, inputChaned};
+    static std::vector<AstActive*>
+    mainST(AstNetlist* netlistp, OrderGraph& graph, OrderMode mode,
+           std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
+        OrderProcess visitor{netlistp, graph, mode, externalDomain};
         visitor.process(false);
         return std::move(visitor.m_resultST);
     }
     static AstExecGraph* mainMT(AstNetlist* netlistp, OrderGraph& graph, OrderMode mode,
-                                AstSenTree* inputChaned) {
-        OrderProcess visitor{netlistp, graph, mode, inputChaned};
+                                std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
+        OrderProcess visitor{netlistp, graph, mode, externalDomain};
         visitor.process(true);
         return visitor.m_resultMT;
     }
@@ -1034,30 +1038,6 @@ inline void OrderMoveDomScope::movedVertex(OrderProcess* opp, OrderMoveVertex* v
 
 //######################################################################
 
-void OrderProcess::processSensitive() {
-    // Sc sensitives are required on all inputs that go to a combo
-    // block.  (Not inputs that go only to clocked blocks.)
-    for (V3GraphVertex* itp = m_graph.verticesBeginp(); itp; itp = itp->verticesNextp()) {
-        if (OrderVarStdVertex* const vvertexp = dynamic_cast<OrderVarStdVertex*>(itp)) {
-            if (vvertexp->varScp()->varp()->isNonOutput()) {
-                // UINFO(0, "  scsen " << vvertexp << endl);
-                for (V3GraphEdge* edgep = vvertexp->outBeginp(); edgep;
-                     edgep = edgep->outNextp()) {
-                    if (OrderEitherVertex* const toVertexp
-                        = dynamic_cast<OrderEitherVertex*>(edgep->top())) {
-                        if (edgep->weight() && toVertexp->domainp()) {
-                            // UINFO(0, "      " << toVertexp->domainp() << endl);
-                            if (toVertexp->domainp()->hasCombo()) {
-                                vvertexp->varScp()->varp()->scSensitive(true);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 void OrderProcess::processDomains() {
     for (V3GraphVertex* itp = m_graph.verticesBeginp(); itp; itp = itp->verticesNextp()) {
         OrderEitherVertex* const vertexp = dynamic_cast<OrderEitherVertex*>(itp);
@@ -1075,10 +1055,6 @@ void OrderProcess::processDomainsIterate(OrderEitherVertex* vertexp) {
     //     else, it's full combo code
     if (vertexp->domainp()) return;  // Already processed, or sequential logic
 
-    if (m_mode == OrderMode::Settle) {
-        vertexp->domainp(m_finder.getComb());
-        return;
-    }
     UINFO(5, "    pdi: " << vertexp << endl);
     AstSenTree* domainp = nullptr;
     if (OrderLogicVertex* const lvtxp = dynamic_cast<OrderLogicVertex*>(vertexp)) {
@@ -1088,14 +1064,12 @@ void OrderProcess::processDomainsIterate(OrderEitherVertex* vertexp) {
         OrderEitherVertex* const fromVertexp = static_cast<OrderEitherVertex*>(edgep->fromp());
         if (edgep->weight() && fromVertexp->domainMatters()) {
             AstSenTree* fromDomainp = fromVertexp->domainp();
-            if (m_inputChanged) {
-                if (OrderVarVertex* const varVtxp = dynamic_cast<OrderVarVertex*>(fromVertexp)) {
-                    AstVarScope* const vscp = varVtxp->varScp();
-                    if (vscp->scopep()->isTop() && vscp->varp()->isNonOutput()) {
-                        fromDomainp = fromDomainp == m_deleteDomainp
-                                          ? m_inputChanged
-                                          : combineDomains(fromDomainp, m_inputChanged);
-                    }
+            if (OrderVarVertex* const varVtxp = dynamic_cast<OrderVarVertex*>(fromVertexp)) {
+                AstVarScope* const vscp = varVtxp->varScp();
+                if (AstSenTree* const externalDomainp = m_externalDomain(vscp)) {
+                    fromDomainp = fromDomainp == m_deleteDomainp
+                                      ? externalDomainp
+                                      : combineDomains(fromDomainp, externalDomainp);
                 }
             }
 
@@ -1556,10 +1530,6 @@ void OrderProcess::process(bool multiThreaded) {
         processMTasks();
     }
 
-    // Any SC inputs feeding a combo domain must be marked, so we can make them sc_sensitive
-    UINFO(2, "  Sensitive...\n");
-    processSensitive();  // must be after processDomains
-
     // Dump data
     m_graph.dumpDotFilePrefixed(m_tag + "_orderg_done");
 }
@@ -1570,15 +1540,17 @@ namespace V3Order {
 
 std::vector<AstActive*> orderST(AstNetlist* netlistp,
                                 const std::vector<const V3Sched::LogicByScope*>& coll,
-                                OrderMode mode, AstSenTree* inputChanged) {
+                                OrderMode mode,
+                                std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
     const std::unique_ptr<OrderGraph> graph = OrderBuildVisitor::process(netlistp, coll);
-    return OrderProcess::mainST(netlistp, *graph.get(), mode, inputChanged);
+    return OrderProcess::mainST(netlistp, *graph.get(), mode, externalDomain);
 }
 
 AstExecGraph* orderMT(AstNetlist* netlistp, const std::vector<const V3Sched::LogicByScope*>& coll,
-                      OrderMode mode) {
+                      OrderMode mode,
+                      std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
     const std::unique_ptr<OrderGraph> graph = OrderBuildVisitor::process(netlistp, coll);
-    return OrderProcess::mainMT(netlistp, *graph.get(), mode, nullptr);
+    return OrderProcess::mainMT(netlistp, *graph.get(), mode, externalDomain);
 }
 
 }  // namespace V3Order

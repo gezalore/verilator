@@ -49,6 +49,7 @@ LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
           };
 
     netlistp->foreach<AstScope>([&](AstScope* scopep) {
+        std::vector<AstActive*> empty;
         std::vector<AstActive*> statics;
         std::vector<AstActive*> initial;
         std::vector<AstActive*> final;
@@ -57,7 +58,10 @@ LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
 
         scopep->foreach<AstActive>([&](AstActive* activep) {
             AstSenTree* const senTreep = activep->sensesp();
-            if (senTreep->hasStatic()) {
+            if (!activep->stmtsp()) {
+                // Some AstActives might be empty due to previous optimizations
+                empty.push_back(activep);
+            } else if (senTreep->hasStatic()) {
                 UASSERT_OBJ(!senTreep->sensesp()->nextp(), activep,
                             "static initializer with additional sensitivities");
                 statics.push_back(activep);
@@ -79,6 +83,7 @@ LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
             }
         });
 
+        for (AstActive* const activep : empty) activep->unlinkFrBack()->deleteTree();
         moveIfNotEmpty(result.m_statics, scopep, statics);
         moveIfNotEmpty(result.m_initial, scopep, initial);
         moveIfNotEmpty(result.m_final, scopep, final);
@@ -131,7 +136,7 @@ void orderSequentially(AstCFunc* funcp, const LogicByScope& logicByScope) {
                         subFuncp->addStmtsp(bodyp);
                     }
                 } else {
-                    logicp->unlinkFrBackWithNext();
+                    logicp->unlinkFrBack();
                     subFuncp->addStmtsp(logicp);
                 }
             }
@@ -326,8 +331,6 @@ struct TriggerKit {
     const std::unordered_map<const AstSenTree*, AstSenTree*> m_map;
 
     VL_UNCOPYABLE(TriggerKit);
-    TriggerKit(TriggerKit&& other) = default;
-    TriggerKit& operator=(TriggerKit&&) = default;
 
     // Create an AstSenTree that is sensitive to trigger 0. Must not exist yet!
     AstSenTree* createFirstTriggerRef(AstNetlist* netlistp) const {
@@ -593,8 +596,8 @@ void createSettle(AstNetlist* netlistp, AstCFunc* initp, LogicClasses& logicClas
 
     // Create and Order the body function
     AstCFunc* const stlFuncp = makeSubFunction(netlistp, "_eval_stl", true);
-    const auto activeps
-        = V3Order::orderST(netlistp, {&comb, &hybrid}, V3Order::OrderMode::Settle, inputChanged);
+    const auto activeps = V3Order::orderST(netlistp, {&comb, &hybrid}, V3Order::OrderMode::Settle,
+                                           [=](const AstVarScope*) { return inputChanged; });
     for (AstActive* const activep : activeps) stlFuncp->addStmtsp(activep);
 
     // Dispose of the remnants of the inputs
@@ -622,6 +625,20 @@ AstNode* createInputCombLoop(AstNetlist* netlistp, AstCFunc* initp, LogicByScope
     // Nothing to do if no combinational logic is sensitive to top level inputs
     if (logic.empty()) return nullptr;
 
+    // SystemC only: Any top levelinputs feeding a combinational logic must be marked,
+    // so we can make them sc_sensitive
+    if (v3Global.opt.systemC()) {
+        logic.foreachLogic([](AstNode* logicp) {
+            logicp->foreach<AstVarRef>([](AstVarRef* refp) {
+                if (refp->access().isWriteOnly()) return;
+                AstVarScope* const vscp = refp->varScopep();
+                if (vscp->scopep()->isTop() && vscp->varp()->isNonOutput()) {
+                    vscp->varp()->scSensitive(true);
+                }
+            });
+        });
+    }
+
     // Gather the relevant sensitivity expressions and create the trigger kit
     const auto& senTreeps = getSenTreesUsedBy({&logic});
     const TriggerKit& trig = createTriggers(netlistp, initp, senTreeps, "ico", 1);
@@ -631,11 +648,12 @@ AstNode* createInputCombLoop(AstNetlist* netlistp, AstCFunc* initp, LogicByScope
 
     // First trigger is for pure combinational triggers (first iteration)
     AstSenTree* const inputChanged = trig.createFirstTriggerRef(netlistp);
-
     // Create and Order the body function
     AstCFunc* const icoFuncp = makeSubFunction(netlistp, "_eval_ico", false);
-    const auto activeps
-        = V3Order::orderST(netlistp, {&logic}, V3Order::OrderMode::InputComb, inputChanged);
+    const auto activeps = V3Order::orderST(
+        netlistp, {&logic}, V3Order::OrderMode::InputComb, [=](const AstVarScope* vscp) {
+            return vscp->scopep()->isTop() && vscp->varp()->isNonOutput() ? inputChanged : nullptr;
+        });
     for (AstActive* const activep : activeps) icoFuncp->addStmtsp(activep);
 
     // Dispose of the remnants of the inputs
@@ -668,9 +686,9 @@ AstCFunc* createActive(AstNetlist* netlistp, LogicRegions& logicRegions, LogicBy
     remapSensitivities(replicas, actTrigMap);
 
     // TODO: there can only be a single ExecGraph right now, use it for the NBA
-    const auto activeps
-        = V3Order::orderST(netlistp, {&logicRegions.m_pre, &logicRegions.m_active, &replicas},
-                           V3Order::OrderMode::ActiveRegion);
+    const auto activeps = V3Order::orderST(
+        netlistp, {&logicRegions.m_pre, &logicRegions.m_active, &replicas},
+        V3Order::OrderMode::ActiveRegion, [](const AstVarScope*) { return nullptr; });
     for (AstActive* const activep : activeps) funcp->addStmtsp(activep);
 
     // Dispose of the remnants of the inputs
@@ -690,12 +708,14 @@ AstCFunc* createNBA(AstNetlist* netlistp, LogicRegions& logicRegions, LogicBySco
 
     // Order it
     if (v3Global.opt.mtasks()) {
-        AstExecGraph* const execGraphp = V3Order::orderMT(
-            netlistp, {&logicRegions.m_nba, &replicas}, V3Order::OrderMode::NBARegion);
+        const auto execGraphp = V3Order::orderMT(netlistp, {&logicRegions.m_nba, &replicas},
+                                                 V3Order::OrderMode::NBARegion,
+                                                 [](const AstVarScope*) { return nullptr; });
         funcp->addStmtsp(execGraphp);
     } else {
         const auto activeps = V3Order::orderST(netlistp, {&logicRegions.m_nba, &replicas},
-                                               V3Order::OrderMode::NBARegion);
+                                               V3Order::OrderMode::NBARegion,
+                                               [](const AstVarScope*) { return nullptr; });
         for (AstActive* const activep : activeps) funcp->addStmtsp(activep);
     }
 
@@ -715,8 +735,6 @@ void createEval(AstNetlist* netlistp,  //
                 AstCFunc* nbaFuncp  //
 ) {
     FileLine* const flp = netlistp->fileline();
-    AstTopScope* const topScopep = netlistp->topScopep();
-    AstScope* const scopeTopp = topScopep->scopep();
 
     AstCFunc* const funcp = makeTopFunction(netlistp, "_eval", false);
     netlistp->evalp(funcp);
