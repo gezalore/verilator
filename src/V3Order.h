@@ -40,7 +40,6 @@ namespace V3Order {
 AstCFunc* order(AstNetlist* netlistp,  //
                 const std::vector<V3Sched::LogicByScope*>& logic,  //
                 const string& tag,  //
-                bool parallel,  //
                 bool slow,  //
                 std::function<AstSenTree*(const AstVarScope*)> externalDomain);
 

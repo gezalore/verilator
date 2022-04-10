@@ -595,7 +595,7 @@ void createSettle(AstNetlist* netlistp, AstCFunc* initp, LogicClasses& logicClas
     AstSenTree* const inputChanged = trig.createFirstTriggerRef(netlistp);
 
     // Create and the body function
-    AstCFunc* const stlFuncp = V3Order::order(netlistp, {&comb, &hybrid}, "stl", false, true,
+    AstCFunc* const stlFuncp = V3Order::order(netlistp, {&comb, &hybrid}, "stl", true,
                                               [=](const AstVarScope*) { return inputChanged; });
 
     // Create the eval loop
@@ -644,7 +644,7 @@ AstNode* createInputCombLoop(AstNetlist* netlistp, AstCFunc* initp, LogicByScope
     AstSenTree* const inputChanged = trig.createFirstTriggerRef(netlistp);
     // Create and Order the body function
     AstCFunc* const icoFuncp = V3Order::order(
-        netlistp, {&logic}, "ico", false, false, [=](const AstVarScope* vscp) {
+        netlistp, {&logic}, "ico", false, [=](const AstVarScope* vscp) {
             return vscp->scopep()->isTop() && vscp->varp()->isNonOutput() ? inputChanged : nullptr;
         });
 
@@ -850,15 +850,15 @@ void schedule(AstNetlist* netlistp) {
     remapSensitivities(logicReplicas.m_active, actTrigMap);
     AstCFunc* const actFuncp = V3Order::order(
         netlistp, {&logicRegions.m_pre, &logicRegions.m_active, &logicReplicas.m_active}, "act",
-        false, false, [](const AstVarScope*) { return nullptr; });
+        false, [](const AstVarScope*) { return nullptr; });
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-act");
 
     // Create the NBA region function
     remapSensitivities(logicRegions.m_nba, nbaTrigMap);
     remapSensitivities(logicReplicas.m_nba, nbaTrigMap);
     AstCFunc* const nbaFuncp
-        = V3Order::order(netlistp, {&logicRegions.m_nba, &logicReplicas.m_nba}, "nba",
-                         v3Global.opt.mtasks(), false, [](const AstVarScope*) { return nullptr; });
+        = V3Order::order(netlistp, {&logicRegions.m_nba, &logicReplicas.m_nba}, "nba", false,
+                         [](const AstVarScope*) { return nullptr; });
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-nba");
 
     // Bold it all together

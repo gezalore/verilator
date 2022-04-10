@@ -992,10 +992,10 @@ class OrderProcess final : VNDeleter {
 public:
     // Order the logic
     static std::vector<AstNode*>
-    main(AstNetlist* netlistp, OrderGraph& graph, const string& tag, bool parallel, bool slow,
+    main(AstNetlist* netlistp, OrderGraph& graph, const string& tag, bool slow,
          std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
         OrderProcess visitor{netlistp, graph, tag, slow, externalDomain};
-        visitor.process(parallel);
+        visitor.process(!slow && v3Global.opt.mtasks());
         return std::move(visitor.m_result);
     }
 };
@@ -1413,7 +1413,7 @@ void OrderProcess::processMTasks() {
     // Create the AstExecGraph node which represents the execution
     // of the MTask graph.
     FileLine* const rootFlp = v3Global.rootp()->fileline();
-    AstExecGraph* const execGraphp = new AstExecGraph{rootFlp, "eval"};
+    AstExecGraph* const execGraphp = new AstExecGraph{rootFlp, m_tag};
     m_result.push_back(execGraphp);
 
     // Create CFuncs and bodies for each MTask.
@@ -1525,13 +1525,11 @@ namespace V3Order {
 AstCFunc* order(AstNetlist* netlistp,  //
                 const std::vector<V3Sched::LogicByScope*>& logic,  //
                 const string& tag,  //
-                bool parallel,  //
                 bool slow,  //
                 std::function<AstSenTree*(const AstVarScope*)> externalDomain) {
     // Order the code
     const std::unique_ptr<OrderGraph> graph = OrderBuildVisitor::process(netlistp, logic);
-    const auto& nodeps
-        = OrderProcess::main(netlistp, *graph.get(), tag, parallel, slow, externalDomain);
+    const auto& nodeps = OrderProcess::main(netlistp, *graph.get(), tag, slow, externalDomain);
 
     // Create the result function
     AstScope* const scopeTopp = netlistp->topScopep()->scopep();
