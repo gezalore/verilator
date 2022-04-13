@@ -23,8 +23,10 @@
 #include "V3Order.h"
 #include "V3Sched.h"
 #include "V3Stats.h"
+#include "V3UniqueNames.h"
 
 #include "unordered_map"
+#include "unordered_set"
 
 namespace V3Sched {
 
@@ -165,38 +167,45 @@ void createFinal(AstNetlist* netlistp, const LogicClasses& logicClasses) {
 }
 
 class SenExprBuilder final {
-    // NODE STATE
-    // AstVarScope::user1p()  -> AstVarScope* : prev value variables
-    //    const VNUser1InUse user1InUse;
-
     // STATE
     AstCFunc* const m_initp;  // The initialization function
     AstScope* const m_scopeTopp;  // Top level scope
-    const string m_suffix;  // Name suffix to add to creaed variables
+    AstVarScope* const m_dpiExportTriggerp;  // The DPI export trigger variable
+
     std::vector<AstNodeStmt*> m_updates;  // Update assignments
 
-    std::unordered_map<VNRef<AstNode>, AstVarScope*> m_prev;
+    std::unordered_map<VNRef<AstNode>, AstVarScope*> m_prev;  // The 'previous value' signals
+    std::unordered_set<VNRef<AstNode>> m_hasUpdate;  // Whether the given sen expression already
+                                                     // has an update statement in m_updates
+
+    V3UniqueNames m_uniqueNames{"__Vtrigprev"};  // For generating unique signal names
 
     // METHODS
     AstVarScope* getPrev(AstNode* currp) {
-        auto it = m_prev.find(*currp);
-        if (it != m_prev.end()) return it->second;
-
-        // Create the variable
-        const string name{"__Vtrigprev__" + m_suffix + "__" + cvtToStr(m_prev.size())};
-        AstVarScope* const prevp = m_scopeTopp->createTemp(name, currp->dtypep());
-        m_prev.emplace(*currp, prevp);
-
         FileLine* const flp = currp->fileline();
         const auto rdCurr = [=]() { return currp->cloneTree(false); };
-        const auto wrPrev = [=]() { return new AstVarRef(flp, prevp, VAccess::WRITE); };
 
-        // Add the initializer init
-        AstNode* const initp = rdCurr();
-        m_initp->addStmtsp(new AstAssign{flp, wrPrev(), initp});
+        // Create the 'previous value' variable
+        auto it = m_prev.find(*currp);
+        if (it == m_prev.end()) {
+            const string name = m_uniqueNames.get(currp);
 
-        // Add update
-        m_updates.push_back(new AstAssign{flp, wrPrev(), rdCurr()});
+            AstVarScope* const prevp = m_scopeTopp->createTemp(name, currp->dtypep());
+            it = m_prev.emplace(*currp, prevp).first;
+
+            // Add the initializer init
+            AstNode* const initp = rdCurr();
+            m_initp->addStmtsp(
+                new AstAssign{flp, new AstVarRef{flp, prevp, VAccess::WRITE}, initp});
+        }
+
+        AstVarScope* const prevp = it->second;
+
+        // Add update if it does not exist yet in this round
+        if (m_hasUpdate.emplace(*currp).second) {
+            m_updates.push_back(
+                new AstAssign{flp, new AstVarRef{flp, prevp, VAccess::WRITE}, rdCurr()});
+        }
 
         //
         return prevp;
@@ -262,10 +271,17 @@ class SenExprBuilder final {
             callp->dtypeSetBit();
             return {callp, false};
         }
-        default:
-            senItemp->v3fatalSrc("Unknown edge type");
-            return {nullptr, false};  // LCOV_EXCL_LINE
+        case VEdgeType::ET_DPIEXPORT: {
+            // If the DPI export trigger is checked, always clear it after trigger computation
+            UASSERT_OBJ(m_dpiExportTriggerp, senItemp, "ET_DPIEXPORT without trigger variable");
+            AstVarRef* const refp = new AstVarRef{flp, m_dpiExportTriggerp, VAccess::WRITE};
+            m_updates.push_back(new AstAssign{flp, refp, new AstConst{flp, AstConst::BitFalse{}}});
+            return {currp(), false};
         }
+        default:  // LCOV_EXCL_START
+            senItemp->v3fatalSrc("Unknown edge type");
+            return {nullptr, false};
+        }  // LCOV_EXCL_STOP
     }
 
 public:
@@ -286,20 +302,16 @@ public:
         return {resultp, firedAtInitialization};
     }
 
-    std::vector<AstNodeStmt*> updates() { return std::move(m_updates); }
+    std::vector<AstNodeStmt*> getAndClearUpdates() {
+        m_hasUpdate.clear();
+        return std::move(m_updates);
+    }
 
     // CONSTRUCTOR
-    SenExprBuilder(AstNetlist* netlistp, AstCFunc* initp, const string& suffix)
+    SenExprBuilder(AstNetlist* netlistp, AstCFunc* initp)
         : m_initp{initp}
         , m_scopeTopp{netlistp->topScopep()->scopep()}
-        , m_suffix{suffix} {
-        // If there is a DPI export trigger, always clear it after trigger computation
-        if (AstVarScope* const vscp = netlistp->dpiExportTriggerp()) {
-            FileLine* const flp = vscp->fileline();
-            AstVarRef* const refp = new AstVarRef{flp, vscp, VAccess::WRITE};
-            m_updates.push_back(new AstAssign{flp, refp, new AstConst{flp, AstConst::BitFalse{}}});
-        }
-    }
+        , m_dpiExportTriggerp{netlistp->dpiExportTriggerp()} {}
 };
 
 std::vector<const AstSenTree*> getSenTreesUsedBy(std::vector<const LogicByScope*> lbsps) {
@@ -359,7 +371,7 @@ struct TriggerKit {
     }
 };
 
-const TriggerKit createTriggers(AstNetlist* netlistp, AstCFunc* initp,
+const TriggerKit createTriggers(AstNetlist* netlistp, SenExprBuilder& senExprBuilder,
                                 std::vector<const AstSenTree*> senTreeps, const string& name,
                                 unsigned extra, bool slow = false) {
     // TODO: don't generate empty trigger vectors
@@ -408,7 +420,6 @@ const TriggerKit createTriggers(AstNetlist* netlistp, AstCFunc* initp,
     // Populate
     for (unsigned i = 0; i < extra; ++i) addDebug(i);
     uint32_t triggerNumber = extra;
-    SenExprBuilder senExprBuilder{netlistp, initp, name};
     AstNode* initialTrigsp = nullptr;
     for (const AstSenTree* const senTreep : senTreeps) {
         UASSERT_OBJ(senTreep->hasClocked() || senTreep->hasHybrid(), senTreep,
@@ -442,7 +453,7 @@ const TriggerKit createTriggers(AstNetlist* netlistp, AstCFunc* initp,
         ++triggerNumber;
     }
     // Add the update statements
-    for (AstNodeStmt* const nodep : senExprBuilder.updates()) funcp->addStmtsp(nodep);
+    for (AstNodeStmt* const nodep : senExprBuilder.getAndClearUpdates()) funcp->addStmtsp(nodep);
 
     // Add the initialization statements
     if (initialTrigsp) {
@@ -573,7 +584,8 @@ std::pair<AstVarScope*, AstNode*> makeEvalLoop(AstNetlist* netlistp, const strin
     return {counterp, nodep};
 }
 
-void createSettle(AstNetlist* netlistp, AstCFunc* initp, LogicClasses& logicClasses) {
+void createSettle(AstNetlist* netlistp, SenExprBuilder& senExprBulider,
+                  LogicClasses& logicClasses) {
     AstCFunc* const funcp = makeTopFunction(netlistp, "_eval_settle", true);
 
     // Clone, because ordering is destructive, but we still need them for "_eval"
@@ -586,7 +598,7 @@ void createSettle(AstNetlist* netlistp, AstCFunc* initp, LogicClasses& logicClas
 
     // Gather the relevant sensitivity expressions and create the trigger kit
     const auto& senTreeps = getSenTreesUsedBy({&comb, &hybrid});
-    const TriggerKit& trig = createTriggers(netlistp, initp, senTreeps, "stl", 1, true);
+    const TriggerKit& trig = createTriggers(netlistp, senExprBulider, senTreeps, "stl", 1, true);
 
     // Remap sensitivities (comb has none, so only do the hybrid)
     remapSensitivities(hybrid, trig.m_map);
@@ -615,7 +627,8 @@ void createSettle(AstNetlist* netlistp, AstCFunc* initp, LogicClasses& logicClas
     funcp->addStmtsp(pair.second);
 }
 
-AstNode* createInputCombLoop(AstNetlist* netlistp, AstCFunc* initp, LogicByScope& logic) {
+AstNode* createInputCombLoop(AstNetlist* netlistp, SenExprBuilder& senExprBuilder,
+                             LogicByScope& logic) {
     // Nothing to do if no combinational logic is sensitive to top level inputs
     if (logic.empty()) return nullptr;
 
@@ -635,7 +648,7 @@ AstNode* createInputCombLoop(AstNetlist* netlistp, AstCFunc* initp, LogicByScope
 
     // Gather the relevant sensitivity expressions and create the trigger kit
     const auto& senTreeps = getSenTreesUsedBy({&logic});
-    const TriggerKit& trig = createTriggers(netlistp, initp, senTreeps, "ico", 1);
+    const TriggerKit& trig = createTriggers(netlistp, senExprBuilder, senTreeps, "ico", 1);
 
     // Remap sensitivities
     remapSensitivities(logic, trig.m_map);
@@ -782,7 +795,9 @@ void schedule(AstNetlist* netlistp) {
         V3Stats::statsStage("sched-break-cycles");
     }
 
-    createSettle(netlistp, initp, logicClasses);
+    SenExprBuilder senExprBuilder{netlistp, initp};
+
+    createSettle(netlistp, senExprBuilder, logicClasses);
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-settle");
 
     LogicRegions logicRegions
@@ -803,14 +818,14 @@ void schedule(AstNetlist* netlistp) {
     }
 
     // Create input combinational logic loop
-    AstNode* const icoLoopp = createInputCombLoop(netlistp, initp, logicReplicas.m_input);
+    AstNode* const icoLoopp = createInputCombLoop(netlistp, senExprBuilder, logicReplicas.m_input);
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-create-ico");
 
     // Crate the Active/NBA triggers
     const auto& senTreeps = getSenTreesUsedBy({&logicRegions.m_pre,  //
                                                &logicRegions.m_active,  //
                                                &logicRegions.m_nba});
-    const TriggerKit& actTrig = createTriggers(netlistp, initp, senTreeps, "act", 0);
+    const TriggerKit& actTrig = createTriggers(netlistp, senExprBuilder, senTreeps, "act", 0);
 
     AstTopScope* const topScopep = netlistp->topScopep();
     AstScope* const scopeTopp = topScopep->scopep();

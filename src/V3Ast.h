@@ -268,6 +268,7 @@ public:
         ET_HIGHEDGE,  // Is high now (latches)
         ET_LOWEDGE,  // Is low now (latches)
         ET_EVENT,  // VlEvent::isFired
+        ET_DPIEXPORT,  // Used exclusively to check the AstNetlist::dpiExportTriggerp()
         // Involving an expression
         ET_TRUE,
         //
@@ -290,6 +291,7 @@ public:
             true,  // ET_HIGHEDGE
             true,  // ET_LOWEDGE
             true,  // ET_EVENT
+            true,  // ET_DPIEXPORT
             true,  // ET_TRUE
 
             false,  // ET_COMBO
@@ -314,16 +316,29 @@ public:
         return VEdgeType::ET_ILLEGAL;
     }
     const char* ascii() const {
-        static const char* const names[]
-            = {"%E-edge", "CHANGED", "BOTH",   "POS",    "NEG",     "HIGH",  "LOW",  "EVENT",
-               "TRUE",    "COMBO",   "HYBRID", "STATIC", "INITIAL", "FINAL", "NEVER"};
+        static const char* const names[] = {"%E-edge",
+                                            "CHANGED",
+                                            "BOTH",
+                                            "POS",
+                                            "NEG",
+                                            "HIGH",
+                                            "LOW",
+                                            "EVENT",
+                                            "DPIEXPORT"
+                                            "TRUE",
+                                            "COMBO",
+                                            "HYBRID",
+                                            "STATIC",
+                                            "INITIAL",
+                                            "FINAL",
+                                            "NEVER"};
         return names[m_e];
     }
     const char* verilogKwd() const {
         static const char* const names[]
-            = {"%E-edge",  "[changed]", "edge",      "posedge", "negedge",
-               "[high]",   "[low]",     "[event]",   "[true]",  "*",
-               "[hybrid]", "[static]",  "[initial]", "[final]", "[never]"};
+            = {"%E-edge",  "[changed]", "edge",        "posedge", "negedge", "[high]",
+               "[low]",    "[event]",   "[dpiexport]", "[true]",  "*",       "[hybrid]",
+               "[static]", "[initial]", "[final]",     "[never]"};
         return names[m_e];
     }
     // Return true iff this and the other have mutually exclusive transitions

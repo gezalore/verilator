@@ -1311,7 +1311,7 @@ private:
                 AstAlways* const alwaysp = new AstAlways{
                     fl, VAlwaysKwd::ALWAYS,
                     new AstSenTree{
-                        fl, new AstSenItem{fl, VEdgeType::ET_HIGHEDGE,
+                        fl, new AstSenItem{fl, VEdgeType::ET_DPIEXPORT,
                                            new AstVarRef{fl, dpiExportTriggerp, VAccess::READ}}},
                     nullptr};
                 for (AstVarScope* const varScopep : writtenps) {
