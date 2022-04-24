@@ -1562,6 +1562,7 @@ public:
     AstNode* nextp() const { return m_nextp; }
     AstNode* backp() const { return m_backp; }
     AstNode* abovep() const;  // Parent node above, only when no nextp() as otherwise slow
+    AstNode* tailp() const;  // The last node in the list, only when at head of list otherwise slow
     AstNode* op1p() const { return m_op1p; }
     AstNode* op2p() const { return m_op2p; }
     AstNode* op3p() const { return m_op3p; }

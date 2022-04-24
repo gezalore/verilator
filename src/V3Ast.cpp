@@ -80,6 +80,16 @@ AstNode* AstNode::abovep() const {
     return firstp->backp();
 }
 
+AstNode* AstNode::tailp() const {
+    // m_headtailp only valid at beginning or end of list
+    // Avoid supporting at other locations as would require walking
+    // list which is likely to cause performance issues.
+    UASSERT_OBJ(!backp() || backp()->nextp() != this, this,
+                "tailp() only allowed on head of list");
+    UASSERT_OBJ(m_headtailp, this, "missing m_headtailp");
+    return m_headtailp;
+}
+
 string AstNode::encodeName(const string& namein) {
     // Encode signal name raw from parser, then not called again on same signal
     string out;

@@ -389,9 +389,7 @@ static void process() {
         }
 
         // Remove redundant vars
-#if 0  // FIXMEV5: fix and re-enable with new scheduler
         if (v3Global.opt.oLifePost()) V3LifePost::lifepostAll(v3Global.rootp());
-#endif
 
         // Remove unused vars
         V3Const::constifyAll(v3Global.rootp());

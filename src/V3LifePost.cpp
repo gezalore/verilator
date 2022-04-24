@@ -34,6 +34,8 @@
 #include "V3Stats.h"
 #include "V3Ast.h"
 
+#include "V3LiveVariableAnalysis.h"
+
 #include <memory>  // for std::unique_ptr -> auto_ptr or unique_ptr
 #include <unordered_map>
 
@@ -348,7 +350,11 @@ public:
 
 void V3LifePost::lifepostAll(AstNetlist* nodep) {
     UINFO(2, __FUNCTION__ << ": " << endl);
-    // Mark redundant AssignPost
-    { LifePostDlyVisitor{nodep}; }  // Destruct before checking
-    V3Global::dumpCheckGlobalTree("life_post", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
+    //    // Mark redundant AssignPost
+    //    { LifePostDlyVisitor{nodep}; }  // Destruct before checking
+    //    V3Global::dumpCheckGlobalTree("life_post", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
+
+    nodep->evalp()->dumpTree("Eval: ");
+    V3LiveVariableAnalysis::apply(nodep->evalp()->stmtsp());
+    V3LiveVariableAnalysis::apply(nodep->evalp());
 }
