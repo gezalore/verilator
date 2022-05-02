@@ -160,6 +160,10 @@ or "`ifdef`"'s may break other tools.
 
 .. option:: /*verilator&32;clock_enable*/
 
+   Deprecated and has no effect (ignored).
+
+   In versions prior to 5.002:
+
    Used after a signal declaration to indicate the signal is used to gate a
    clock, and the user takes responsibility for insuring there are no races
    related to it. (Typically by adding a latch, and running static timing

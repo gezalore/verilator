@@ -714,6 +714,10 @@ Summary:
 
 .. option:: --no-order-clock-delay
 
+   Deprecated and has no effect (ignored).
+
+   In versions prior to 5.002:
+
    Rarely needed.  Disables a bug fix for ordering of clock enables with
    delayed assignments.  This option should only be used when suggested by
    the developers.
@@ -1255,8 +1259,7 @@ Summary:
 
    Enable all code style warnings, including code style warnings that are
    normally disabled by default. Equivalent to :vlopt:`-Wwarn-lint`
-   :vlopt:`-Wwarn-style`.  Excludes some specialty warnings,
-   i.e. IMPERFECTSCH.
+   :vlopt:`-Wwarn-style`.  Excludes some specialty warnings.
 
 .. option:: -Werror-<message>
 
@@ -1508,6 +1511,10 @@ The grammar of configuration commands is as follows:
    analysis purposes.
 
 .. option:: clock_enable -module "<modulename>" -var "<signame>"
+
+   Deprecated and has no effect (ignored).
+
+   In versions prior to 5.002:
 
    Indicate the signal is used to gate a clock, and the user takes
    responsibility for insuring there are no races related to it.

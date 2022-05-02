@@ -279,12 +279,7 @@ different.)
 Generated Clocks
 ----------------
 
-Verilator attempts to deal with generated and gated clocks correctly,
-however some cases cause problems in the scheduling algorithm which is
-optimized for performance.  The safest option is to have all clocks as
-primary inputs to the model, or wires directly attached to primary inputs.
-For proper behavior clock enables may also need the
-:option:`/*verilator&32;clock_enable*/` metacomment.
+Verilator attempts to deal with all generated and gated clocks correctly.
 
 
 Gate Primitives

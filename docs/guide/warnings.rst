@@ -313,20 +313,6 @@ List Of Warnings
    potential for reset glitches.
 
 
-.. option:: CLKDATA
-
-   .. TODO better example
-
-   Warns that clock signal is mixed used with/as data signal. The checking
-   for this warning is enabled only if user has explicitly marked some
-   signal as clocker using command line option or in-source meta comment
-   (see :vlopt:`--clk`).
-
-   The warning can be disabled without affecting the simulation result. But
-   it is recommended to check the warning as this may degrade the
-   performance of the Verilated model.
-
-
 .. option:: CMPCONST
 
    .. TODO better example
@@ -587,13 +573,6 @@ List Of Warnings
    with a newline."
 
 
-.. option:: GENCLK
-
-   Deprecated and no longer used as a warning.  Used to indicate that the
-   specified signal was is generated inside the model, and also being used
-   as a clock.
-
-
 .. option:: HIERBLOCK
 
    Warns that the top module is marked as a hierarchy block by the
@@ -649,16 +628,6 @@ List Of Warnings
 
    Ignoring this warning will only suppress the lint check, it will
    simulate correctly.
-
-
-.. option:: IMPERFECTSCH
-
-   .. TODO better example
-
-   Warns that the scheduling of the model is not absolutely perfect, and
-   some manual code edits may result in faster performance.  This warning
-   defaults to off, is not part of -Wall, and must be turned on explicitly
-   before the top module statement is processed.
 
 
 .. option:: IMPLICIT
@@ -1440,10 +1409,6 @@ List Of Warnings
    will cause the variable to be split internally, potentially resolving
    the conflict. If you run with `--report-unoptflat` Verilator will
    suggest possible candidates for :option:`/*verilator&32;split_var*/`.
-
-   The UNOPTFLAT warning may also be due to clock enables, identified from
-   the reported path going through a clock gating instance.  To fix these,
-   use the clock_enable meta comment described above.
 
    The UNOPTFLAT warning may also occur where outputs from a block of logic
    are independent, but occur in the same always block.  To fix this, use
