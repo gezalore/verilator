@@ -231,7 +231,6 @@ class OrderBuildVisitor final : public VNVisitor {
               ? getVarVertex(v3Global.rootp()->dpiExportTriggerp(), VarVertexType::STD)
               : nullptr;
 
-    OrderLogicVertex* m_activeSenVxp = nullptr;  // Sensitivity vertex for clocked logic
     OrderLogicVertex* m_logicVxp = nullptr;  // Current loic block being analyzed
 
     // Current AstScope being processed
@@ -256,9 +255,6 @@ class OrderBuildVisitor final : public VNVisitor {
         AstNode::user2ClearTree();
         // Create LogicVertex for this logic node
         m_logicVxp = new OrderLogicVertex{m_graphp, m_scopep, m_domainp, m_hybridp, nodep};
-        // If this logic has a clocked activation, add a link from the sensitivity list LogicVertex
-        // to this LogicVertex.
-        if (m_activeSenVxp) new OrderEdge(m_graphp, m_activeSenVxp, m_logicVxp, WEIGHT_NORMAL);
         // Gather variable dependencies based on usage
         iterateChildren(nodep);
         // Finished with this logic
@@ -275,26 +271,16 @@ class OrderBuildVisitor final : public VNVisitor {
                     "AstSenTrees should have been made global in V3ActiveTop");
         UASSERT_OBJ(m_scopep, nodep, "AstActive not under AstScope");
         UASSERT_OBJ(!m_logicVxp, nodep, "AstActive under logic");
-        UASSERT_OBJ(!m_inClocked && !m_activeSenVxp && !m_domainp & !m_hybridp, nodep,
-                    "Should not nest");
+        UASSERT_OBJ(!m_inClocked && !m_domainp & !m_hybridp, nodep, "Should not nest");
 
         // This is the original sensitivity of the block (i.e.: not the ref into the TRIGGERVEC)
         AstSenTree* const triggerp = nodep->triggerp();
 
         m_inClocked = triggerp->hasClocked();
 
-        // Analyze variable references in sensitivity list. Note that only clocked and hybrid
-        // sensitivity lists can reference variables so avoid adding redundant noted otherwise
-        if (m_inClocked || triggerp->hasHybrid()) {
-            // Add LogicVertex for the sensitivity list of this AstActive.
-            m_activeSenVxp
-                = new OrderLogicVertex(m_graphp, m_scopep, nodep->sensesp(), nullptr, nodep);
-            // Analyze variables in the sensitivity list
-            // FIXMEV5: This is probably entirely redundant with the new scheduler right now,
-            //          because all nodep->sensesp() should only reference TRIGGERVEC which are
-            //          all set externally to the code being ordered
-            iterateChildren(nodep->sensesp());
-        }
+        // Note: We don't need to analyse the sensitivity list, as currently all sensitivity
+        // lists simply reference an entry in a trigger vector, which are all set external to
+        // the code being ordered.
 
         // Combinational and hybrid logic will have it's domain assigned based on the driver
         // domains. For clocked logic, we already know its domain.
@@ -319,7 +305,6 @@ class OrderBuildVisitor final : public VNVisitor {
 
         //
         m_inClocked = false;
-        m_activeSenVxp = nullptr;
         m_domainp = nullptr;
         m_hybridp = nullptr;
     }
@@ -327,152 +312,141 @@ class OrderBuildVisitor final : public VNVisitor {
         // As we explicitly not visit (see ignored nodes below) any subtree that is not relevant
         // for ordering, we should be able to assert this:
         UASSERT_OBJ(m_scopep, nodep, "AstVarRef not under scope");
-        UASSERT_OBJ(m_logicVxp || m_activeSenVxp, nodep,
-                    "AstVarRef not under logic nor sensitivity list");
+        UASSERT_OBJ(m_logicVxp, nodep, "AstVarRef not under logic nor sensitivity list");
         AstVarScope* const varscp = nodep->varScopep();
         UASSERT_OBJ(varscp, nodep, "Var didn't get varscoped in V3Scope.cpp");
-        if (!m_logicVxp) {
-            // Variable reference in sensitivity list. Add clock dependency.
+        // Variable reference in logic. Add data dependency.
 
-            UASSERT_OBJ(!nodep->access().isWriteOrRW(), nodep,
-                        "How can a sensitivity list be writing a variable?");
-            // Add edge from sensed VarStdVertex -> to sensitivity list LogicVertex
-            OrderVarVertex* const varVxp = getVarVertex(varscp, VarVertexType::STD);
-            new OrderEdge(m_graphp, varVxp, m_activeSenVxp, WEIGHT_MEDIUM);
-        } else {
-            // Variable reference in logic. Add data dependency.
+        // Check whether this variable was already generated/consumed in the same logic. We
+        // don't want to add extra edges if the logic has many usages of the same variable,
+        // so only proceed on first encounter.
+        const bool prevGen = varscp->user2() & VU_GEN;
+        const bool prevCon = varscp->user2() & VU_CON;
 
-            // Check whether this variable was already generated/consumed in the same logic. We
-            // don't want to add extra edges if the logic has many usages of the same variable,
-            // so only proceed on first encounter.
-            const bool prevGen = varscp->user2() & VU_GEN;
-            const bool prevCon = varscp->user2() & VU_CON;
-
-            // Compute whether the variable is produced (written) here
-            bool gen = false;
-            if (!prevGen && nodep->access().isWriteOrRW()) {
-                gen = true;
-                if (m_inPostponed) {
-                    // IEE 1800-2017 (4.2.9) forbids any value updates in the postponed region, but
-                    // Verilator generated trigger signals for $strobe are cleared after the
-                    // display is executed. This is both safe to ignore (because their single read
-                    // is in the same AstAlwaysPostponed, just prior to the clear), and is
-                    // necessary to ignore to avoid a circular logic (UNOPTFLAT) warning.
-                    UASSERT_OBJ(prevCon, nodep, "Should have been consumed in same process");
-                    gen = false;
-                }
+        // Compute whether the variable is produced (written) here
+        bool gen = false;
+        if (!prevGen && nodep->access().isWriteOrRW()) {
+            gen = true;
+            if (m_inPostponed) {
+                // IEE 1800-2017 (4.2.9) forbids any value updates in the postponed region, but
+                // Verilator generated trigger signals for $strobe are cleared after the
+                // display is executed. This is both safe to ignore (because their single read
+                // is in the same AstAlwaysPostponed, just prior to the clear), and is
+                // necessary to ignore to avoid a circular logic (UNOPTFLAT) warning.
+                UASSERT_OBJ(prevCon, nodep, "Should have been consumed in same process");
+                gen = false;
             }
+        }
 
-            // Compute whether the value is consumed (read) here
-            bool con = false;
-            if (!prevCon && nodep->access().isReadOrRW()) {
-                con = true;
-                if (prevGen && !m_inClocked) {
-                    // Dangerous assumption:
-                    // If a variable is consumed in the same combinational process that produced it
-                    // earlier, consider it something like:
-                    //      foo = 1
-                    //      foo = foo + 1
-                    // and still optimize. Note this will break though:
-                    //      if (sometimes) foo = 1
-                    //      foo = foo + 1
-                    // TODO: Do this properly with liveness analysis (i.e.: if live, it's consumed)
-                    //       Note however that this construct is not nicely synthesizable (yields
-                    //       latch?).
-                    con = false;
-                }
+        // Compute whether the value is consumed (read) here
+        bool con = false;
+        if (!prevCon && nodep->access().isReadOrRW()) {
+            con = true;
+            if (prevGen && !m_inClocked) {
+                // Dangerous assumption:
+                // If a variable is consumed in the same combinational process that produced it
+                // earlier, consider it something like:
+                //      foo = 1
+                //      foo = foo + 1
+                // and still optimize. Note this will break though:
+                //      if (sometimes) foo = 1
+                //      foo = foo + 1
+                // TODO: Do this properly with liveness analysis (i.e.: if live, it's consumed)
+                //       Note however that this construct is not nicely synthesizable (yields
+                //       latch?).
+                con = false;
             }
+        }
 
-            // Roles of vertices:
-            // VarVertexType::STD:  Data dependencies for combinational logic and delayed
-            //                      assignment updates (AssignPost).
-            // VarVertexType::POST: Ensures all sequential blocks reading a signal do so before
-            //                      any combinational or delayed assignments update that signal.
-            // VarVertexType::PORD: Ensures a _d = _q AssignPre is the first write of a _d,
-            //                      before any sequential blocks write to that _d.
-            // VarVertexType::PRE:  This is an optimization. Try to ensure that a _d = _q
-            //                      AssignPre is the last read of a _q, after all reads of that
-            //                      _q by sequential logic. Note: The model is still correct if we
-            //                      cannot satisfy this due to other constraints. If this ordering
-            //                      is possible, then combined with the PORD constraint we get
-            //                      that all writes to _d are after all reads of a _q, which then
-            //                      allows us to eliminate the _d completely and assign to the _q
-            //                      directly (this is what V3LifePost does).
+        // Roles of vertices:
+        // VarVertexType::STD:  Data dependencies for combinational logic and delayed
+        //                      assignment updates (AssignPost).
+        // VarVertexType::POST: Ensures all sequential blocks reading a signal do so before
+        //                      any combinational or delayed assignments update that signal.
+        // VarVertexType::PORD: Ensures a _d = _q AssignPre is the first write of a _d,
+        //                      before any sequential blocks write to that _d.
+        // VarVertexType::PRE:  This is an optimization. Try to ensure that a _d = _q
+        //                      AssignPre is the last read of a _q, after all reads of that
+        //                      _q by sequential logic. Note: The model is still correct if we
+        //                      cannot satisfy this due to other constraints. If this ordering
+        //                      is possible, then combined with the PORD constraint we get
+        //                      that all writes to _d are after all reads of a _q, which then
+        //                      allows us to eliminate the _d completely and assign to the _q
+        //                      directly (this is what V3LifePost does).
 
-            // Variable is produced
-            if (gen) {
-                // Update VarUsage
-                varscp->user2(varscp->user2() | VU_GEN);
-                // Add edges for produced variables
-                if (!m_inClocked || m_inPost) {
-                    // Combinational logic
-                    OrderVarVertex* const varVxp = getVarVertex(varscp, VarVertexType::STD);
-                    // Add edge from producing LogicVertex -> produced VarStdVertex
-                    if (m_inPost) {
-                        new OrderPostCutEdge(m_graphp, m_logicVxp, varVxp);
-                    } else {
-                        new OrderEdge(m_graphp, m_logicVxp, varVxp, WEIGHT_NORMAL);
-                    }
-
-                    // Add edge from produced VarPostVertex -> to producing LogicVertex
-
-                    // For m_inPost:
-                    //    Add edge consumed_var_POST->logic_vertex
-                    //    This prevents a consumer of the "early" value to be scheduled
-                    //   after we've changed to the next-cycle value
-                    // ALWAYS do it:
-                    //    There maybe a wire a=b; between the two blocks
-                    OrderVarVertex* const postVxp = getVarVertex(varscp, VarVertexType::POST);
-                    new OrderEdge(m_graphp, postVxp, m_logicVxp, WEIGHT_POST);
-                } else if (m_inPre) {  // AstAssignPre
-                    // Add edge from producing LogicVertex -> produced VarPordVertex
-                    OrderVarVertex* const ordVxp = getVarVertex(varscp, VarVertexType::PORD);
-                    new OrderEdge(m_graphp, m_logicVxp, ordVxp, WEIGHT_NORMAL);
-                    // Add edge from producing LogicVertex -> produced VarStdVertex
-                    OrderVarVertex* const varVxp = getVarVertex(varscp, VarVertexType::STD);
-                    new OrderEdge(m_graphp, m_logicVxp, varVxp, WEIGHT_NORMAL);
+        // Variable is produced
+        if (gen) {
+            // Update VarUsage
+            varscp->user2(varscp->user2() | VU_GEN);
+            // Add edges for produced variables
+            if (!m_inClocked || m_inPost) {
+                // Combinational logic
+                OrderVarVertex* const varVxp = getVarVertex(varscp, VarVertexType::STD);
+                // Add edge from producing LogicVertex -> produced VarStdVertex
+                if (m_inPost) {
+                    new OrderPostCutEdge(m_graphp, m_logicVxp, varVxp);
                 } else {
-                    // Sequential (clocked) logic
-                    // Add edge from produced VarPordVertex -> to producing LogicVertex
-                    OrderVarVertex* const ordVxp = getVarVertex(varscp, VarVertexType::PORD);
-                    new OrderEdge(m_graphp, ordVxp, m_logicVxp, WEIGHT_NORMAL);
-                    // Add edge from producing LogicVertex-> to produced VarStdVertex
-                    OrderVarVertex* const varVxp = getVarVertex(varscp, VarVertexType::STD);
                     new OrderEdge(m_graphp, m_logicVxp, varVxp, WEIGHT_NORMAL);
                 }
-            }
 
-            // Variable is consumed
-            if (con) {
-                // Update VarUsage
-                varscp->user2(varscp->user2() | VU_CON);
-                // Add edges
-                if (!m_inClocked || m_inPost) {
-                    // Combinational logic
-                    if (m_readTriggersCombLogic(varscp)) {
-                        // Ignore explicit sensitivities
-                        OrderVarVertex* const varVxp = getVarVertex(varscp, VarVertexType::STD);
-                        // Add edge from consumed VarStdVertex -> to consuming LogicVertex
-                        new OrderEdge(m_graphp, varVxp, m_logicVxp, WEIGHT_MEDIUM);
-                    }
-                } else if (m_inPre) {
-                    // AstAssignPre logic
-                    // Add edge from consumed VarPreVertex -> to consuming LogicVertex
-                    // This one is cutable (vs the producer) as there's only one such consumer,
-                    // but may be many producers
-                    OrderVarVertex* const preVxp = getVarVertex(varscp, VarVertexType::PRE);
-                    new OrderPreCutEdge(m_graphp, preVxp, m_logicVxp);
-                } else {
-                    // Sequential (clocked) logic
-                    // Add edge from consuming LogicVertex -> to consumed VarPreVertex
-                    // Generation of 'pre' because we want to indicate it should be before
-                    // AstAssignPre
-                    OrderVarVertex* const preVxp = getVarVertex(varscp, VarVertexType::PRE);
-                    new OrderEdge(m_graphp, m_logicVxp, preVxp, WEIGHT_NORMAL);
-                    // Add edge from consuming LogicVertex -> to consumed VarPostVertex
-                    OrderVarVertex* const postVxp = getVarVertex(varscp, VarVertexType::POST);
-                    new OrderEdge(m_graphp, m_logicVxp, postVxp, WEIGHT_POST);
+                // Add edge from produced VarPostVertex -> to producing LogicVertex
+
+                // For m_inPost:
+                //    Add edge consumed_var_POST->logic_vertex
+                //    This prevents a consumer of the "early" value to be scheduled
+                //   after we've changed to the next-cycle value
+                // ALWAYS do it:
+                //    There maybe a wire a=b; between the two blocks
+                OrderVarVertex* const postVxp = getVarVertex(varscp, VarVertexType::POST);
+                new OrderEdge(m_graphp, postVxp, m_logicVxp, WEIGHT_POST);
+            } else if (m_inPre) {  // AstAssignPre
+                // Add edge from producing LogicVertex -> produced VarPordVertex
+                OrderVarVertex* const ordVxp = getVarVertex(varscp, VarVertexType::PORD);
+                new OrderEdge(m_graphp, m_logicVxp, ordVxp, WEIGHT_NORMAL);
+                // Add edge from producing LogicVertex -> produced VarStdVertex
+                OrderVarVertex* const varVxp = getVarVertex(varscp, VarVertexType::STD);
+                new OrderEdge(m_graphp, m_logicVxp, varVxp, WEIGHT_NORMAL);
+            } else {
+                // Sequential (clocked) logic
+                // Add edge from produced VarPordVertex -> to producing LogicVertex
+                OrderVarVertex* const ordVxp = getVarVertex(varscp, VarVertexType::PORD);
+                new OrderEdge(m_graphp, ordVxp, m_logicVxp, WEIGHT_NORMAL);
+                // Add edge from producing LogicVertex-> to produced VarStdVertex
+                OrderVarVertex* const varVxp = getVarVertex(varscp, VarVertexType::STD);
+                new OrderEdge(m_graphp, m_logicVxp, varVxp, WEIGHT_NORMAL);
+            }
+        }
+
+        // Variable is consumed
+        if (con) {
+            // Update VarUsage
+            varscp->user2(varscp->user2() | VU_CON);
+            // Add edges
+            if (!m_inClocked || m_inPost) {
+                // Combinational logic
+                if (m_readTriggersCombLogic(varscp)) {
+                    // Ignore explicit sensitivities
+                    OrderVarVertex* const varVxp = getVarVertex(varscp, VarVertexType::STD);
+                    // Add edge from consumed VarStdVertex -> to consuming LogicVertex
+                    new OrderEdge(m_graphp, varVxp, m_logicVxp, WEIGHT_MEDIUM);
                 }
+            } else if (m_inPre) {
+                // AstAssignPre logic
+                // Add edge from consumed VarPreVertex -> to consuming LogicVertex
+                // This one is cutable (vs the producer) as there's only one such consumer,
+                // but may be many producers
+                OrderVarVertex* const preVxp = getVarVertex(varscp, VarVertexType::PRE);
+                new OrderPreCutEdge(m_graphp, preVxp, m_logicVxp);
+            } else {
+                // Sequential (clocked) logic
+                // Add edge from consuming LogicVertex -> to consumed VarPreVertex
+                // Generation of 'pre' because we want to indicate it should be before
+                // AstAssignPre
+                OrderVarVertex* const preVxp = getVarVertex(varscp, VarVertexType::PRE);
+                new OrderEdge(m_graphp, m_logicVxp, preVxp, WEIGHT_NORMAL);
+                // Add edge from consuming LogicVertex -> to consumed VarPostVertex
+                OrderVarVertex* const postVxp = getVarVertex(varscp, VarVertexType::POST);
+                new OrderEdge(m_graphp, m_logicVxp, postVxp, WEIGHT_POST);
             }
         }
     }
