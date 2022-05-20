@@ -28,39 +28,20 @@
 #include <string>
 #include <vector>
 
-class VerilatedVcd;
-
-//=============================================================================
-// VerilatedFile
-/// Class representing a file to write to. These virtual methods can be
-/// overrode for e.g. socket I/O.
-
-class VerilatedVcdFile VL_NOT_FINAL {
-private:
-    int m_fd = 0;  // File descriptor we're writing to
-public:
-    // METHODS
-    /// Construct a (as yet) closed file
-    VerilatedVcdFile() = default;
-    /// Close and destruct
-    virtual ~VerilatedVcdFile() = default;
-    /// Open a file with given filename
-    virtual bool open(const std::string& name) VL_MT_UNSAFE;
-    /// Close object's file
-    virtual void close() VL_MT_UNSAFE;
-    /// Write data to file (if it is open)
-    virtual ssize_t write(const char* bufp, ssize_t len) VL_MT_UNSAFE;
-};
+class VerilatedVcdBuffer;
+class VerilatedVcdFile;
 
 //=============================================================================
 // VerilatedVcd
 // Base class to create a Verilator VCD dump
 // This is an internally used class - see VerilatedVcdC for what to call from applications
 
-class VerilatedVcd VL_NOT_FINAL : public VerilatedTrace<VerilatedVcd> {
+class VerilatedVcd VL_NOT_FINAL : public VerilatedTrace<VerilatedVcd, VerilatedVcdBuffer> {
+public:
+    using Super = VerilatedTrace<VerilatedVcd, VerilatedVcdBuffer>;
+
 private:
-    // Give the superclass access to private bits (to avoid virtual functions)
-    friend class VerilatedTrace<VerilatedVcd>;
+    friend Buffer;  // Give the buffer access to the private bits
 
     //=========================================================================
     // VCD specific internals
@@ -74,9 +55,9 @@ private:
     int m_modDepth = 0;  // Depth of module hierarchy
 
     char* m_wrBufp;  // Output buffer
-    const char* m_wrFlushp;  // Output buffer flush trigger location
+    char* m_wrFlushp;  // Output buffer flush trigger location
     char* m_writep;  // Write pointer into output buffer
-    uint64_t m_wrChunkSize;  // Output buffer size
+    size_t m_wrChunkSize;  // Output buffer size
     uint64_t m_wroteBytes = 0;  // Number of bytes written to this file
 
     std::vector<char> m_suffixes;  // VCD line end string codes + metadata
@@ -107,8 +88,6 @@ private:
 
     static char* writeCode(char* writep, uint32_t code);
 
-    void finishLine(uint32_t code, char* writep);
-
     // CONSTRUCTORS
     VL_UNCOPYABLE(VerilatedVcd);
 
@@ -116,27 +95,22 @@ protected:
     //=========================================================================
     // Implementation of VerilatedTrace interface
 
-    // Implementations of protected virtual methods for VerilatedTrace
+    // Called when the trace moves forward to a new time point
     virtual void emitTimeChange(uint64_t timeui) override;
 
     // Hooks called from VerilatedTrace
     virtual bool preFullDump() override { return isOpen(); }
     virtual bool preChangeDump() override;
 
-    // Implementations of duck-typed methods for VerilatedTrace. These are
-    // called from only one place (namely full*) so always inline them.
-    inline void emitBit(uint32_t code, CData newval);
-    inline void emitCData(uint32_t code, CData newval, int bits);
-    inline void emitSData(uint32_t code, SData newval, int bits);
-    inline void emitIData(uint32_t code, IData newval, int bits);
-    inline void emitQData(uint32_t code, QData newval, int bits);
-    inline void emitWData(uint32_t code, const WData* newvalp, int bits);
-    inline void emitDouble(uint32_t code, double newval);
+    // Trace buffer management
+    virtual VerilatedVcdBuffer* getTraceBuffer() override;
+    virtual void commitTraceBuffer(VerilatedVcdBuffer*) override;
 
 public:
     //=========================================================================
     // External interface to client code
 
+    // CONSTRUCTOR
     explicit VerilatedVcd(VerilatedVcdFile* filep = nullptr);
     ~VerilatedVcd();
 
@@ -144,7 +118,7 @@ public:
     // Set size in megabytes after which new file should be created
     void rolloverMB(uint64_t rolloverMB) { m_rolloverMB = rolloverMB; }
 
-    // METHODS
+    // METHODS - All must be thread safe
     // Open the file; call isOpen() to see if errors
     void open(const char* filename) VL_MT_SAFE_EXCLUDES(m_mutex);
     // Open next data-only file
@@ -176,42 +150,48 @@ public:
     void declTriQuad(uint32_t code, const char* name, bool array, int arraynum, int msb, int lsb);
     void declTriArray(uint32_t code, const char* name, bool array, int arraynum, int msb, int lsb);
 
-    void fullBit(uint32_t* oldp, CData newval) { fullBit(oldp - this->oldp(0), newval); }
+    void fullBit(uint32_t* oldp, CData newval) {  //
+        fullBit(oldp - m_sigs_oldvalp, newval);
+    }
     void fullCData(uint32_t* oldp, CData newval, int bits) {
-        fullBus(oldp - this->oldp(0), newval, bits);
+        fullBus(oldp - m_sigs_oldvalp, newval, bits);
     }
     void fullSData(uint32_t* oldp, SData newval, int bits) {
-        fullBus(oldp - this->oldp(0), newval, bits);
+        fullBus(oldp - m_sigs_oldvalp, newval, bits);
     }
     void fullIData(uint32_t* oldp, IData newval, int bits) {
-        fullBus(oldp - this->oldp(0), newval, bits);
+        fullBus(oldp - m_sigs_oldvalp, newval, bits);
     }
     void fullQData(uint32_t* oldp, QData newval, int bits) {
-        fullQuad(oldp - this->oldp(0), newval, bits);
+        fullQuad(oldp - m_sigs_oldvalp, newval, bits);
     }
     void fullWData(uint32_t* oldp, const WData* newvalp, int bits) {
-        fullArray(oldp - this->oldp(0), newvalp, bits);
+        fullArray(oldp - m_sigs_oldvalp, newvalp, bits);
     }
-    void fullDouble(uint32_t* oldp, double newval) { fullDouble(oldp - this->oldp(0), newval); }
+    void fullDouble(uint32_t* oldp, double newval) {  //
+        fullDouble(oldp - m_sigs_oldvalp, newval);
+    }
 
-    inline void chgBit(uint32_t* oldp, CData newval) { chgBit(oldp - this->oldp(0), newval); }
+    inline void chgBit(uint32_t* oldp, CData newval) {  //
+        chgBit(oldp - m_sigs_oldvalp, newval);
+    }
     inline void chgCData(uint32_t* oldp, CData newval, int bits) {
-        chgBus(oldp - this->oldp(0), newval, bits);
+        chgBus(oldp - m_sigs_oldvalp, newval, bits);
     }
     inline void chgSData(uint32_t* oldp, SData newval, int bits) {
-        chgBus(oldp - this->oldp(0), newval, bits);
+        chgBus(oldp - m_sigs_oldvalp, newval, bits);
     }
     inline void chgIData(uint32_t* oldp, IData newval, int bits) {
-        chgBus(oldp - this->oldp(0), newval, bits);
+        chgBus(oldp - m_sigs_oldvalp, newval, bits);
     }
     inline void chgQData(uint32_t* oldp, QData newval, int bits) {
-        chgQuad(oldp - this->oldp(0), newval, bits);
+        chgQuad(oldp - m_sigs_oldvalp, newval, bits);
     }
     inline void chgWData(uint32_t* oldp, const WData* newvalp, int bits) {
-        chgArray(oldp - this->oldp(0), newvalp, bits);
+        chgArray(oldp - m_sigs_oldvalp, newvalp, bits);
     }
     inline void chgDouble(uint32_t* oldp, double newval) {
-        chgDouble(oldp - this->oldp(0), newval);
+        chgDouble(oldp - m_sigs_oldvalp, newval);
     }
 
     // Inside dumping routines, dump one signal, faster when not inlined
@@ -230,11 +210,11 @@ public:
     // Inside dumping routines, dump one signal if it has changed.
     // We do want to inline these to avoid calls when the value did not change.
     inline void chgBit(uint32_t code, const uint32_t newval) {
-        const uint32_t diff = oldp(code)[0] ^ newval;
+        const uint32_t diff = m_sigs_oldvalp[code] ^ newval;
         if (VL_UNLIKELY(diff)) fullBit(code, newval);
     }
     inline void chgBus(uint32_t code, const uint32_t newval, int bits) {
-        const uint32_t diff = oldp(code)[0] ^ newval;
+        const uint32_t diff = m_sigs_oldvalp[code] ^ newval;
         if (VL_UNLIKELY(diff)) {
             if (VL_UNLIKELY(bits == 32 || (diff & ((1U << bits) - 1)))) {
                 fullBus(code, newval, bits);
@@ -242,7 +222,7 @@ public:
         }
     }
     inline void chgQuad(uint32_t code, const uint64_t newval, int bits) {
-        const uint64_t diff = (*(reinterpret_cast<uint64_t*>(oldp(code)))) ^ newval;
+        const uint64_t diff = (*(reinterpret_cast<uint64_t*>(m_sigs_oldvalp + code))) ^ newval;
         if (VL_UNLIKELY(diff)) {
             if (VL_UNLIKELY(bits == 64 || (diff & ((1ULL << bits) - 1)))) {
                 fullQuad(code, newval, bits);
@@ -251,7 +231,7 @@ public:
     }
     inline void chgArray(uint32_t code, const uint32_t* newvalp, int bits) {
         for (int word = 0; word < (((bits - 1) / 32) + 1); ++word) {
-            if (VL_UNLIKELY(oldp(code)[word] ^ newvalp[word])) {
+            if (VL_UNLIKELY(m_sigs_oldvalp[code + word] ^ newvalp[word])) {
                 fullArray(code, newvalp, bits);
                 return;
             }
@@ -259,7 +239,7 @@ public:
     }
     inline void chgArray(uint32_t code, const uint64_t* newvalp, int bits) {
         for (int word = 0; word < (((bits - 1) / 64) + 1); ++word) {
-            if (VL_UNLIKELY(*(reinterpret_cast<uint64_t*>(oldp(code + 2 * word)))
+            if (VL_UNLIKELY(*(reinterpret_cast<uint64_t*>(m_sigs_oldvalp + (code + 2 * word)))
                             ^ newvalp[word])) {
                 fullArray(code, newvalp, bits);
                 return;
@@ -267,7 +247,8 @@ public:
         }
     }
     inline void chgTriBit(uint32_t code, const uint32_t newval, const uint32_t newtri) {
-        const uint32_t diff = ((oldp(code)[0] ^ newval) | (oldp(code)[1] ^ newtri));
+        const uint32_t diff
+            = ((m_sigs_oldvalp[code] ^ newval) | (m_sigs_oldvalp[code + 1] ^ newtri));
         if (VL_UNLIKELY(diff)) {
             // Verilator 3.510 and newer provide clean input, so the below
             // is only for back compatibility
@@ -277,7 +258,8 @@ public:
         }
     }
     inline void chgTriBus(uint32_t code, const uint32_t newval, const uint32_t newtri, int bits) {
-        const uint32_t diff = ((oldp(code)[0] ^ newval) | (oldp(code)[1] ^ newtri));
+        const uint32_t diff
+            = ((m_sigs_oldvalp[code] ^ newval) | (m_sigs_oldvalp[code + 1] ^ newtri));
         if (VL_UNLIKELY(diff)) {
             if (VL_UNLIKELY(bits == 32 || (diff & ((1U << bits) - 1)))) {
                 fullTriBus(code, newval, newtri, bits);
@@ -285,8 +267,9 @@ public:
         }
     }
     inline void chgTriQuad(uint32_t code, const uint64_t newval, const uint64_t newtri, int bits) {
-        const uint64_t diff = (((*(reinterpret_cast<uint64_t*>(oldp(code)))) ^ newval)
-                               | ((*(reinterpret_cast<uint64_t*>(oldp(code + 1)))) ^ newtri));
+        const uint64_t diff
+            = (((*(reinterpret_cast<uint64_t*>(m_sigs_oldvalp + code))) ^ newval)
+               | ((*(reinterpret_cast<uint64_t*>(m_sigs_oldvalp + code + 1))) ^ newtri));
         if (VL_UNLIKELY(diff)) {
             if (VL_UNLIKELY(bits == 64 || (diff & ((1ULL << bits) - 1)))) {
                 fullTriQuad(code, newval, newtri, bits);
@@ -296,8 +279,8 @@ public:
     inline void chgTriArray(uint32_t code, const uint32_t* newvalp, const uint32_t* newtrip,
                             int bits) {
         for (int word = 0; word < (((bits - 1) / 32) + 1); ++word) {
-            if (VL_UNLIKELY((oldp(code)[word * 2] ^ newvalp[word])
-                            | (oldp(code)[word * 2 + 1] ^ newtrip[word]))) {
+            if (VL_UNLIKELY((m_sigs_oldvalp[code + word * 2] ^ newvalp[word])
+                            | (m_sigs_oldvalp[code + word * 2 + 1] ^ newtrip[word]))) {
                 fullTriArray(code, newvalp, newtrip, bits);
                 return;
             }
@@ -305,7 +288,7 @@ public:
     }
     inline void chgDouble(uint32_t code, const double newval) {
         // cppcheck-suppress invalidPointerCast
-        if (VL_UNLIKELY((*(reinterpret_cast<double*>(oldp(code)))) != newval)) {
+        if (VL_UNLIKELY((*(reinterpret_cast<double*>(m_sigs_oldvalp + code))) != newval)) {
             fullDouble(code, newval);
         }
     }
@@ -317,14 +300,74 @@ public:
 };
 
 #ifndef DOXYGEN
-// Declare specializations here they are used in VerilatedVcdC just below
-template <> void VerilatedTrace<VerilatedVcd>::dump(uint64_t timeui);
-template <> void VerilatedTrace<VerilatedVcd>::set_time_unit(const char* unitp);
-template <> void VerilatedTrace<VerilatedVcd>::set_time_unit(const std::string& unit);
-template <> void VerilatedTrace<VerilatedVcd>::set_time_resolution(const char* unitp);
-template <> void VerilatedTrace<VerilatedVcd>::set_time_resolution(const std::string& unit);
-template <> void VerilatedTrace<VerilatedVcd>::dumpvars(int level, const std::string& hier);
+// Declare specialization here as it's used in VerilatedFstC just below
+template <> void VerilatedVcd::Super::dump(uint64_t);
+template <> void VerilatedVcd::Super::set_time_unit(const char*);
+template <> void VerilatedVcd::Super::set_time_unit(const std::string&);
+template <> void VerilatedVcd::Super::set_time_resolution(const char*);
+template <> void VerilatedVcd::Super::set_time_resolution(const std::string&);
+template <> void VerilatedVcd::Super::dumpvars(int, const std::string&);
 #endif  // DOXYGEN
+
+//=============================================================================
+// VerilatedVcdBuffer
+
+class VerilatedVcdBuffer final : public VerilatedTraceBuffer<VerilatedVcd, VerilatedVcdBuffer> {
+    // Give the trace file access to the private bits
+    friend VerilatedVcd;
+    friend VerilatedVcd::Super;
+
+    // Write pointer into output buffer
+    char* m_writep = m_owner.m_writep;
+    // Output buffer flush trigger location
+    char* const m_wrFlushp = m_owner.m_wrFlushp;
+    // VCD line end string codes + metadata
+    const char* const m_suffixes = m_owner.m_suffixes.data();
+    // The maximum number of bytes a single signal can emit
+    const size_t m_maxSignalBytes = m_owner.m_wrChunkSize;
+
+    void finishLine(uint32_t code, char* writep);
+
+    // CONSTRUCTOR
+    explicit VerilatedVcdBuffer(VerilatedVcd& owner);
+    ~VerilatedVcdBuffer() = default;
+
+public:
+    //=========================================================================
+    // Implementation of VerilatedTraceBuffer interface
+
+    // Implementations of duck-typed methods for VerilatedTraceBuffer. These are
+    // called from only one place (the full* methods), so always inline them.
+    inline void emitBit(uint32_t code, CData newval);
+    inline void emitCData(uint32_t code, CData newval, int bits);
+    inline void emitSData(uint32_t code, SData newval, int bits);
+    inline void emitIData(uint32_t code, IData newval, int bits);
+    inline void emitQData(uint32_t code, QData newval, int bits);
+    inline void emitWData(uint32_t code, const WData* newvalp, int bits);
+    inline void emitDouble(uint32_t code, double newval);
+};
+
+//=============================================================================
+// VerilatedFile
+/// Class representing a file to write to. These virtual methods can be
+/// overrode for e.g. socket I/O.
+
+class VerilatedVcdFile VL_NOT_FINAL {
+private:
+    int m_fd = 0;  // File descriptor we're writing to
+public:
+    // METHODS
+    /// Construct a (as yet) closed file
+    VerilatedVcdFile() = default;
+    /// Close and destruct
+    virtual ~VerilatedVcdFile() = default;
+    /// Open a file with given filename
+    virtual bool open(const std::string& name) VL_MT_UNSAFE;
+    /// Close object's file
+    virtual void close() VL_MT_UNSAFE;
+    /// Write data to file (if it is open)
+    virtual ssize_t write(const char* bufp, ssize_t len) VL_MT_UNSAFE;
+};
 
 //=============================================================================
 // VerilatedVcdC
