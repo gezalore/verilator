@@ -170,7 +170,7 @@ void V3ParseImp::lexErrorPreprocDirective(FileLine* fl, const char* textp) {
         const string ppDirective = it->first;
         if (ppDirective[0] == '`') speller.pushCandidate(ppDirective);
     }
-    V3PreShell::candidateDefines(&speller);
+    v3PreShell.candidateDefines(&speller);
     const string suggest = speller.bestCandidateMsg(textp);
     fl->v3error("Define or directive not defined: '"
                 << textp << "'\n"
@@ -247,7 +247,7 @@ size_t V3ParseImp::ppInputToLex(char* buf, size_t max_size) {
 
 void V3ParseImp::preprocDumps(std::ostream& os) {
     if (v3Global.opt.dumpDefines()) {
-        V3PreShell::dumpDefines(os);
+        v3PreShell.dumpDefines(os);
     } else {
         const bool noblanks = v3Global.opt.preprocOnly() && v3Global.opt.preprocNoLine();
         for (auto& buf : m_ppBuffers) {
@@ -278,7 +278,7 @@ void V3ParseImp::parseFile(FileLine* fileline, const string& modfilename, bool i
     m_inLibrary = inLibrary;
 
     // Preprocess into m_ppBuffer
-    const bool ok = V3PreShell::preproc(fileline, modfilename, m_filterp, this, errmsg);
+    const bool ok = v3PreShell.preproc(fileline, modfilename, m_filterp, this, errmsg);
     if (!ok) {
         if (errmsg != "") return;  // Threw error already
         // Create fake node for later error reporting

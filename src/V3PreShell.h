@@ -23,23 +23,33 @@
 #include "V3Error.h"
 #include "V3FileLine.h"
 
+#include <memory>
+
 class V3ParseImp;
 class VInFilter;
 class VSpellCheck;
+class V3PreShellImp;
 
 //============================================================================
 
 class V3PreShell final {
-    // Static class for calling preprocessor
+
+    std::unique_ptr<V3PreShellImp> m_implp;  // Pointer to implementation
+
 public:
-    static void boot();
-    static bool preproc(FileLine* fl, const string& modname, VInFilter* filterp,
-                        V3ParseImp* parsep, const string& errmsg);
-    static void preprocInclude(FileLine* fl, const string& modname);
-    static void defineCmdLine(const string& name, const string& value);
-    static void undef(const string& name);
-    static void dumpDefines(std::ostream& os);
-    static void candidateDefines(VSpellCheck* spellerp);
+    V3PreShell();
+    ~V3PreShell();
+
+    void boot();
+    bool preproc(FileLine* fl, const string& modname, VInFilter* filterp, V3ParseImp* parsep,
+                 const string& errmsg);
+    void preprocInclude(FileLine* fl, const string& modname);
+    void defineCmdLine(const string& name, const string& value);
+    void undef(const string& name);
+    void dumpDefines(std::ostream& os);
+    void candidateDefines(VSpellCheck* spellerp);
 };
+
+extern V3PreShell v3PreShell;
 
 #endif  // Guard

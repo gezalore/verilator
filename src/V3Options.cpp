@@ -306,7 +306,7 @@ void V3Options::addDefine(const string& defline, bool allowPlus) {
             value = def.substr(pos + 1);
             def.erase(pos);
         }
-        V3PreShell::defineCmdLine(def, value);
+        v3PreShell.defineCmdLine(def, value);
     }
 }
 void V3Options::addParameter(const string& paramline, bool allowPlus) {
@@ -1386,7 +1386,8 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc, char
     });
     DECL_OPTION("-trace-underscore", OnOff, &m_traceUnderscore);
 
-    DECL_OPTION("-U", CbPartialMatch, &V3PreShell::undef);
+    DECL_OPTION("-U", CbPartialMatch, [](const char* valp) { v3PreShell.undef(valp); });
+
     DECL_OPTION("-underline-zero", OnOff, &m_underlineZero);  // Deprecated
     DECL_OPTION("-unroll-count", Set, &m_unrollCount).undocumented();  // Optimization tweak
     DECL_OPTION("-unroll-stmts", Set, &m_unrollStmts).undocumented();  // Optimization tweak

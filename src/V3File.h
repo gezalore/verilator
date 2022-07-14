@@ -84,7 +84,7 @@ public:
     using StrList = std::list<std::string>;
 
 private:
-    VInFilterImp* m_impp;
+    std::unique_ptr<VInFilterImp> m_impp;
 
     // CONSTRUCTORS
     VL_UNCOPYABLE(VInFilter);

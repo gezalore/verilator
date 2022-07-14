@@ -565,6 +565,7 @@ private:
 
 protected:
     friend class VInFilter;
+    friend class std::default_delete<VInFilterImp>;
     // Read file contents and return it
     bool readWholefile(const string& filename, StrList& outl) {
         const auto it = m_contentsMap.find(filename);
@@ -600,10 +601,10 @@ protected:
 // VInFilter
 // Just dispatch to the implementation
 
-VInFilter::VInFilter(const string& command) { m_impp = new VInFilterImp(command); }
-VInFilter::~VInFilter() {
-    if (m_impp) VL_DO_CLEAR(delete m_impp, m_impp = nullptr);
-}
+VInFilter::VInFilter(const string& command)
+    : m_impp{new VInFilterImp(command)} {}
+
+VInFilter::~VInFilter() = default;
 
 bool VInFilter::readWholefile(const string& filename, VInFilter::StrList& outl) {
     if (!m_impp) v3fatalSrc("readWholefile on invalid filter");

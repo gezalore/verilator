@@ -105,6 +105,7 @@
 #include <ctime>
 
 V3Global v3Global;
+V3PreShell v3PreShell;
 
 static void reportStatsIfEnabled() {
     if (v3Global.opt.stats()) {
@@ -714,9 +715,8 @@ int main(int argc, char** argv, char** env) {
     // Post-constructor initialization of netlists
     v3Global.boot();
 
-    // Preprocessor
-    // Before command parsing so we can handle -Ds on command line.
-    V3PreShell::boot();
+    // Preprocessor. Before command parsing, so we can handle -Ds on command line.
+    v3PreShell.boot();
 
     // Command option parsing
     v3Global.opt.bin(argv[0]);

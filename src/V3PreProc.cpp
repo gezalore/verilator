@@ -376,7 +376,7 @@ string V3PreProcImp::removeDefines(const string& text) {
 
 void V3PreProcImp::include(const string& filename) {
     // Include seen.  Ask the preprocessor shell to call back around to us
-    V3PreShell::preprocInclude(fileline(), filename);
+    v3PreShell.preprocInclude(fileline(), filename);
 }
 
 string V3PreProcImp::commentCleanup(const string& text) {
