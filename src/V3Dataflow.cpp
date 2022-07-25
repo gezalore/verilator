@@ -129,7 +129,7 @@ class DataflowPrepVisitor final : public VNVisitor {
         iterateChildrenConst(nodep->lhsp());
         iterateExtractionCandidate(nodep->rhsp());
     }
-    
+
     void visit(AstAssignDly* nodep) override {
         iterateChildrenConst(nodep->lhsp());
         iterateExtractionCandidate(nodep->rhsp());
