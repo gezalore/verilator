@@ -2681,6 +2681,67 @@ void V3Partition::setupMTaskDeps(V3Graph* mtasksp, const Vx2MTaskMap* vx2mtaskp)
     }
 }
 
+void V3Partition::mergeDegreeOneRelatives(V3Graph* mtasksp) {
+    // Merge vertices with an edge between where the parent node is the only parent of the child,
+    // and the child is the only child of the parent, i.e.: the parent has out-degree one and the
+    // child has in-degree one. The reasoning is that combining these mtasks cannot change the
+    // critical path length (which is what the coarsening algorithm tries to keep minimal), so we
+    // can do it blindly, but at the same time doing so will reduce the working set size for the
+    // rest of the algorithm (observed between up to 30% of vertices can be eliminated like this).
+
+    for (V3GraphVertex* vtxp = mtasksp->verticesBeginp(); vtxp; vtxp = vtxp->verticesNextp()) {
+        LogicMTask* const recipientp = static_cast<LogicMTask*>(vtxp);
+        if (recipientp->outSize1()) {  // vtxp -> other
+            MTaskEdge* const edgep = static_cast<MTaskEdge*>(vtxp->outBeginp());
+            LogicMTask* const donorp = edgep->toMTaskp();
+            if (donorp->inSize1()) {
+                // Remove the edge we are merging
+                recipientp->removeRelativeMTask(donorp);
+                recipientp->removeRelativeEdge<GraphWay::FORWARD>(edgep);
+                VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
+                // Move logic to recipient
+                recipientp->moveAllVerticesFrom(donorp);
+                // Move edges from donorp to recipientp
+                for (MTaskEdge *ep = static_cast<MTaskEdge*>(donorp->outBeginp()), *nextp; ep; ep = nextp) {
+                    nextp = static_cast<MTaskEdge*>(ep->outNextp());
+                    LogicMTask* const relativep = ep->toMTaskp();
+                    relativep->removeRelativeEdge<GraphWay::REVERSE>(ep);
+                    ep->relinkFromp(recipientp);
+                    recipientp->addRelativeMTask(relativep);
+                    recipientp->stealRelativeEdge<GraphWay::FORWARD>(ep);
+                    relativep->addRelativeEdge<GraphWay::REVERSE>(ep);
+                }
+                // Remove donorp from the graph
+                VL_DO_DANGLING(donorp->unlinkDelete(mtasksp), donorp);
+            }
+        }
+        if (recipientp->inSize1()) {  // other -> vtxp
+            MTaskEdge* const edgep = static_cast<MTaskEdge*>(vtxp->inBeginp());
+            LogicMTask* const donorp = edgep->fromMTaskp();
+            if (donorp->outSize1()) {
+                // Remove the edge we are merging
+                recipientp->removeRelativeEdge<GraphWay::REVERSE>(edgep);
+                VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
+                // Move logig to recipient
+                recipientp->moveAllVerticesFrom(donorp);
+                // Move edges from donorp to recipientp
+                for (MTaskEdge *ep = static_cast<MTaskEdge*>(donorp->inBeginp()), *nextp; ep; ep = nextp) {
+                    nextp = static_cast<MTaskEdge*>(ep->inNextp());
+                    LogicMTask* const relativep = ep->fromMTaskp();
+                    relativep->removeRelativeMTask(donorp);
+                    relativep->removeRelativeEdge<GraphWay::FORWARD>(ep);
+                    ep->relinkTop(recipientp);
+                    relativep->addRelativeMTask(recipientp);
+                    relativep->addRelativeEdge<GraphWay::FORWARD>(ep);
+                    recipientp->stealRelativeEdge<GraphWay::REVERSE>(ep);
+                }
+                // Remove donorp from the graph
+                VL_DO_DANGLING(donorp->unlinkDelete(mtasksp), donorp);
+            }
+        }
+    }
+}
+
 void V3Partition::go(V3Graph* mtasksp) {
     // Called by V3Order
     hashGraphDebug(m_fineDepsGraphp, "v3partition initial fine-grained deps");
@@ -2725,6 +2786,9 @@ void V3Partition::go(V3Graph* mtasksp) {
         V3Partition::debugMTaskGraphStats(mtasksp, "hazards");
         hashGraphDebug(mtasksp, "mtasksp after fixDataHazards()");
     }
+
+    // Perform safe merges to reduce working set size
+    mergeDegreeOneRelatives(mtasksp);
 
     // Setup the critical path into and out of each node.
     partInitCriticalPaths(mtasksp);
