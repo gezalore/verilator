@@ -19,7 +19,7 @@
 
 #include "V3Scoreboard.h"
 
-class ScoreboardTestElem final {
+class ScoreboardTestElem final : public Scoreboardable<ScoreboardTestElem, uint32_t> {
 public:
     // MEMBERS
     uint32_t m_score;
@@ -31,14 +31,13 @@ public:
         m_id = ++s_serial;
     }
     ScoreboardTestElem() = default;
-    // METHODS
-    static uint32_t scoreFn(const ScoreboardTestElem* elp) { return elp->m_score; }
 
-    bool operator<(const ScoreboardTestElem& other) const { return m_id < other.m_id; }
+    uint64_t id() const { return m_id; }
+    uint32_t score() const { return m_score; }
 };
 
 void V3ScoreboardBase::selfTest() {
-    V3Scoreboard<ScoreboardTestElem, uint32_t> sb(ScoreboardTestElem::scoreFn, true);
+    V3Scoreboard<ScoreboardTestElem, uint32_t> sb;
 
     UASSERT(!sb.needsRescore(), "SelfTest: Empty sb should not need rescore.");
 
@@ -52,7 +51,7 @@ void V3ScoreboardBase::selfTest() {
 
     UASSERT(sb.needsRescore(), "SelfTest: Newly filled sb should need a rescore.");
     UASSERT(sb.needsRescore(&e1), "SelfTest: Individual newly-added element should need rescore");
-    UASSERT(nullptr == sb.bestp(),
+    UASSERT(nullptr == sb.best(),
             "SelfTest: Newly filled sb should have nothing eligible for Bestp()");
 
     sb.rescore();
@@ -62,7 +61,7 @@ void V3ScoreboardBase::selfTest() {
             "SelfTest: Newly rescored sb should not need an element rescored");
     UASSERT(e2.m_score == sb.cachedScore(&e2),
             "SelfTest: Cached score should match current score");
-    UASSERT(&e1 == sb.bestp(), "SelfTest: Should return element with lowest (best) score");
+    UASSERT(&e1 == sb.best(), "SelfTest: Should return element with lowest (best) score");
 
     // Change one element's score
     sb.hintScoreChanged(&e2);
@@ -77,7 +76,7 @@ void V3ScoreboardBase::selfTest() {
 
     // Now e3 should be our best-scoring element, even though
     // e2 has a better score, since e2 is pending rescore.
-    UASSERT(&e3 == sb.bestp(), "SelfTest: Expect e3 as best element with known score.");
+    UASSERT(&e3 == sb.best(), "SelfTest: Expect e3 as best element with known score.");
     sb.rescore();
-    UASSERT(&e2 == sb.bestp(), "SelfTest: Expect e2 as best element again after Rescore");
+    UASSERT(&e2 == sb.best(), "SelfTest: Expect e2 as best element again after Rescore");
 }
