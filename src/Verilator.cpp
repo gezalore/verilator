@@ -378,6 +378,9 @@ static void process() {
         // Order the code; form SBLOCKs and BLOCKCALLs
         V3Order::orderAll(v3Global.rootp());
 
+        reportStatsIfEnabled();
+        return;
+
         // Change generated clocks to look at delayed signals
         V3GenClk::genClkAll(v3Global.rootp());
 

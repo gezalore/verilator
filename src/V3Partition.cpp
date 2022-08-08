@@ -22,6 +22,7 @@
 #include "V3Config.h"
 #include "V3EmitCBase.h"
 #include "V3File.h"
+#include "V3FixedSort.h"
 #include "V3GraphStream.h"
 #include "V3InstrCount.h"
 #include "V3Os.h"
@@ -1514,15 +1515,49 @@ private:
         }
     }
 
+    // Pair of edge and its critical path cost
+    struct alignas(16) Edge {
+        LogicMTask* m_mtaskp;
+        uint32_t m_cp;
+    };
+
+    using Buf = std::array<Edge, PART_SIBLING_EDGE_LIMIT + 1>;
+    struct Swap {
+        VL_ATTR_ALWINLINE static bool less(const Edge& a, const Edge& b) {
+            //                if (k == 13) {
+            //                    std::string s(k, '|');
+            //                    size_t l = &a - basep;
+            //                    size_t r = &b - basep;
+            //                    if (r < l) std::swap(l, r);
+            //                    s[r] = s[l] = 'o';
+            //                    for (size_t i = l + 1; i < r; ++i) s[i] = '-';
+            //                    UINFO(0, "compare " << 100 + l << "/" << 100 + r << " " << s
+            //                    << endl);
+            //                }
+            if (a.m_cp != b.m_cp) return a.m_cp < b.m_cp;
+            return a.m_mtaskp->id() < b.m_mtaskp->id();
+        }
+
+        VL_ATTR_ALWINLINE void operator()(Edge& a, Edge& b) {
+            if (less(b, a)) std::swap(a, b);
+        }
+    };
+    using ptr = void (*)(Buf&);
+
+    static const ptr lut[32];
+
     template <uint8_t Way, bool Exhaustive>
-    void siblingPairFromRelatives(V3GraphVertex* mtaskp) {
+    VL_ATTR_NOINLINE void siblingPairFromRelatives(V3GraphVertex* mtaskp) {
         constexpr GraphWay way{Way};
 
-        std::array<LogicMTask*, PART_SIBLING_EDGE_LIMIT + 1> shortestPrereqs;
+        Buf shortestPrereqs;
         size_t n = 0;
 
         for (V3GraphEdge* edgep = mtaskp->beginp(way); edgep; edgep = edgep->nextp(way)) {
-            shortestPrereqs[n++] = static_cast<LogicMTask*>(edgep->furtherp(way));
+            LogicMTask* const otherp = static_cast<LogicMTask*>(edgep->furtherp(way));
+            shortestPrereqs[n].m_mtaskp = otherp;
+            shortestPrereqs[n].m_cp = otherp->critPathCost(way) + otherp->stepCost();
+            ++n;
             // Prevent nodes with huge numbers of edges from massively
             // slowing down the partitioner:
             if (n > PART_SIBLING_EDGE_LIMIT) break;
@@ -1530,12 +1565,12 @@ private:
 
         if (n < 2) return;
 
-        const auto cmp = [way](const LogicMTask* ap, const LogicMTask* bp) {
-            const uint32_t aCp = ap->critPathCost(way) + ap->stepCost();
-            const uint32_t bCp = bp->critPathCost(way) + bp->stepCost();
-            if (aCp != bCp) return aCp < bCp;
-            return ap->id() < bp->id();
-        };
+        static Edge* basep;
+        basep = &shortestPrereqs[0];
+        static size_t k;
+        k = n;
+
+
 
         // Don't make all possible pairs of prereqs when not requested (non-exhaustive).
         // Just make a few pairs.
@@ -1545,19 +1580,69 @@ private:
 
         if VL_CONSTEXPR_CXX17 (Exhaustive) {
             end = n & ~static_cast<size_t>(1);  // Round down to even
-            std::sort(shortestPrereqs.begin(), shortestPrereqs.begin() + n, cmp);
         } else if (n <= 2 * MAX_NONEXHAUSTIVE_PAIRS) {
             end = n & ~static_cast<size_t>(1);  // Round down to even
-            std::sort(shortestPrereqs.begin(), shortestPrereqs.begin() + n, cmp);
         } else {
             end = 2 * MAX_NONEXHAUSTIVE_PAIRS;
-            std::partial_sort(shortestPrereqs.begin(), shortestPrereqs.begin() + end,
-                              shortestPrereqs.begin() + n, cmp);
         }
+
+        bool total = true;
+
+        lut[n](shortestPrereqs);
+
+        //        switch (n) {
+        //        case 2: vlt::fixedSort<2, Buf, Swap>(shortestPrereqs); break;
+        //        case 3: vlt::fixedSort<3, Buf, Swap>(shortestPrereqs); break;
+        //        case 4: vlt::fixedSort<4, Buf, Swap>(shortestPrereqs); break;
+        //        case 5: vlt::fixedSort<5, Buf, Swap>(shortestPrereqs); break;
+        //        case 6: vlt::fixedSort<6, Buf, Swap>(shortestPrereqs); break;
+        //        case 7: vlt::fixedSort<7, Buf, Swap>(shortestPrereqs); break;
+        //        case 8: vlt::fixedSort<8, Buf, Swap>(shortestPrereqs); break;
+        //        case 9: vlt::fixedSort<9, Buf, Swap>(shortestPrereqs); break;
+        //        case 10: vlt::fixedSort<10, Buf, Swap>(shortestPrereqs); break;
+        //        case 11: vlt::fixedSort<11, Buf, Swap>(shortestPrereqs); break;
+        //        case 12: vlt::fixedSort<12, Buf, Swap>(shortestPrereqs); break;
+        //        case 13: vlt::fixedSort<13, Buf, Swap>(shortestPrereqs); break;
+        //        case 14: vlt::fixedSort<14, Buf, Swap>(shortestPrereqs); break;
+        //        case 15: vlt::fixedSort<15, Buf, Swap>(shortestPrereqs); break;
+        //        case 16: vlt::fixedSort<16, Buf, Swap>(shortestPrereqs); break;
+        //        case 17: vlt::fixedSort<17, Buf, Swap>(shortestPrereqs); break;
+        //        case 18: vlt::fixedSort<18, Buf, Swap>(shortestPrereqs); break;
+        //        case 19: vlt::fixedSort<19, Buf, Swap>(shortestPrereqs); break;
+        //        case 20: vlt::fixedSort<20, Buf, Swap>(shortestPrereqs); break;
+        //        case 21: vlt::fixedSort<21, Buf, Swap>(shortestPrereqs); break;
+        //        case 22: vlt::fixedSort<22, Buf, Swap>(shortestPrereqs); break;
+        //        case 23: vlt::fixedSort<23, Buf, Swap>(shortestPrereqs); break;
+        //        case 24: vlt::fixedSort<24, Buf, Swap>(shortestPrereqs); break;
+        //        case 25: vlt::fixedSort<25, Buf, Swap>(shortestPrereqs); break;
+        //        case 26: vlt::fixedSort<26, Buf, Swap>(shortestPrereqs); break;
+        //        case 27: vlt::fixedSort<27, Buf, Swap>(shortestPrereqs); break;
+        //        case 28: vlt::fixedSort<28, Buf, Swap>(shortestPrereqs); break;
+        //        case 29: vlt::fixedSort<29, Buf, Swap>(shortestPrereqs); break;
+        //        default:
+        //            if VL_CONSTEXPR_CXX17 (Exhaustive) {
+        //                std::sort(shortestPrereqs.begin(), shortestPrereqs.begin() + n,
+        //                Swap::less);
+        //            } else if (n <= 2 * MAX_NONEXHAUSTIVE_PAIRS) {
+        //                std::sort(shortestPrereqs.begin(), shortestPrereqs.begin() + n,
+        //                Swap::less);
+        //            } else {
+        //                total = false;
+        //                std::partial_sort(shortestPrereqs.begin(), shortestPrereqs.begin() + end,
+        //                                  shortestPrereqs.begin() + n, Swap::less);
+        //            }
+        //        }
+        //
+        //        //        if (n == 13) UINFO(0, "E" << endl);
+        //        UASSERT(!total
+        //                    || std::is_sorted(shortestPrereqs.begin(), shortestPrereqs.begin() +
+        //                    n,
+        //                                      Swap::less),
+        //                "???");
 
         size_t i = 0;
         do {
-            makeSiblingMC(shortestPrereqs[i], shortestPrereqs[i + 1]);
+            makeSiblingMC(shortestPrereqs[i].m_mtaskp, shortestPrereqs[i + 1].m_mtaskp);
             i += 2;
         } while (i < end);
     }
@@ -2540,9 +2625,19 @@ void V3Partition::setupMTaskDeps(V3Graph* mtasksp, const Vx2MTaskMap* vx2mtaskp)
     }
 }
 
+std::vector<char*> ccc;
+
 void V3Partition::go(V3Graph* mtasksp) {
     // Called by V3Order
     hashGraphDebug(m_fineDepsGraphp, "v3partition initial fine-grained deps");
+
+    for (size_t i = 0; i < 10ULL * 1024ULL * 1024ULL * 1024ULL;) {
+        size_t s = (i % 512) + 1;
+        ccc.push_back(new char[s]);
+        i += s;
+    }
+    V3Global::dumpCheckGlobalTree("pre-partition-bump", 0,
+                                  v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 
     // Create the first MTasks. Initially, each MTask just wraps one
     // MTaskMoveVertex. Over time, we'll merge MTasks together and
@@ -2666,6 +2761,8 @@ void V3Partition::go(V3Graph* mtasksp) {
             mvertexp->color(mtaskp->id());
         }
     }
+
+    V3Global::dumpCheckGlobalTree("post-partition", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 }
 
 void add(std::unordered_map<int, uint64_t>& cmap, int id, uint64_t cost) { cmap[id] += cost; }
@@ -3063,3 +3160,37 @@ void V3Partition::selfTest() {
     PartPackMTasks::selfTest();
     PartContraction::selfTest();
 }
+
+const PartContraction::ptr PartContraction::lut[32]
+    = {nullptr,
+       nullptr,
+       vlt::fixedSort<2, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<3, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<4, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<5, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<6, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<7, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<8, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<9, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<10, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<11, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<12, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<13, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<14, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<15, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<16, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<17, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<18, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<19, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<20, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<21, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<22, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<23, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<24, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<25, PartContraction::Buf, PartContraction::Swap>,
+       vlt::fixedSort<26, PartContraction::Buf, PartContraction::Swap>,
+       nullptr,
+       nullptr,
+       nullptr,
+       nullptr,
+       nullptr};
