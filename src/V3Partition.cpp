@@ -1570,8 +1570,6 @@ private:
         static size_t k;
         k = n;
 
-
-
         // Don't make all possible pairs of prereqs when not requested (non-exhaustive).
         // Just make a few pairs.
         constexpr size_t MAX_NONEXHAUSTIVE_PAIRS = 3;
