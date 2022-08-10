@@ -36,17 +36,271 @@
 #include <memory>
 #include <unordered_set>
 
+struct EdgeHeapNode {
+
+    struct HeapNodeLink {
+        EdgeHeapNode* m_ptr = nullptr;  // The pointer
+
+        HeapNodeLink() = default;
+        VL_UNCOPYABLE(HeapNodeLink);
+
+        void link(EdgeHeapNode* targetp) {
+            m_ptr = targetp;
+            if (targetp) {
+                //                UASSERT(!targetp->m_ownerpp, "Already linked?");
+                targetp->m_ownerpp = &m_ptr;
+            }
+        }
+
+        void link(HeapNodeLink& target) { link(target.m_ptr); }
+
+        EdgeHeapNode* unlink() {
+            EdgeHeapNode* const result = m_ptr;
+            if (result) {
+                //                UASSERT(m_ptr->m_ownerpp == &m_ptr, "Bad back link");
+                m_ptr->m_ownerpp = nullptr;
+                m_ptr = nullptr;
+            }
+            return result;
+        }
+
+        // I know what I am doing using this
+        void force(EdgeHeapNode* p) { m_ptr = p; }
+
+        EdgeHeapNode* ptr() const { return m_ptr; }
+
+        operator bool() const { return m_ptr; }
+
+        bool operator!() const { return !m_ptr; }
+        EdgeHeapNode* operator->() const { return m_ptr; }
+        EdgeHeapNode& operator*() const { return *m_ptr; }
+    };
+
+    HeapNodeLink m_next;  // Next in list of sibling heaps
+    HeapNodeLink m_kids;  // Head of child heaps
+    EdgeHeapNode** m_ownerpp = nullptr;  // Pointer to the link-pointer pointing to this heap
+    uint32_t m_score;  // The score in the heap
+    uint64_t m_id;  // The Id to break tied scores
+
+public:
+    EdgeHeapNode() = default;
+    VL_UNCOPYABLE(EdgeHeapNode);
+
+    bool operator<(const EdgeHeapNode& that) const {
+        // First sort by Score
+        if (m_score != that.m_score) return m_score > that.m_score;
+        // Then by id
+        return m_id > that.m_id;
+    }
+
+    uint32_t score() const { return m_score; }
+
+    //    size_t size() const {
+    //        return 1 + (m_kids ? m_kids->size() : 0) + (m_next ? m_next->size() : 0);
+    //    }
+
+    // Insert this node into the heap rooted at 'rootp' with given score and id.
+    // 'rootp' might be updated!
+    void heapInsert(EdgeHeapNode*& rootp, uint32_t score, uint64_t id) {
+        //        UASSERT(!m_ownerpp, "Already in a heap?");
+        // Set up scores
+        m_score = score;
+        m_id = id;
+        if (!rootp) {
+            // If no root, this becomes the root
+            m_next.link(nullptr);
+            m_kids.link(nullptr);
+            rootp = this;
+            m_ownerpp = &rootp;
+        } else if (*this < *rootp) {
+            // If this is smaller than the root, this becomes the new root
+            EdgeHeapNode* const oldp = rootp;
+            rootp->replaceWith(this);
+            m_next.link(nullptr);
+            m_kids.link(oldp);
+        } else {
+            // Otherwise this goes under the root
+            m_next.link(rootp->m_kids.unlink());
+            m_kids.link(nullptr);
+            rootp->m_kids.link(this);
+        }
+    }
+
+    // Remove this node from the heap it is contained in
+    void heapRemove() {
+        if (m_next) {  // If this heap has a next, replace with that
+            if (m_kids) {
+                replaceWith(reduce(m_next.unlink())->heapMerge(reduce(m_kids.unlink())));
+            } else {
+                replaceWith(m_next.unlink());
+            }
+        } else {  // Otherwise replace with child
+            replaceWith(m_kids.unlink());
+        }
+    }
+
+    // Remove whole sub-heap rooted at this node
+    void heapExtract() { replaceWith(m_next.unlink()); }
+
+    EdgeHeapNode* heapMerge(EdgeHeapNode* otherp) {
+        //        UASSERT(!m_ownerpp && !m_next, "Not root this");
+        //        UASSERT(!otherp->m_ownerpp && !otherp->m_next, "Not root other");
+
+        if (*this < *otherp) {
+            // This is better, so other goes under this
+            otherp->m_next.link(m_kids.unlink());
+            m_kids.link(otherp);
+            return this;
+        } else {
+            // Other is better, so this goes under other
+            m_next.link(otherp->m_kids.unlink());
+            otherp->m_kids.link(this);
+            return otherp;
+        }
+    }
+
+    void heapIncrease(EdgeHeapNode*& rootp, uint32_t score) {
+        //        UASSERT(score > m_score, "You said *increase*...");
+        EdgeHeapNode** ownerpp = rootp->m_ownerpp;
+        //        UASSERT(ownerpp, "NO OWNERER??");
+
+        rootp->heapBest();  // Ensure no nextp
+        if (this == rootp) {
+            m_score = score;
+            return;
+        }
+
+        heapExtract();
+
+        m_score = score;
+        rootp->m_ownerpp = nullptr;
+        EdgeHeapNode* const resultp = rootp->heapMerge(this);
+        *ownerpp = resultp;
+        resultp->m_ownerpp = ownerpp;
+
+        //        heapInsert(rootp, score, m_id);
+
+        //        m_score = score;
+        //        // If no children then done
+        //        if (!m_kids) return;
+        //        // Otherwise reduce the children
+        //        m_kids.link(reduce(m_kids.unlink()));
+        //        // Now if this heap is still smaller than the single child heap, then we are
+        //        done. if (*this < *m_kids) return;
+        //        // Otherwise replace this heap with the child, and put this under the child
+        //        replaceWith(m_kids.ptr());  // Child take place of this node
+        //        m_next.link(m_kids->m_kids);  // This node's next is children's children
+        //        m_kids->m_kids.link(this);  // The children's children becomes this node
+        //        m_kids.link(nullptr);  // This node has no more children (they became siblings)
+    }
+
+    EdgeHeapNode* heapBest() {
+        if (!m_next) return this;
+        EdgeHeapNode** const ownerpp = m_ownerpp;
+        m_ownerpp = nullptr;
+        EdgeHeapNode* const reducedp = reduce(this);
+        *ownerpp = reducedp;
+        reducedp->m_ownerpp = ownerpp;
+        return reducedp;
+    }
+
+    EdgeHeapNode* heapSecondBest() {
+        heapBest();  // Ensure root is reduced
+        if (!m_kids) return nullptr;
+        m_kids.link(reduce(m_kids.unlink()));
+        return m_kids.ptr();
+    }
+
+    //    void checkHeap() {
+    //        UASSERT(!m_kids || m_kids->m_ownerpp == &(m_kids.m_ptr),
+    //                "kids does not point back " << this << endl
+    //                                            << "&(m_kids.m_ptr) is " << &(m_kids.m_ptr) <<
+    //                                            endl
+    //                                            << " m_kids->m_ownerpp is " << m_kids->m_ownerpp
+    //                                            << endl);
+    //        for (EdgeHeapNode *childp = m_kids.ptr(), *nextp; childp; childp = nextp) {
+    //            nextp = childp->m_next.ptr();
+    //            UASSERT(!nextp || nextp->m_ownerpp == &(childp->m_next.m_ptr),
+    //                    "next does not point back " << childp);
+    //            UASSERT(*this < *childp, "Bad Heap " << this);
+    //            childp->checkHeap();
+    //        }
+    //    }
+    //
+    //    void dumpHeap(std::string prefix = "") {
+    //        if (prefix.empty()) cout << "Root owner: " << m_ownerpp << endl;
+    //        cout << "(" << this << " " << m_score << " " << m_id << ")" << endl;
+    //        for (EdgeHeapNode* childp = m_kids.ptr(); childp; childp = childp->m_next.ptr()) {
+    //            cout << prefix << (childp->m_next ? "|-" : "`-");
+    //            childp->dumpHeap(prefix + (childp->m_next ? "| " : "  "));
+    //        }
+    //        if (prefix.empty() && m_next) m_next->dumpHeap();
+    //    }
+
+private:
+    // Make newp take the place of thisp
+    void replaceWith(EdgeHeapNode* newp) {
+        //        UASSERT(m_ownerpp, "Not linkded?");
+        *m_ownerpp = newp;
+        if (newp) newp->m_ownerpp = m_ownerpp;
+        m_ownerpp = nullptr;  // Clear owner pointer for safety
+    }
+
+    // Reduces list to a single heap
+    static EdgeHeapNode* reduce(EdgeHeapNode* nodep) {
+        //        UASSERT(!nodep->m_ownerpp, "Linked?");
+        // If there is only one child, then there is nothing to do
+        if (!nodep->m_next) return nodep;
+        // Pairwise merge the child nodes, cleaning them up as we go
+        EdgeHeapNode* resultp = nullptr;
+        while (nodep) {
+            // Pop and clean up children until we have 2 clean heaps
+            EdgeHeapNode* const ap = nodep;
+            EdgeHeapNode* const bp = nodep->m_next.unlink();
+            if (!bp) {
+                // We have a leftover child, prepend to results
+                ap->m_next.link(resultp);
+                resultp = ap;
+                break;
+            }
+            nodep = bp->m_next.unlink();
+            // Merge the pair
+            EdgeHeapNode* const mergedp = ap->heapMerge(bp);
+            // Prepend to list
+            mergedp->m_next.link(resultp);
+            resultp = mergedp;
+        }
+        // Now merge reduce the merged pairs
+        while (resultp->m_next) {
+            // Pop first two results
+            EdgeHeapNode* const ap = resultp;
+            EdgeHeapNode* const bp = resultp->m_next.unlink();
+            resultp = bp->m_next.unlink();
+            // Merge them
+            EdgeHeapNode* const mergedp = ap->heapMerge(bp);
+            // Prepend back to list
+            mergedp->m_next.link(resultp);
+            resultp = mergedp;
+        }
+        return resultp;
+    }
+};
+
+// void dumpHeap(EdgeHeapNode* n) { n->dumpHeap(); }
+
+class LogicMTask;
+class MTaskEdge;
 class MergeCandidate;
 class SiblingMC;
 
-//######################################################################
-// Partitioner tunable settings:
+// ######################################################################
+//  Partitioner tunable settings:
 //
-// Before describing these settings, a bit of background:
+//  Before describing these settings, a bit of background:
 //
-// Early during the development of the partitioner, V3Split was failing to
-// split large always blocks (with ~100K assignments) so we had to handle
-// very large vertices with ~100K incoming and outgoing edges.
+//  Early during the development of the partitioner, V3Split was failing to
+//  split large always blocks (with ~100K assignments) so we had to handle
+//  very large vertices with ~100K incoming and outgoing edges.
 //
 // The partitioner attempts to deal with such densely connected
 // graphs. Some of the tuning parameters below reference "huge vertices",
@@ -186,9 +440,10 @@ public:
         // For *vxp, whose CP-inclusive has just increased to
         // newInclusiveCp, iterate to all wayward nodes, update the edges
         // of each, and add each to m_pending if its overall CP has grown.
-        for (V3GraphEdge* edgep = vxp->beginp(way()); edgep; edgep = edgep->nextp(way())) {
+        for (V3GraphEdge *edgep = vxp->beginp(way()), *nextp; edgep; edgep = nextp) {
+            nextp = edgep->nextp(way());  // Fetch early as likely cache miss
+            m_accessp->notifyEdgeCp(edgep, way(), vxp, newInclusiveCp);
             V3GraphVertex* const relativep = edgep->furtherp(way());
-            m_accessp->notifyEdgeCp(relativep, way(), vxp, newInclusiveCp);
 
             const uint32_t critPathCost = m_accessp->critPathCost(relativep, way());
             if (critPathCost >= newInclusiveCp) continue;
@@ -260,8 +515,7 @@ private:
     // METHODS
 protected:
     friend class PartPropagateCp<PartPropagateCpSelfTest, GraphWay::FORWARD>;
-    void notifyEdgeCp(V3GraphVertex* /*vxp*/, GraphWay way, V3GraphVertex* throughp,
-                      uint32_t cp) const {
+    void notifyEdgeCp(V3GraphEdge*, GraphWay way, V3GraphVertex* throughp, uint32_t cp) const {
         const uint32_t throughCost = critPathCost(throughp, way);
         UASSERT_SELFTEST(uint32_t, cp, (1 + throughCost));
     }
@@ -390,21 +644,18 @@ public:
         // Notify vxp that the wayward CP at the throughp-->vxp edge
         // has increased to 'cp'. (vxp is wayward from throughp.)
         // This is our cue to update vxp's m_edges[!way][throughp].
-        static void notifyEdgeCp(V3GraphVertex* vxp, GraphWay way, V3GraphVertex* throuvhVxp,
-                                 uint32_t cp) {
-            LogicMTask* const updateVxp = static_cast<LogicMTask*>(vxp);
-            LogicMTask* const lthrouvhVxp = static_cast<LogicMTask*>(throuvhVxp);
-            EdgeSet& edges = updateVxp->m_edges[way.invert()];
-            const auto it = edges.find(lthrouvhVxp);
-            if (cp > it->second) edges.update(it, cp);
-        }
+        static void notifyEdgeCp(V3GraphEdge* edgep, GraphWay way, V3GraphVertex* throuvhVxp,
+                                 uint32_t cp);
         // Check that CP matches that of the longest edge wayward of vxp.
         static void checkNewCpVersusEdges(V3GraphVertex* vxp, GraphWay way, uint32_t cp) {
             LogicMTask* const mtaskp = static_cast<LogicMTask*>(vxp);
-            const EdgeSet& edges = mtaskp->m_edges[way.invert()];
-            // This is mtaskp's relative with longest !wayward inclusive CP:
-            const auto edgeIt = edges.rbegin();
-            const uint32_t edgeCp = edgeIt->second;
+            //            mtaskp->m_edgeHeap[way.invert()]->dumpHeap();
+            //            mtaskp->m_edgeHeap[way.invert()]->checkHeap();
+            const uint32_t edgeCp = mtaskp->m_edgeHeap[way.invert()]->heapBest()->score();
+            //            const EdgeSet& edges = mtaskp->m_edges[way.invert()];
+            //            // This is mtaskp's relative with longest !wayward inclusive CP:
+            //            const auto edgeIt = edges.rbegin();
+            //            const uint32_t edgeCp = edgeIt->second;
             UASSERT_OBJ(edgeCp == cp, vxp, "CP doesn't match longest wayward edge");
         }
 
@@ -444,8 +695,10 @@ private:
     // our edge with them. The SortByValueMap supports iterating over
     // relatives in longest-to-shortest CP order.  We rely on this ordering
     // in more than one place.
-    using EdgeSet = SortByValueMap<LogicMTask*, uint32_t, CmpLogicMTask>;
-    std::array<EdgeSet, GraphWay::NUM_WAYS> m_edges;
+    //    using EdgeSet = SortByValueMap<LogicMTask*, uint32_t, CmpLogicMTask>;
+    //    std::array<EdgeSet, GraphWay::NUM_WAYS> m_edges;
+    std::array<std::unordered_map<LogicMTask*, MTaskEdge*>, GraphWay::NUM_WAYS> m_edgeMap;
+    std::array<EdgeHeapNode*, GraphWay::NUM_WAYS> m_edgeHeap;
 
     // SiblingMC for which storage is owned by this MTask
     std::unique_ptr<std::set<SiblingMC>> m_ownSibs;
@@ -456,7 +709,8 @@ public:
     // CONSTRUCTORS
     LogicMTask(V3Graph* graphp, MTaskMoveVertex* mtmvVxp)
         : AbstractLogicMTask{graphp} {
-        for (unsigned int& i : m_critPathCost) i = 0;
+        for (uint32_t& item : m_critPathCost) item = 0;
+        for (EdgeHeapNode*& item : m_edgeHeap) item = nullptr;
         if (mtmvVxp) {  // Else null for test
             m_vertices.push_back(mtmvVxp);
             if (const OrderLogicVertex* const olvp = mtmvVxp->logicp()) {
@@ -521,32 +775,22 @@ public:
         logcost = logcost / 20.0;
 
         const uint32_t stepCost = static_cast<uint32_t>(exp(logcost));
+#if VL_DEBUG
         UASSERT_STATIC(stepCost >= cost, "stepped cost error exceeded");
         UASSERT_STATIC(stepCost <= ((cost * 11 / 10)), "stepped cost error exceeded");
+#endif
         return stepCost;
 #else
         return cost;
 #endif
     }
 
-    void addRelative(GraphWay way, LogicMTask* relativep) {
-        // value is !way cp to this edge
-        const uint32_t cp = relativep->stepCost() + relativep->critPathCost(way.invert());
-        VL_ATTR_UNUSED const bool exits = !m_edges[way].emplace(relativep, cp).second;
-#if VL_DEBUG
-        UASSERT(!exits, "Adding existing edge");
-#endif
+    void addRelative(GraphWay way, MTaskEdge* edgep);
+    void removeRelative(GraphWay way, MTaskEdge* edgep);
+    bool hasRelative(GraphWay way, LogicMTask* relativep) {
+        return m_edgeMap[way].count(relativep);
     }
-    void removeRelative(GraphWay way, LogicMTask* relativep) { m_edges[way].erase(relativep); }
-    bool hasRelative(GraphWay way, LogicMTask* relativep) { return m_edges[way].has(relativep); }
-    void checkRelativesCp(GraphWay way) const {
-        for (const auto& edge : vlstd::reverse_view(m_edges[way])) {
-            const LogicMTask* const relativep = edge.first;
-            const uint32_t cachedCp = edge.second;
-            const uint32_t cp = relativep->critPathCost(way.invert()) + relativep->stepCost();
-            partCheckCachedScoreVsActual(cachedCp, cp);
-        }
-    }
+    void checkRelativesCp(GraphWay way) const;
 
     virtual string name() const override {
         // Display forward and reverse critical path costs. This gives a quick
@@ -559,27 +803,7 @@ public:
 
     void setCritPathCost(GraphWay way, uint32_t cost) { m_critPathCost[way] = cost; }
     uint32_t critPathCost(GraphWay way) const { return m_critPathCost[way]; }
-    uint32_t critPathCostWithout(GraphWay way, const V3GraphEdge* withoutp) const {
-        // Compute the critical path cost wayward to this node, without
-        // considering edge 'withoutp'
-        UASSERT(this == withoutp->furtherp(way), "In critPathCostWithout(), edge 'withoutp' must "
-                                                 "further to 'this'");
-
-        // Iterate through edges until we get a relative other than
-        // wayEdgeEndp(way, withoutp). This should take 2 iterations max.
-        const EdgeSet& edges = m_edges[way.invert()];
-        uint32_t result = 0;
-        for (const auto& edge : vlstd::reverse_view(edges)) {
-            if (edge.first != withoutp->furtherp(way.invert())) {
-                // Use the cached cost. It could be a small overestimate
-                // due to stepping. This is consistent with critPathCost()
-                // which also returns the cached cost.
-                result = edge.second;
-                break;
-            }
-        }
-        return result;
-    }
+    uint32_t critPathCostWithout(GraphWay way, const V3GraphEdge* withoutp) const;
 
 private:
     static bool pathExistsFromInternal(LogicMTask* fromp, LogicMTask* top,
@@ -636,65 +860,7 @@ public:
         return pathExistsFromInternal(fromp, top, excludedEdgep, incGeneration());
     }
 
-    static void dumpCpFilePrefixed(const V3Graph* graphp, const string& nameComment) {
-        const string filename = v3Global.debugFilename(nameComment) + ".txt";
-        UINFO(1, "Writing " << filename << endl);
-        const std::unique_ptr<std::ofstream> ofp{V3File::new_ofstream(filename)};
-        std::ostream* const osp = &(*ofp);  // &* needed to deref unique_ptr
-        if (osp->fail()) v3fatalStatic("Can't write " << filename);
-
-        // Find start vertex with longest CP
-        const LogicMTask* startp = nullptr;
-        for (const V3GraphVertex* vxp = graphp->verticesBeginp(); vxp;
-             vxp = vxp->verticesNextp()) {
-            const LogicMTask* const mtaskp = static_cast<const LogicMTask*>(vxp);
-            if (!startp) {
-                startp = mtaskp;
-                continue;
-            }
-            if (mtaskp->cost() + mtaskp->critPathCost(GraphWay::REVERSE)
-                > startp->cost() + startp->critPathCost(GraphWay::REVERSE)) {
-                startp = mtaskp;
-            }
-        }
-
-        // Follow the entire critical path
-        std::vector<const LogicMTask*> path;
-        uint32_t totalCost = 0;
-        for (const LogicMTask* nextp = startp; nextp;) {
-            path.push_back(nextp);
-            totalCost += nextp->cost();
-
-            const EdgeSet& children = nextp->m_edges[GraphWay::FORWARD];
-            const EdgeSet::const_reverse_iterator it = children.rbegin();
-            if (it == children.rend()) {
-                nextp = nullptr;
-            } else {
-                nextp = it->first;
-            }
-        }
-
-        *osp << "totalCost = " << totalCost
-             << " (should match the computed critical path cost (CP) for the graph)\n";
-
-        // Dump
-        for (const LogicMTask* mtaskp : path) {
-            *osp << "begin mtask with cost " << mtaskp->cost() << '\n';
-            for (VxList::const_iterator lit = mtaskp->vertexListp()->begin();
-                 lit != mtaskp->vertexListp()->end(); ++lit) {
-                const OrderLogicVertex* const logicp = (*lit)->logicp();
-                if (!logicp) continue;
-                if (false) {
-                    // Show nodes only
-                    *osp << "> ";
-                    logicp->nodep()->dumpTree(*osp);
-                } else {
-                    // Show nodes with hierarchical costs
-                    V3InstrCount::count(logicp->nodep(), false, osp);
-                }
-            }
-        }
-    }
+    static void dumpCpFilePrefixed(const V3Graph* graphp, const string& nameComment);
 
 private:
     VL_DEBUG_FUNC;  // Declare debug()
@@ -800,17 +966,22 @@ static_assert(sizeof(SiblingMC) == sizeof(MergeCandidate) + 2 * sizeof(LogicMTas
 
 // GraphEdge for the MTask graph
 class MTaskEdge final : public V3GraphEdge, public MergeCandidate {
+    friend class LogicMTask;
+    friend class LogicMTask::CpCostAccessor;
+    // MEMBERS
+    EdgeHeapNode m_heapNode[GraphWay::NUM_WAYS];  // This edge can be in 2 Heaps
+
 public:
     // CONSTRUCTORS
     MTaskEdge(V3Graph* graphp, LogicMTask* fromp, LogicMTask* top, int weight)
         : V3GraphEdge{graphp, fromp, top, weight}
         , MergeCandidate{/* isSiblingMC: */ false} {
-        fromp->addRelative(GraphWay::FORWARD, top);
-        top->addRelative(GraphWay::REVERSE, fromp);
+        fromp->addRelative(GraphWay::FORWARD, this);
+        top->addRelative(GraphWay::REVERSE, this);
     }
     virtual ~MTaskEdge() override {
-        fromMTaskp()->removeRelative(GraphWay::FORWARD, toMTaskp());
-        toMTaskp()->removeRelative(GraphWay::REVERSE, fromMTaskp());
+        fromMTaskp()->removeRelative(GraphWay::FORWARD, this);
+        toMTaskp()->removeRelative(GraphWay::REVERSE, this);
     }
     // METHODS
     LogicMTask* furtherMTaskp(GraphWay way) const {
@@ -827,15 +998,214 @@ public:
     void resetCriticalPaths() {
         LogicMTask* const fromp = fromMTaskp();
         LogicMTask* const top = toMTaskp();
-        fromp->removeRelative(GraphWay::FORWARD, top);
-        top->removeRelative(GraphWay::REVERSE, fromp);
-        fromp->addRelative(GraphWay::FORWARD, top);
-        top->addRelative(GraphWay::REVERSE, fromp);
+        fromp->removeRelative(GraphWay::FORWARD, this);
+        top->removeRelative(GraphWay::REVERSE, this);
+        fromp->addRelative(GraphWay::FORWARD, this);
+        top->addRelative(GraphWay::REVERSE, this);
+    }
+
+    uint32_t cachedCp(GraphWay way) const { return m_heapNode[way].score(); }
+
+    static MTaskEdge* toEdge(GraphWay way, EdgeHeapNode* heapp) {
+        const size_t offset
+            = reinterpret_cast<size_t>(&(reinterpret_cast<MTaskEdge*>(0)->m_heapNode[way]));
+        return reinterpret_cast<MTaskEdge*>(reinterpret_cast<char*>(heapp) - offset);
     }
 
 private:
     VL_UNCOPYABLE(MTaskEdge);
 };
+
+void LogicMTask::addRelative(GraphWay way, MTaskEdge* edgep) {
+    //    {
+    //        size_t heapSize = m_edgeHeap[way] ? m_edgeHeap[way]->size() : 0;
+    //        UASSERT(heapSize == m_edgeMap[way].size(), "WTF?");
+    //    }
+    LogicMTask* const relativep = static_cast<LogicMTask*>(edgep->furtherp(way));
+    // Add to the neigbour to connecting edge map
+    VL_ATTR_UNUSED const bool exits = !m_edgeMap[way].emplace(relativep, edgep).second;
+#if VL_DEBUG
+    UASSERT(!exits, "Adding existing edge");
+#endif
+    // value is !way cp to this edge
+    const uint32_t cp = relativep->stepCost() + relativep->critPathCost(way.invert());
+    // Add to the edge heap
+    edgep->m_heapNode[way].heapInsert(m_edgeHeap[way], cp, relativep->id());
+
+    //    {
+    //        size_t heapSize = m_edgeHeap[way] ? m_edgeHeap[way]->size() : 0;
+    //        UASSERT(heapSize == m_edgeMap[way].size(), "WTF?");
+    //    }
+}
+void LogicMTask::removeRelative(GraphWay way, MTaskEdge* edgep) {
+    //    {
+    //        size_t heapSize = m_edgeHeap[way] ? m_edgeHeap[way]->size() : 0;
+    //        UASSERT(heapSize == m_edgeMap[way].size(), "WTF?");
+    //    }
+
+    LogicMTask* const relativep = static_cast<LogicMTask*>(edgep->furtherp(way));
+    m_edgeMap[way].erase(relativep);
+    edgep->m_heapNode[way].heapRemove();
+
+    //    {
+    //        size_t heapSize = m_edgeHeap[way] ? m_edgeHeap[way]->size() : 0;
+    //        UASSERT(heapSize == m_edgeMap[way].size(), "WTF?");
+    //    }
+}
+
+void LogicMTask::checkRelativesCp(GraphWay way) const {
+    for (const auto& pair : m_edgeMap[way]) {
+        const LogicMTask* const relativep = pair.first;
+        const MTaskEdge* const edgep = pair.second;
+        const uint32_t cachedCp = edgep->cachedCp(way);
+        const uint32_t cp = relativep->critPathCost(way.invert()) + relativep->stepCost();
+        partCheckCachedScoreVsActual(cachedCp, cp);
+    }
+}
+
+uint32_t LogicMTask::critPathCostWithout(GraphWay way, const V3GraphEdge* withoutp) const {
+    // Compute the critical path cost wayward to this node, without
+    // considering edge 'withoutp'
+    //    UASSERT(this == withoutp->furtherp(way), "In critPathCostWithout(), edge 'withoutp' must
+    //    "
+    //                                             "further to 'this'");
+
+    // Iterate through edges until we get a relative other than
+    // wayEdgeEndp(way, withoutp). This should take 2 iterations max.
+    const GraphWay inv = way.invert();
+    EdgeHeapNode* const bestp = m_edgeHeap[inv]->heapBest();
+    if (!bestp) return 0;
+    if (MTaskEdge::toEdge(inv, bestp) != withoutp) return bestp->score();
+    const EdgeHeapNode* const secondBestp = m_edgeHeap[inv]->heapSecondBest();
+    if (!secondBestp) return 0;
+    return secondBestp->score();
+
+    //        if (be) uint32_t result = 0;
+    //        for (const auto& edge : vlstd::reverse_view(edges)) {
+    //            if (edge.first != withoutp->furtherp(way.invert())) {
+    //                // Use the cached cost. It could be a small overestimate
+    //                // due to stepping. This is consistent with critPathCost()
+    //                // which also returns the cached cost.
+    //                result = edge.second;
+    //                break;
+    //            }
+    //        }
+    //        return result;
+}
+
+void LogicMTask::dumpCpFilePrefixed(const V3Graph* graphp, const string& nameComment) {
+    const string filename = v3Global.debugFilename(nameComment) + ".txt";
+    UINFO(1, "Writing " << filename << endl);
+    const std::unique_ptr<std::ofstream> ofp{V3File::new_ofstream(filename)};
+    std::ostream* const osp = &(*ofp);  // &* needed to deref unique_ptr
+    if (osp->fail()) v3fatalStatic("Can't write " << filename);
+
+    // Find start vertex with longest CP
+    const LogicMTask* startp = nullptr;
+    for (const V3GraphVertex* vxp = graphp->verticesBeginp(); vxp; vxp = vxp->verticesNextp()) {
+        const LogicMTask* const mtaskp = static_cast<const LogicMTask*>(vxp);
+        if (!startp) {
+            startp = mtaskp;
+            continue;
+        }
+        if (mtaskp->cost() + mtaskp->critPathCost(GraphWay::REVERSE)
+            > startp->cost() + startp->critPathCost(GraphWay::REVERSE)) {
+            startp = mtaskp;
+        }
+    }
+
+    // Follow the entire critical path
+    std::vector<const LogicMTask*> path;
+    uint32_t totalCost = 0;
+    for (const LogicMTask* nextp = startp; nextp;) {
+        path.push_back(nextp);
+        totalCost += nextp->cost();
+
+        EdgeHeapNode* const bestp = nextp->m_edgeHeap[GraphWay::FORWARD]
+                                        ? nextp->m_edgeHeap[GraphWay::FORWARD]->heapBest()
+                                        : nullptr;
+        if (!bestp) {
+            nextp = nullptr;
+        } else {
+            nextp = MTaskEdge::toEdge(GraphWay::FORWARD, bestp)->toMTaskp();
+        }
+
+        //            const EdgeSet& children =
+        //            const EdgeSet::const_reverse_iterator it = children.rbegin();
+        //            if (it == children.rend()) {
+        //                nextp = nullptr;
+        //            } else {
+        //                nextp = it->first;
+        //            }
+    }
+
+    *osp << "totalCost = " << totalCost
+         << " (should match the computed critical path cost (CP) for the graph)\n";
+
+    // Dump
+    for (const LogicMTask* mtaskp : path) {
+        *osp << "begin mtask with cost " << mtaskp->cost() << '\n';
+        for (VxList::const_iterator lit = mtaskp->vertexListp()->begin();
+             lit != mtaskp->vertexListp()->end(); ++lit) {
+            const OrderLogicVertex* const logicp = (*lit)->logicp();
+            if (!logicp) continue;
+            if (false) {
+                // Show nodes only
+                *osp << "> ";
+                logicp->nodep()->dumpTree(*osp);
+            } else {
+                // Show nodes with hierarchical costs
+                V3InstrCount::count(logicp->nodep(), false, osp);
+            }
+        }
+    }
+}
+
+// Notify vxp that the wayward CP at the throughp-->vxp edge
+// has increased to 'cp'. (vxp is wayward from throughp.)
+// This is our cue to update vxp's m_edges[!way][throughp].
+void LogicMTask::CpCostAccessor::notifyEdgeCp(V3GraphEdge* edgep, GraphWay way,
+                                              V3GraphVertex* throuvhVxp, uint32_t cp) {
+    //    UINFO(0, "cp: " << cp << endl);
+    MTaskEdge* const mTaskEdgep = static_cast<MTaskEdge*>(edgep);
+    //    UASSERT_OBJ(edgep->furtherp(way.invert()) == throuvhVxp, throuvhVxp, "????");
+    if (cp > mTaskEdgep->m_heapNode[way.invert()].score()) {
+        LogicMTask* const relativep = static_cast<LogicMTask*>(edgep->furtherp(way));
+
+        //        UINFO(0, "Node: " << &mTaskEdgep->m_heapNode[way.invert()] << endl);
+        //        UINFO(0, "Pre increase" << endl);
+        //        relativep->m_edgeHeap[way.invert()]->dumpHeap();
+        //
+        //        {
+        //            size_t heapSize = relativep->m_edgeHeap[way.invert()]
+        //                                  ? relativep->m_edgeHeap[way.invert()]->size()
+        //                                  : 0;
+        //            UASSERT_OBJ(heapSize == relativep->m_edgeMap[way.invert()].size(), relativep,
+        //            "WTF?");
+        //        }
+
+        mTaskEdgep->m_heapNode[way.invert()].heapIncrease(relativep->m_edgeHeap[way.invert()], cp);
+
+        //        {
+        //            size_t heapSize = relativep->m_edgeHeap[way.invert()]
+        //                                  ? relativep->m_edgeHeap[way.invert()]->size()
+        //                                  : 0;
+        //            UASSERT_OBJ(heapSize == relativep->m_edgeMap[way.invert()].size(), relativep,
+        //            "WTF?");
+        //        }
+
+        //
+        //        UINFO(0, "Post increase" << endl);
+        //        relativep->m_edgeHeap[way.invert()]->dumpHeap();
+    }
+
+    //            V3GraphVertex* vxp = edgep->furtherp(way);
+    //            LogicMTask* const updateVxp = static_cast<LogicMTask*>(vxp);
+    //            LogicMTask* const lthrouvhVxp = static_cast<LogicMTask*>(throuvhVxp);
+    //            EdgeSet& edges = updateVxp->m_edges[way.invert()];
+    //            const auto it = edges.find(lthrouvhVxp);
+    //            if (cp > it->second) edges.update(it, cp);
+}
 
 // Instead of dynamic cast
 SiblingMC* MergeCandidate::toSiblingMC() {
@@ -1054,13 +1424,6 @@ static void partCheckCriticalPaths(V3Graph* mtasksp) {
     }
 }
 
-// Advance to nextp(way) and delete edge
-static V3GraphEdge* partBlastEdgep(GraphWay way, V3GraphEdge* edgep) {
-    V3GraphEdge* const nextp = edgep->nextp(way);
-    VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
-    return nextp;
-}
-
 // Merge edges from a LogicMtask.
 //
 // This code removes 'hasRelative' edges. When this occurs, mark it in need
@@ -1097,7 +1460,8 @@ static V3GraphEdge* partBlastEdgep(GraphWay way, V3GraphEdge* edgep) {
 static void partMergeEdgesFrom(V3Graph* mtasksp, LogicMTask* recipientp, LogicMTask* donorp,
                                V3Scoreboard<MergeCandidate, uint32_t>* sbp) {
     for (const auto& way : {GraphWay::FORWARD, GraphWay::REVERSE}) {
-        for (V3GraphEdge* edgep = donorp->beginp(way); edgep; edgep = partBlastEdgep(way, edgep)) {
+        for (V3GraphEdge *edgep = donorp->beginp(way), *nextp; edgep; edgep = nextp) {
+            nextp = edgep->nextp(way);  // Fetch early as likely cache miss
             MTaskEdge* const tedgep = static_cast<MTaskEdge*>(edgep);
             if (sbp && tedgep->isInScoreboard()) sbp->removeElem(tedgep);
             // Existing edge; mark it in need of a rescore
@@ -1120,6 +1484,7 @@ static void partMergeEdgesFrom(V3Graph* mtasksp, LogicMTask* recipientp, LogicMT
                 }
                 if (sbp) sbp->addElem(newEdgep);
             }
+            VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
         }
     }
 }
@@ -1533,7 +1898,7 @@ private:
             uint64_t m_id;
             uint32_t m_cp;
             uint8_t m_idx;
-            static_assert(neighbours.size() <= std::numeric_limits<uint8_t>::max(),
+            static_assert(PART_SIBLING_EDGE_LIMIT <= std::numeric_limits<uint8_t>::max(),
                           "m_idx must fit all indices into 'neighbours'");
             bool operator<(const SortingRecord& that) const {
                 return m_cp < that.m_cp || (m_cp == that.m_cp && m_id < that.m_id);
@@ -3073,6 +3438,50 @@ void V3Partition::finalize(AstNetlist* netlistp) {
 }
 
 void V3Partition::selfTest() {
+    //    EdgeHeapNode nodes[128];
+    //
+    //    EdgeHeapNode* rootp = nullptr;
+    //
+    //    const auto f = [&](std::string s) {
+    //        UINFO(0, s << " " << rootp << endl);
+    //        if (rootp) {
+    //            rootp->dumpHeap();
+    //            rootp->checkHeap();
+    //        }
+    //    };
+
+    //    nodes[0].heapInsert(rootp, 100, 0);
+    //    f("Insert 0");
+    //    nodes[1].heapInsert(rootp, 200, 1);
+    //    f("Insert 1");
+    //    nodes[2].heapInsert(rootp, 300, 2);
+    //    f("Insert 2");
+    //    nodes[3].heapInsert(rootp, 50, 3);
+    //    f("Insert 3");
+    //    nodes[4].heapInsert(rootp, 200, 4);
+    //    f("Insert 4");
+    //    nodes[5].heapInsert(rootp, 300, 5);
+    //    f("Insert 5");
+    //    UINFO(0, rootp->heapBest() << endl);
+    //    f("Best");
+    //    nodes[3].heapRemove();
+    //    f("Remove 3");
+    //    UINFO(0, rootp->heapBest() << endl);
+    //    f("Best");
+    //    rootp->heapBest()->heapRemove();
+    //    f("Remove best");
+    //    rootp->heapBest()->heapRemove();
+    //    f("Remove best");
+    //    UINFO(0, rootp->heapSecondBest() << endl);
+    //    f("SecondBest");
+    //    rootp->heapBest()->heapRemove();
+    //    f("Remove best");
+    //    rootp->heapBest()->heapRemove();
+    //    f("Remove best");
+    //    rootp->heapBest()->heapRemove();
+    //    f("Remove best");
+    //
+    //    exit(0);
     PartPropagateCpSelfTest::selfTest();
     PartPackMTasks::selfTest();
     PartContraction::selfTest();
