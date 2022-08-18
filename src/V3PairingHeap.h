@@ -211,7 +211,7 @@ public:
 
 private:
     // Meld (merge) two heaps rooted at the given nodes, return the root of the new heap
-    static Node* merge(Node* ap, Node* bp) {
+    VL_ATTR_ALWINLINE static Node* merge(Node* ap, Node* bp) {
 #if VL_DEBUG
         UASSERT(!ap->m_ownerpp && !ap->m_next, "Not root a");
         UASSERT(!bp->m_ownerpp && !bp->m_next, "Not root b");
@@ -228,7 +228,7 @@ private:
     }
 
     // Reduces the list of nodes starting at the given node into a single node that is returned
-    static Node* reduce(Node* nodep) {
+    VL_ATTR_NOINLINE static Node* reduce(Node* nodep) {
 #if VL_DEBUG
         UASSERT(!nodep->m_ownerpp, "Node is linked");
 #endif
