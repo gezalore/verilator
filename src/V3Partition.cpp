@@ -545,7 +545,7 @@ private:
 };
 
 void LogicMTask::addRelative(GraphWay way, MTaskEdge* edgep) {
-    LogicMTask* const relativep = static_cast<LogicMTask*>(edgep->furtherp(way));
+    LogicMTask* const relativep = edgep->furtherMTaskp(way);
     // Add the relative to connecting edge map
     VL_ATTR_UNUSED const bool exits = !m_edgeSet[way].emplace(relativep).second;
 #if VL_DEBUG
@@ -558,7 +558,7 @@ void LogicMTask::addRelative(GraphWay way, MTaskEdge* edgep) {
 }
 
 void LogicMTask::removeRelative(GraphWay way, MTaskEdge* edgep) {
-    LogicMTask* const relativep = static_cast<LogicMTask*>(edgep->furtherp(way));
+    LogicMTask* const relativep = edgep->furtherMTaskp(way);
     // Remove the relative from connecting edge map
     VL_ATTR_UNUSED const size_t removed = m_edgeSet[way].erase(relativep);
 #if VL_DEBUG
@@ -1143,76 +1143,81 @@ public:
 // non-transitive edges only ever increase.
 static void partRedirectEdgesFrom(V3Graph* graphp, LogicMTask* recipientp, LogicMTask* donorp,
                                   MergeCandidateScoreboard* sbp) {
-    {
-        constexpr GraphWay way{GraphWay::FORWARD};
-        for (MTaskEdge *edgep = static_cast<MTaskEdge*>(donorp->outBeginp()), *nextp; edgep;
-             edgep = nextp) {
-            nextp = static_cast<MTaskEdge*>(edgep->outNextp());
-            LogicMTask* const relativep = edgep->toMTaskp();
-            if (recipientp->hasRelative(way, relativep)) {
-                // An edge already exists between recipient and relative of donor.
-                // Mark it in need of a rescore
-                if (sbp) {
-                    if (sbp->contains(edgep)) sbp->remove(edgep);
-                    MTaskEdge* const existMTaskEdgep
-                        = static_cast<MTaskEdge*>(recipientp->findConnectingEdgep(way, relativep));
-                    UASSERT(existMTaskEdgep, "findConnectingEdge didn't find edge");
-                    if (sbp->contains(existMTaskEdgep)) sbp->hintScoreChanged(existMTaskEdgep);
-                }
-                edgep->fromMTaskp()->removeRelative(GraphWay::FORWARD, edgep);
-                edgep->toMTaskp()->removeRelative(GraphWay::REVERSE, edgep);
-                VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
-            } else {
-                // No existing edge between recipient and relative of donor.
-                // Redirect the edge from donor<->relative to recipient<->relative.
-                donorp->removeRelative(GraphWay::FORWARD, edgep);
-                relativep->removeRelative(GraphWay::REVERSE, edgep);
-                edgep->relinkFromp(recipientp);
-                recipientp->addRelative(GraphWay::FORWARD, edgep);
-                relativep->addRelative(GraphWay::REVERSE, edgep);
-                if (sbp) {
-                    if (!sbp->contains(edgep)) {
-                        sbp->add(edgep);
-                    } else {
-                        sbp->hintScoreChanged(edgep);
-                    }
+
+    // Process outgoing edges
+    MTaskEdge* outNextp = static_cast<MTaskEdge*>(donorp->outBeginp());
+    while (outNextp) {
+        MTaskEdge* const edgep = outNextp;
+        LogicMTask* const relativep = outNextp->toMTaskp();
+        outNextp = static_cast<MTaskEdge*>(outNextp->outNextp());
+
+        relativep->removeRelative(GraphWay::REVERSE, edgep);
+
+        if (recipientp->hasRelative(GraphWay::FORWARD, relativep)) {
+            // An edge already exists between recipient and relative of donor.
+            // Mark it in need of a rescore
+            if (sbp) {
+                if (sbp->contains(edgep)) sbp->remove(edgep);
+                MTaskEdge* const existMTaskEdgep = static_cast<MTaskEdge*>(
+                    recipientp->findConnectingEdgep(GraphWay::FORWARD, relativep));
+#if VL_DEBUG
+                UASSERT(existMTaskEdgep, "findConnectingEdge didn't find edge");
+#endif
+                if (sbp->contains(existMTaskEdgep)) sbp->hintScoreChanged(existMTaskEdgep);
+            }
+            // Can nuke the edge now
+            VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
+        } else {
+            // No existing edge between recipient and relative of donor.
+            // Redirect the edge from donor<->relative to recipient<->relative.
+            donorp->removeRelative(GraphWay::FORWARD, edgep);
+            edgep->relinkFromp(recipientp);
+            recipientp->addRelative(GraphWay::FORWARD, edgep);
+            relativep->addRelative(GraphWay::REVERSE, edgep);
+            if (sbp) {
+                if (!sbp->contains(edgep)) {
+                    sbp->add(edgep);
+                } else {
+                    sbp->hintScoreChanged(edgep);
                 }
             }
         }
     }
-    {
-        constexpr GraphWay way{GraphWay::REVERSE};
-        for (MTaskEdge *edgep = static_cast<MTaskEdge*>(donorp->inBeginp()), *nextp; edgep;
-             edgep = nextp) {
-            nextp = static_cast<MTaskEdge*>(edgep->inNextp());
-            LogicMTask* const relativep = edgep->fromMTaskp();
-            if (recipientp->hasRelative(way, relativep)) {
-                // An edge already exists between recipient and relative of donor.
-                // Mark it in need of a rescore
-                if (sbp) {
-                    if (sbp->contains(edgep)) sbp->remove(edgep);
-                    MTaskEdge* const existMTaskEdgep
-                        = static_cast<MTaskEdge*>(recipientp->findConnectingEdgep(way, relativep));
-                    UASSERT(existMTaskEdgep, "findConnectingEdge didn't find edge");
-                    if (sbp->contains(existMTaskEdgep)) sbp->hintScoreChanged(existMTaskEdgep);
-                }
-                edgep->fromMTaskp()->removeRelative(GraphWay::FORWARD, edgep);
-                edgep->toMTaskp()->removeRelative(GraphWay::REVERSE, edgep);
-                VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
-            } else {
-                // No existing edge between recipient and relative of donor.
-                // Redirect the edge from donor<->relative to recipient<->relative.
-                relativep->removeRelative(GraphWay::FORWARD, edgep);
-                donorp->removeRelative(GraphWay::REVERSE, edgep);
-                edgep->relinkTop(recipientp);
-                relativep->addRelative(GraphWay::FORWARD, edgep);
-                recipientp->addRelative(GraphWay::REVERSE, edgep);
-                if (sbp) {
-                    if (!sbp->contains(edgep)) {
-                        sbp->add(edgep);
-                    } else {
-                        sbp->hintScoreChanged(edgep);
-                    }
+
+    // Process incoming edges
+    MTaskEdge* inNextp = static_cast<MTaskEdge*>(donorp->inBeginp());
+    while (inNextp) {
+        MTaskEdge* const edgep = inNextp;
+        LogicMTask* const relativep = inNextp->fromMTaskp();
+        inNextp = static_cast<MTaskEdge*>(inNextp->inNextp());
+
+        relativep->removeRelative(GraphWay::FORWARD, edgep);
+
+        if (recipientp->hasRelative(GraphWay::REVERSE, relativep)) {
+            // An edge already exists between recipient and relative of donor.
+            // Mark it in need of a rescore
+            if (sbp) {
+                if (sbp->contains(edgep)) sbp->remove(edgep);
+                MTaskEdge* const existMTaskEdgep = static_cast<MTaskEdge*>(
+                    recipientp->findConnectingEdgep(GraphWay::REVERSE, relativep));
+#if VL_DEBUG
+                UASSERT(existMTaskEdgep, "findConnectingEdge didn't find edge");
+#endif
+                if (sbp->contains(existMTaskEdgep)) sbp->hintScoreChanged(existMTaskEdgep);
+            }
+            VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
+        } else {
+            // No existing edge between recipient and relative of donor.
+            // Redirect the edge from donor<->relative to recipient<->relative.
+            donorp->removeRelative(GraphWay::REVERSE, edgep);
+            edgep->relinkTop(recipientp);
+            relativep->addRelative(GraphWay::FORWARD, edgep);
+            recipientp->addRelative(GraphWay::REVERSE, edgep);
+            if (sbp) {
+                if (!sbp->contains(edgep)) {
+                    sbp->add(edgep);
+                } else {
+                    sbp->hintScoreChanged(edgep);
                 }
             }
         }
