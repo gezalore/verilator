@@ -226,7 +226,7 @@ private:
     uint64_t m_generation = 0;
 
     // Store a set of relatives so we can quickly check if we have a given parent or child.
-    std::array<std::unordered_set<LogicMTask*>, GraphWay::NUM_WAYS> m_edgeSet;
+    std::unordered_set<LogicMTask*> m_edgeSet;
     // Also store the edges in a heap sorted by the worst critical paths
     std::array<EdgeHeap, GraphWay::NUM_WAYS> m_edgeHeap;
 
@@ -316,11 +316,25 @@ public:
 #endif
     }
 
-    void addRelative(GraphWay way, MTaskEdge* edgep);
-    void removeRelative(GraphWay way, MTaskEdge* edgep);
-    bool hasRelative(GraphWay way, LogicMTask* relativep) const {
-        return m_edgeSet[way].count(relativep);
+    void addRelativeEdge(GraphWay way, MTaskEdge* edgep);
+    void removeRelativeEdge(GraphWay way, MTaskEdge* edgep);
+
+    void addRelativeMTask(LogicMTask* relativep) {
+        // Add the relative to connecting edge map
+        VL_ATTR_UNUSED const bool exits = !m_edgeSet.emplace(relativep).second;
+#if VL_DEBUG
+        UASSERT(!exits, "Adding existing relative");
+#endif
     }
+    void removeRelativeMTask(LogicMTask* relativep) {
+        VL_ATTR_UNUSED const size_t removed = m_edgeSet.erase(relativep);
+#if VL_DEBUG
+        UASSERT(removed, "Relative should have been in set");
+#endif
+    }
+
+    bool hasRelativeMTask(LogicMTask* relativep) const { return m_edgeSet.count(relativep); }
+
     void checkRelativesCp(GraphWay way) const;
 
     virtual string name() const override {
@@ -521,8 +535,9 @@ public:
     MTaskEdge(V3Graph* graphp, LogicMTask* fromp, LogicMTask* top, int weight)
         : V3GraphEdge{graphp, fromp, top, weight}
         , MergeCandidate{/* isSiblingMC: */ false} {
-        fromp->addRelative(GraphWay::FORWARD, this);
-        top->addRelative(GraphWay::REVERSE, this);
+        fromp->addRelativeMTask(top);
+        fromp->addRelativeEdge(GraphWay::FORWARD, this);
+        top->addRelativeEdge(GraphWay::REVERSE, this);
     }
     // METHODS
     LogicMTask* furtherMTaskp(GraphWay way) const {
@@ -539,10 +554,10 @@ public:
     void resetCriticalPaths() {
         LogicMTask* const fromp = fromMTaskp();
         LogicMTask* const top = toMTaskp();
-        fromp->removeRelative(GraphWay::FORWARD, this);
-        top->removeRelative(GraphWay::REVERSE, this);
-        fromp->addRelative(GraphWay::FORWARD, this);
-        top->addRelative(GraphWay::REVERSE, this);
+        fromp->removeRelativeEdge(GraphWay::FORWARD, this);
+        top->removeRelativeEdge(GraphWay::REVERSE, this);
+        fromp->addRelativeEdge(GraphWay::FORWARD, this);
+        top->addRelativeEdge(GraphWay::REVERSE, this);
     }
 
     uint32_t cachedCp(GraphWay way) const { return m_edgeHeapNode[way].key().m_score; }
@@ -559,26 +574,16 @@ private:
     VL_UNCOPYABLE(MTaskEdge);
 };
 
-void LogicMTask::addRelative(GraphWay way, MTaskEdge* edgep) {
+void LogicMTask::addRelativeEdge(GraphWay way, MTaskEdge* edgep) {
+    // Add to the edge heap
     LogicMTask* const relativep = edgep->furtherMTaskp(way);
-    // Add the relative to connecting edge map
-    VL_ATTR_UNUSED const bool exits = !m_edgeSet[way].emplace(relativep).second;
-#if VL_DEBUG
-    UASSERT(!exits, "Adding existing edge");
-#endif
     // Value is !way cp to this edge
     const uint32_t cp = relativep->stepCost() + relativep->critPathCost(way.invert());
-    // Add to the edge heap
+    //
     m_edgeHeap[way].insert(&edgep->m_edgeHeapNode[way], {relativep->id(), cp});
 }
 
-void LogicMTask::removeRelative(GraphWay way, MTaskEdge* edgep) {
-    LogicMTask* const relativep = edgep->furtherMTaskp(way);
-    // Remove the relative from connecting edge map
-    VL_ATTR_UNUSED const size_t removed = m_edgeSet[way].erase(relativep);
-#if VL_DEBUG
-    UASSERT(removed, "Edge should have been in set");
-#endif
+void LogicMTask::removeRelativeEdge(GraphWay way, MTaskEdge* edgep) {
     // Remove from the edge heap
     m_edgeHeap[way].remove(&edgep->m_edgeHeapNode[way]);
 }
@@ -1091,11 +1096,11 @@ private:
             const unsigned idx1 = V3Os::rand64(rngState) % 50;
             const unsigned idx2 = V3Os::rand64(rngState) % 50;
             if (idx1 > idx2) {
-                if (!m_vx[idx2]->hasRelative(GraphWay::FORWARD, m_vx[idx1])) {
+                if (!m_vx[idx2]->hasRelativeMTask(m_vx[idx1])) {
                     new MTaskEdge{&m_graph, m_vx[idx2], m_vx[idx1], 1};
                 }
             } else if (idx2 > idx1) {
-                if (!m_vx[idx1]->hasRelative(GraphWay::FORWARD, m_vx[idx2])) {
+                if (!m_vx[idx1]->hasRelativeMTask(m_vx[idx2])) {
                     new MTaskEdge{&m_graph, m_vx[idx1], m_vx[idx2], 1};
                 }
             }
@@ -1125,7 +1130,7 @@ public:
 
 // Merge edges from a LogicMtask.
 //
-// This code removes 'hasRelative' edges. When this occurs, mark it in need
+// This code removes adjacent edges. When this occurs, mark it in need
 // of a rescore, in case its score has fallen and we need to move it up
 // toward the front of the scoreboard.
 //
@@ -1166,9 +1171,9 @@ static void partRedirectEdgesFrom(V3Graph* graphp, LogicMTask* recipientp, Logic
         LogicMTask* const relativep = outNextp->toMTaskp();
         outNextp = static_cast<MTaskEdge*>(outNextp->outNextp());
 
-        relativep->removeRelative(GraphWay::REVERSE, edgep);
+        relativep->removeRelativeEdge(GraphWay::REVERSE, edgep);
 
-        if (recipientp->hasRelative(GraphWay::FORWARD, relativep)) {
+        if (recipientp->hasRelativeMTask(relativep)) {
             // An edge already exists between recipient and relative of donor.
             // Mark it in need of a rescore
             if (sbp) {
@@ -1185,10 +1190,11 @@ static void partRedirectEdgesFrom(V3Graph* graphp, LogicMTask* recipientp, Logic
         } else {
             // No existing edge between recipient and relative of donor.
             // Redirect the edge from donor<->relative to recipient<->relative.
-            donorp->removeRelative(GraphWay::FORWARD, edgep);
+            donorp->removeRelativeEdge(GraphWay::FORWARD, edgep);
             edgep->relinkFromp(recipientp);
-            recipientp->addRelative(GraphWay::FORWARD, edgep);
-            relativep->addRelative(GraphWay::REVERSE, edgep);
+            recipientp->addRelativeMTask(relativep);
+            recipientp->addRelativeEdge(GraphWay::FORWARD, edgep);
+            relativep->addRelativeEdge(GraphWay::REVERSE, edgep);
             if (sbp) {
                 if (!sbp->contains(edgep)) {
                     sbp->add(edgep);
@@ -1206,9 +1212,10 @@ static void partRedirectEdgesFrom(V3Graph* graphp, LogicMTask* recipientp, Logic
         LogicMTask* const relativep = inNextp->fromMTaskp();
         inNextp = static_cast<MTaskEdge*>(inNextp->inNextp());
 
-        relativep->removeRelative(GraphWay::FORWARD, edgep);
+        relativep->removeRelativeMTask(donorp);
+        relativep->removeRelativeEdge(GraphWay::FORWARD, edgep);
 
-        if (recipientp->hasRelative(GraphWay::REVERSE, relativep)) {
+        if (relativep->hasRelativeMTask(recipientp)) {
             // An edge already exists between recipient and relative of donor.
             // Mark it in need of a rescore
             if (sbp) {
@@ -1224,10 +1231,11 @@ static void partRedirectEdgesFrom(V3Graph* graphp, LogicMTask* recipientp, Logic
         } else {
             // No existing edge between recipient and relative of donor.
             // Redirect the edge from donor<->relative to recipient<->relative.
-            donorp->removeRelative(GraphWay::REVERSE, edgep);
+            donorp->removeRelativeEdge(GraphWay::REVERSE, edgep);
             edgep->relinkTop(recipientp);
-            relativep->addRelative(GraphWay::FORWARD, edgep);
-            recipientp->addRelative(GraphWay::REVERSE, edgep);
+            relativep->addRelativeMTask(recipientp);
+            relativep->addRelativeEdge(GraphWay::FORWARD, edgep);
+            recipientp->addRelativeEdge(GraphWay::REVERSE, edgep);
             if (sbp) {
                 if (!sbp->contains(edgep)) {
                     sbp->add(edgep);
@@ -1551,8 +1559,9 @@ private:
             // Remove and free the connecting edge. Must do this before
             // propagating CP's below.
             m_sb.remove(mergeCanp);
-            mergeEdgep->fromMTaskp()->removeRelative(GraphWay::FORWARD, mergeEdgep);
-            mergeEdgep->toMTaskp()->removeRelative(GraphWay::REVERSE, mergeEdgep);
+            mergeEdgep->fromMTaskp()->removeRelativeMTask(mergeEdgep->toMTaskp());
+            mergeEdgep->fromMTaskp()->removeRelativeEdge(GraphWay::FORWARD, mergeEdgep);
+            mergeEdgep->toMTaskp()->removeRelativeEdge(GraphWay::REVERSE, mergeEdgep);
             VL_DO_CLEAR(mergeEdgep->unlinkDelete(), mergeEdgep = nullptr);
         }
 
@@ -2042,7 +2051,7 @@ private:
             if (lastMergedp) {
                 UASSERT_OBJ(lastMergedp->rank() < mergedp->rank(), mergedp,
                             "Merging must be on lower rank");
-                if (!lastMergedp->hasRelative(GraphWay::FORWARD, mergedp)) {
+                if (!lastMergedp->hasRelativeMTask(mergedp)) {
                     new MTaskEdge(m_mtasksp, lastMergedp, mergedp, 1);
                 }
             }
@@ -2688,9 +2697,8 @@ void V3Partition::setupMTaskDeps(V3Graph* mtasksp, const Vx2MTaskMap* vx2mtaskp)
                 UASSERT_OBJ(otherMTaskp != mtaskp, mtaskp, "Would create a cycle edge");
 
                 // Don't create redundant edges.
-                if (mtaskp->hasRelative(GraphWay::FORWARD, otherMTaskp)) {  //
-                    continue;
-                }
+                if (mtaskp->hasRelativeMTask(otherMTaskp)) continue;
+
                 new MTaskEdge(mtasksp, mtaskp, otherMTaskp, 1);
             }
         }
