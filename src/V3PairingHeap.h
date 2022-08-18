@@ -131,28 +131,9 @@ public:
 #if VL_DEBUG
         UASSERT(!nodep->m_ownerpp && !nodep->m_next && !nodep->m_kids, "Already linked");
 #endif
-        if (VL_UNLIKELY(!m_root)) {
-            // If no root (first node), this becomes the root
-            nodep->m_next.link(nullptr);
-            nodep->m_kids.link(nullptr);
-            m_root.link(nodep);
-            return;
-        }
-        // If the root have siblings reduce them so we can compare the new element
-        if (m_root->m_next) m_root.link(reduce(m_root.unlink()));
-        // Compare with the now singular root
-        if (*nodep > *m_root) {
-            // If the new node is bigger than the root, the new node becomes the root
-            Node* const rootp = m_root.ptr();
-            m_root->replaceWith(nodep);
-            nodep->m_next.link(nullptr);
-            nodep->m_kids.link(rootp);
-        } else {
-            // Otherwise the new node goes under the root
-            nodep->m_next.link(m_root->m_kids.unlink());
-            nodep->m_kids.link(nullptr);
-            m_root->m_kids.link(nodep);
-        }
+        // Just stick it at the front of the root list
+        nodep->m_next.link(m_root.unlink());
+        m_root.link(nodep);
     }
 
     // Remove given node only from the heap it is contained in
@@ -223,10 +204,9 @@ public:
             childp->m_next.link(nodep->m_next.unlink());
             nodep->replaceWith(childp);
         }
-        // If the root has siblings, reduce them
-        if (m_root->m_next) m_root.link(reduce(m_root.unlink()));
-        // Meld the node with the root
-        m_root.link(merge(nodep, m_root.unlink()));
+        // Just stick the increased node a the front of the root list
+        nodep->m_next.link(m_root.unlink());
+        m_root.link(nodep);
     }
 
 private:
