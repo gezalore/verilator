@@ -1191,8 +1191,19 @@ static void partRedirectEdgesFrom(LogicMTask* recipientp, LogicMTask* donorp,
     }
 }
 
-//######################################################################
-// PartContraction
+#include <fcntl.h>
+#include <functional>
+#include <iostream>
+#include <signal.h>
+#include <sstream>
+#include <unistd.h>
+
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
+// ######################################################################
+//  PartContraction
 
 // Perform edge or sibling contraction on the partition graph
 class PartContraction final {
@@ -1225,6 +1236,21 @@ public:
 
     // METHODS
     void go() {
+        // Launch profiler
+        pid_t pid;
+        {
+            std::stringstream s;
+            s << getpid();
+            pid = fork();
+            if (pid == 0) {
+                auto fd = open("/dev/null", O_RDWR);
+                dup2(fd, 1);
+                dup2(fd, 2);
+                exit(execl("/usr/bin/perf", "perf", "record", "-F", "max", "-p", s.str().c_str(),
+                           nullptr));
+            }
+        }
+
         unsigned maxMTasks = v3Global.opt.threadsMaxMTasks();
         if (maxMTasks == 0) {  // Unspecified so estimate
             if (v3Global.opt.threads() > 1) {
@@ -1376,6 +1402,11 @@ public:
             // Finally merge this candidate.
             contract(mergeCanp);
         }
+
+        // Kill profiler
+        kill(pid, SIGINT);
+        waitpid(pid, nullptr, 0);
+        exit(0);
     }
 
 private:
