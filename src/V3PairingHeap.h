@@ -168,10 +168,11 @@ public:
             // If it has siblings but no children, replace it with the siblings.
             nodep->replaceWith(nodep->m_next.unlink());
         } else {
-            // If it has both siblings and children, reduce and merge them, then replace
-            Node* const reducedNextp = reduce(nodep->m_next.unlink());
+            // If it has both siblings and children, reduce the children and splice that
+            // reduced heap in place of this node
             Node* const reducedKidsp = reduce(nodep->m_kids.unlink());
-            nodep->replaceWith(merge(reducedNextp, reducedKidsp));
+            reducedKidsp->m_next.link(nodep->m_next.unlink());
+            nodep->replaceWith(reducedKidsp);
         }
     }
 
