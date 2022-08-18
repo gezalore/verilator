@@ -197,7 +197,20 @@ private:
 
     // Cost estimate for this LogicMTask, derived from V3InstrCount.
     // In abstract time units.
-    uint32_t m_cost = 0;
+    struct Cost {
+        uint32_t m_real = 0;  // Normal cost
+        uint32_t m_step = 0;  // Always stepCost(m_real)
+        void set(uint32_t cost) {
+            m_real = cost;
+            m_step = stepCost(m_real);
+        }
+        void add(uint32_t cost) {
+            m_real += cost;
+            m_step = stepCost(m_real);
+        }
+        Cost() {}
+        VL_UNCOPYABLE(Cost);
+    } m_cost;
 
     // Cost of critical paths going FORWARD from graph-start to the start
     // of this vertex, and also going REVERSE from the end of the graph to
@@ -229,9 +242,11 @@ public:
         for (uint32_t& item : m_critPathCost) item = 0;
         if (mtmvVxp) {  // Else null for test
             m_vertices.push_back(mtmvVxp);
+            uint32_t cost = 0;
             if (const OrderLogicVertex* const olvp = mtmvVxp->logicp()) {
-                m_cost += V3InstrCount::count(olvp->nodep(), true);
+                cost += V3InstrCount::count(olvp->nodep(), true);
             }
+            m_cost.set(cost);
         }
         // Start at 1, so that 0 indicates no mtask ID.
         static uint32_t s_nextId = 1;
@@ -257,7 +272,7 @@ public:
     void moveAllVerticesFrom(LogicMTask* otherp) {
         // splice() is constant time
         m_vertices.splice(m_vertices.end(), otherp->m_vertices);
-        m_cost += otherp->m_cost;
+        m_cost.add(otherp->m_cost.m_real);
     }
     virtual const VxList* vertexListp() const override { return &m_vertices; }
     static uint64_t incGeneration() {
@@ -272,9 +287,9 @@ public:
     virtual uint32_t id() const override { return m_serialId; }
     void id(uint32_t id) { m_serialId = id; }
     // Abstract cost of every logic mtask
-    virtual uint32_t cost() const override { return m_cost; }
-    void setCost(uint32_t cost) { m_cost = cost; }  // For tests only
-    uint32_t stepCost() const { return stepCost(m_cost); }
+    virtual uint32_t cost() const override { return m_cost.m_real; }
+    void setCost(uint32_t cost) { m_cost.set(cost); }  // For tests only
+    uint32_t stepCost() const { return m_cost.m_step; }
     static uint32_t stepCost(uint32_t cost) {
 #if PART_STEPPED_COST
         // Round cost up to the nearest 5%. Use this when computing all
