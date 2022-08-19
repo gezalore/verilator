@@ -62,7 +62,7 @@ private:
     void addUnknown(T_Elem* nodep) {
         // Just prepend it to the list of unknown entries
         nodep->m_next.link(m_unknown.unlink());
-        m_unknown.link(nodep);
+        m_unknown.linkNonNull(nodep);
         // We mark nodes on the unknown list by making their child pointer point to themselves
         nodep->m_kids.m_ptr = nodep;
     }

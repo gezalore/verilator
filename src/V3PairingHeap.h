@@ -48,7 +48,7 @@ public:
         VL_UNCOPYABLE(Link);
 
         // Make the pointer point to the target, and the target's owner pointer to this pointer
-        void link(Node* targetp) {
+        VL_ATTR_ALWINLINE void link(Node* targetp) {
             m_ptr = targetp;
             if (!targetp) return;
 #if VL_DEBUG
@@ -57,8 +57,17 @@ public:
             targetp->m_ownerpp = &m_ptr;
         }
 
+        // Make the pointer point to the target, and the target's owner pointer to this pointer
+        VL_ATTR_ALWINLINE void linkNonNull(Node* targetp) {
+            m_ptr = targetp;
+#if VL_DEBUG
+            UASSERT(!targetp->m_ownerpp, "Already linked");
+#endif
+            targetp->m_ownerpp = &m_ptr;
+        }
+
         // Clear the pointer and return it's previous value
-        Node* unlink() {
+        VL_ATTR_ALWINLINE Node* unlink() {
             Node* const result = m_ptr;
 #if VL_DEBUG
             if (result) {
@@ -72,11 +81,11 @@ public:
         }
 
         // Minimal convenience acessors and operators
-        Node* ptr() const { return m_ptr; }
-        operator bool() const { return m_ptr; }
-        bool operator!() const { return !m_ptr; }
-        Node* operator->() const { return m_ptr; }
-        Node& operator*() const { return *m_ptr; }
+        VL_ATTR_ALWINLINE Node* ptr() const { return m_ptr; }
+        VL_ATTR_ALWINLINE operator bool() const { return m_ptr; }
+        VL_ATTR_ALWINLINE bool operator!() const { return !m_ptr; }
+        VL_ATTR_ALWINLINE Node* operator->() const { return m_ptr; }
+        VL_ATTR_ALWINLINE Node& operator*() const { return *m_ptr; }
     };
 
     // A single node in the pairing heap tree
@@ -91,17 +100,21 @@ public:
         VL_UNCOPYABLE(Node);
 
         // METHODS
-        const T_Key& key() const { return m_key; }
-        bool operator<(const Node& that) const { return m_key < that.m_key; }
-        bool operator>(const Node& that) const { return that.m_key < m_key; }
+        VL_ATTR_ALWINLINE const T_Key& key() const { return m_key; }
+        VL_ATTR_ALWINLINE bool operator<(const Node& that) const { return m_key < that.m_key; }
+        VL_ATTR_ALWINLINE bool operator>(const Node& that) const { return that.m_key < m_key; }
 
         // Make newp take the place of this in the tree
-        void replaceWith(Node* newp) {
-#if VL_DEBUG
-            UASSERT(m_ownerpp, "Not linked");
-#endif
+        VL_ATTR_ALWINLINE void replaceWith(Node* newp) {
             *m_ownerpp = newp;  // The owner pointer needs to point to the new node
             if (newp) newp->m_ownerpp = m_ownerpp;  // The new node needs to point to its owner
+            m_ownerpp = nullptr;  // This node has no owner anymore
+        }
+
+        // Make newp take the place of this in the tree
+        VL_ATTR_ALWINLINE void replaceWithNonNull(Node* newp) {
+            *m_ownerpp = newp;  // The owner pointer needs to point to the new node
+            newp->m_ownerpp = m_ownerpp;  // The new node needs to point to its owner
             m_ownerpp = nullptr;  // This node has no owner anymore
         }
     };
@@ -133,7 +146,7 @@ public:
 #endif
         // Just stick it at the front of the root list
         nodep->m_next.link(m_root.unlink());
-        m_root.link(nodep);
+        m_root.linkNonNull(nodep);
     }
 
     // Remove given node only from the heap it is contained in
@@ -147,13 +160,13 @@ public:
             nodep->replaceWith(nodep->m_kids.unlink());
         } else if (!nodep->m_kids) {
             // If it has siblings but no children, replace it with the siblings.
-            nodep->replaceWith(nodep->m_next.unlink());
+            nodep->replaceWithNonNull(nodep->m_next.unlink());
         } else {
             // If it has both siblings and children, reduce the children and splice that
             // reduced heap in place of this node
             Node* const reducedKidsp = reduce(nodep->m_kids.unlink());
-            reducedKidsp->m_next.link(nodep->m_next.unlink());
-            nodep->replaceWith(reducedKidsp);
+            reducedKidsp->m_next.linkNonNull(nodep->m_next.unlink());
+            nodep->replaceWithNonNull(reducedKidsp);
         }
     }
 
@@ -162,7 +175,7 @@ public:
         // Heap might be empty
         if (!m_root) return nullptr;
         // If the root have siblings reduce them
-        if (m_root->m_next) m_root.link(reduce(m_root.unlink()));
+        if (m_root->m_next) m_root.linkNonNull(reduce(m_root.unlink()));
         // The root element is the largest
         return m_root.ptr();
     }
@@ -177,7 +190,7 @@ public:
         // If there are no children, there is no second element
         if (!m_root->m_kids) return nullptr;
         // If there are multiple children, reduce them
-        if (m_root->m_kids->m_next) m_root->m_kids.link(reduce(m_root->m_kids.unlink()));
+        if (m_root->m_kids->m_next) m_root->m_kids.linkNonNull(reduce(m_root->m_kids.unlink()));
         // Return the now singular child, which is the second-largest element
         return m_root->m_kids.ptr();
     }
@@ -191,22 +204,22 @@ public:
         if (nodep == m_root.ptr()) return;
         // Otherwise we do have a little work to do
         if (!nodep->m_kids) {
-            // If the node has no children, replace it with its siblings
+            // If the node has no children, replace it with its siblings (migtht be null)
             nodep->replaceWith(nodep->m_next.unlink());
         } else if (!nodep->m_next) {
             // If the node has no siblings, replace it with its children
-            nodep->replaceWith(nodep->m_kids.unlink());
+            nodep->replaceWithNonNull(nodep->m_kids.unlink());
         } else {
             // The node has both children and siblings. Splice the first child in the place of the
             // node, and extract the rest of the children with the node
-            Node* const childp = nodep->m_kids.unlink();
-            nodep->m_kids.link(childp->m_next.unlink());
-            childp->m_next.link(nodep->m_next.unlink());
-            nodep->replaceWith(childp);
+            Node* const kidsp = nodep->m_kids.unlink();
+            nodep->m_kids.link(kidsp->m_next.unlink());
+            kidsp->m_next.linkNonNull(nodep->m_next.unlink());
+            nodep->replaceWithNonNull(kidsp);
         }
         // Just stick the increased node a the front of the root list
-        nodep->m_next.link(m_root.unlink());
-        m_root.link(nodep);
+        nodep->m_next.linkNonNull(m_root.unlink());
+        m_root.linkNonNull(nodep);
     }
 
 private:
@@ -218,11 +231,11 @@ private:
 #endif
         if (*ap > *bp) {  // bp goes under ap
             bp->m_next.link(ap->m_kids.unlink());
-            ap->m_kids.link(bp);
+            ap->m_kids.linkNonNull(bp);
             return ap;
         } else {  // ap goes under bp
             ap->m_next.link(bp->m_kids.unlink());
-            bp->m_kids.link(ap);
+            bp->m_kids.linkNonNull(ap);
             return bp;
         }
     }
