@@ -2702,7 +2702,8 @@ void V3Partition::mergeDegreeOneRelatives(V3Graph* mtasksp) {
                 // Move logic to recipient
                 recipientp->moveAllVerticesFrom(donorp);
                 // Move edges from donorp to recipientp
-                for (MTaskEdge *ep = static_cast<MTaskEdge*>(donorp->outBeginp()), *nextp; ep; ep = nextp) {
+                for (MTaskEdge *ep = static_cast<MTaskEdge*>(donorp->outBeginp()), *nextp; ep;
+                     ep = nextp) {
                     nextp = static_cast<MTaskEdge*>(ep->outNextp());
                     LogicMTask* const relativep = ep->toMTaskp();
                     relativep->removeRelativeEdge<GraphWay::REVERSE>(ep);
@@ -2725,7 +2726,8 @@ void V3Partition::mergeDegreeOneRelatives(V3Graph* mtasksp) {
                 // Move logig to recipient
                 recipientp->moveAllVerticesFrom(donorp);
                 // Move edges from donorp to recipientp
-                for (MTaskEdge *ep = static_cast<MTaskEdge*>(donorp->inBeginp()), *nextp; ep; ep = nextp) {
+                for (MTaskEdge *ep = static_cast<MTaskEdge*>(donorp->inBeginp()), *nextp; ep;
+                     ep = nextp) {
                     nextp = static_cast<MTaskEdge*>(ep->inNextp());
                     LogicMTask* const relativep = ep->fromMTaskp();
                     relativep->removeRelativeMTask(donorp);
