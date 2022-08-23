@@ -1654,11 +1654,29 @@ private:
         static_assert(sizeof(SortingRecord) <= 16, "How could this be padded to more than 16?");
 
         std::array<SortingRecord, PART_SIBLING_EDGE_LIMIT> sortRecs;
-        size_t n = 0;
 
         // Populate the buffers
+        size_t n = 0;
+        V3GraphEdge* lastForwardp = nullptr;
+
+        // Pick first half from the front of the edge list
         for (V3GraphEdge *edgep = mtaskp->beginp(way), *nextp; edgep; edgep = nextp) {
             nextp = edgep->nextp(way);  // Fetch next first as likely cache miss
+            lastForwardp = edgep;
+            LogicMTask* const otherp = static_cast<LogicMTask*>(edgep->furtherp(way));
+            neighbours[n] = otherp;
+            sortRecs[n].m_id = otherp->id();
+            sortRecs[n].m_cp = otherp->critPathCost(way) + otherp->cost();
+            sortRecs[n].m_idx = n;
+            ++n;
+            // Prevent nodes with huge numbers of edges from massively slowing down us down
+            if (n >= PART_SIBLING_EDGE_LIMIT / 2) break;
+        }
+
+        // Pick second half from the back of the edge list
+        for (V3GraphEdge *edgep = mtaskp->rbeginp(way), *prevp; edgep; edgep = prevp) {
+            prevp = edgep->prevp(way);  // Fetch next first as likely cache miss
+            if (edgep == lastForwardp) break;
             LogicMTask* const otherp = static_cast<LogicMTask*>(edgep->furtherp(way));
             neighbours[n] = otherp;
             sortRecs[n].m_id = otherp->id();

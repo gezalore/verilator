@@ -241,14 +241,17 @@ public:
     // ITERATORS
     V3GraphVertex* verticesNextp() const { return m_vertices.nextp(); }
     V3GraphEdge* inBeginp() const { return m_ins.begin(); }
+    V3GraphEdge* inRbeginp() const { return m_ins.rbegin(); }
     bool inEmpty() const { return inBeginp() == nullptr; }
     bool inSize1() const;
     uint32_t inHash() const;
     V3GraphEdge* outBeginp() const { return m_outs.begin(); }
+    V3GraphEdge* outRbeginp() const { return m_outs.rbegin(); }
     bool outEmpty() const { return outBeginp() == nullptr; }
     bool outSize1() const;
     uint32_t outHash() const;
     V3GraphEdge* beginp(GraphWay way) const { return way.forward() ? outBeginp() : inBeginp(); }
+    V3GraphEdge* rbeginp(GraphWay way) const { return way.forward() ? outRbeginp() : inRbeginp(); }
     // METHODS
     /// Error reporting
     void v3errorEnd(std::ostringstream& str) const;
@@ -339,8 +342,11 @@ public:
     static bool followAlwaysTrue(const V3GraphEdge*) { return true; }
     // ITERATORS
     V3GraphEdge* outNextp() const { return m_outs.nextp(); }
+    V3GraphEdge* outPrevp() const { return m_outs.prevp(); }
     V3GraphEdge* inNextp() const { return m_ins.nextp(); }
+    V3GraphEdge* inPrevp() const { return m_ins.prevp(); }
     V3GraphEdge* nextp(GraphWay way) const { return way.forward() ? outNextp() : inNextp(); }
+    V3GraphEdge* prevp(GraphWay way) const { return way.forward() ? outPrevp() : inPrevp(); }
 };
 
 //============================================================================
