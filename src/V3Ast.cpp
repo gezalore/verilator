@@ -823,10 +823,10 @@ void AstNode::operator delete(void* objp, size_t size) {
 void AstNode::iterateChildren(VNVisitor& v) {
     // This is a very hot function
     // Optimization note: Grabbing m_op#p->m_nextp is a net loss
-    ASTNODE_PREFETCH(m_op1p);
-    ASTNODE_PREFETCH(m_op2p);
-    ASTNODE_PREFETCH(m_op3p);
-    ASTNODE_PREFETCH(m_op4p);
+    //    ASTNODE_PREFETCH(m_op1p);
+    //    ASTNODE_PREFETCH(m_op2p);
+    //    ASTNODE_PREFETCH(m_op3p);
+    //    ASTNODE_PREFETCH(m_op4p);
     if (m_op1p) m_op1p->iterateAndNext(v);
     if (m_op2p) m_op2p->iterateAndNext(v);
     if (m_op3p) m_op3p->iterateAndNext(v);
@@ -845,7 +845,8 @@ void AstNode::iterateChildrenConst(VNVisitor& v) {
     if (m_op4p) m_op4p->iterateAndNextConst(v);
 }
 
-void AstNode::iterateAndNext(VNVisitor& v) {
+void AstNode::iterateAndNextImpl(VNVisitor& v) {
+
     // This is a very hot function
     // IMPORTANT: If you replace a node that's the target of this iterator,
     // then the NEW node will be iterated on next, it isn't skipped!
@@ -855,26 +856,43 @@ void AstNode::iterateAndNext(VNVisitor& v) {
 #ifdef VL_DEBUG  // Otherwise too hot of a function for debug
     UASSERT_OBJ(!(nodep && !nodep->m_backp), nodep, "iterateAndNext node has no back");
 #endif
-    if (nodep) ASTNODE_PREFETCH(nodep->m_nextp);
-    while (nodep) {  // effectively: if (!this) return;  // Callers rely on this
-        if (nodep->m_nextp) ASTNODE_PREFETCH(nodep->m_nextp->m_nextp);
-        AstNode* niterp = nodep;  // Pointer may get stomped via m_iterpp if the node is edited
+    //    AstNode* niterp;
+    {
+        //        AstNode* const currp = nodep;
+        //        niterp = nodep;  // Pointer may get stomped via m_iterpp if the node
+        //        is edited
         // Desirable check, but many places where multiple iterations are OK
-        // UASSERT_OBJ(!niterp->m_iterpp, niterp, "IterateAndNext under iterateAndNext may miss
-        // edits"); Optimization note: Doing PREFETCH_RW on m_iterpp is a net even
-        // cppcheck-suppress nullPointer
-        niterp->m_iterpp = &niterp;
-        niterp->accept(v);
+        // UASSERT_OBJ(!niterp->m_iterpp, niterp, "IterateAndNext under iterateAndNext
+        // may miss edits"); Optimization note: Doing PREFETCH_RW on m_iterpp is a net
+        // even cppcheck-suppress nullPointer
+        nodep->m_iterpp = &nodep;
+        nodep->accept(v);
         // accept may do a replaceNode and change niterp on us...
         // niterp maybe nullptr, so need cast if printing
         // if (niterp != nodep) UINFO(1,"iterateAndNext edited "<<cvtToHex(nodep)
         //                             <<" now into "<<cvtToHex(niterp)<<endl);
-        if (!niterp) return;  // Perhaps node deleted inside accept
-        niterp->m_iterpp = nullptr;
-        if (VL_UNLIKELY(niterp != nodep)) {  // Edited node inside accept
-            nodep = niterp;
-        } else {  // Unchanged node, just continue loop
-            nodep = niterp->m_nextp;
+        if (VL_LIKELY(nodep == this)) {
+            nodep = nodep->m_nextp;
+            this->m_iterpp = nullptr;
+        }
+    }
+    while (nodep) {
+        AstNode* const currp = nodep;
+        //        niterp = nodep;  // Pointer may get stomped via m_iterpp if the node
+        //        is edited
+        // Desirable check, but many places where multiple iterations are OK
+        // UASSERT_OBJ(!niterp->m_iterpp, niterp, "IterateAndNext under iterateAndNext
+        // may miss edits"); Optimization note: Doing PREFETCH_RW on m_iterpp is a net
+        // even cppcheck-suppress nullPointer
+        nodep->m_iterpp = &nodep;
+        nodep->accept(v);
+        // accept may do a replaceNode and change niterp on us...
+        // niterp maybe nullptr, so need cast if printing
+        // if (niterp != nodep) UINFO(1,"iterateAndNext edited "<<cvtToHex(nodep)
+        //                             <<" now into "<<cvtToHex(niterp)<<endl);
+        if (VL_LIKELY(nodep == currp)) {
+            nodep = nodep->m_nextp;
+            currp->m_iterpp = nullptr;
         }
     }
 }

@@ -26,7 +26,14 @@
 // Standard defines for all AstNode final classes
 
 #define ASTNODE_NODE_FUNCS_NO_DTOR(name) \
-    virtual void accept(VNVisitor& v) override { v.visit(this); } \
+    virtual void accept(VNVisitor& v) override { \
+        ASTNODE_PREFETCH(op1p()); \
+        ASTNODE_PREFETCH(op2p()); \
+        ASTNODE_PREFETCH(op3p()); \
+        ASTNODE_PREFETCH(op4p()); \
+        v.visit(this); \
+        ASTNODE_PREFETCH(nextp()); \
+    } \
     virtual AstNode* clone() override { return new Ast##name(*this); } \
     static Ast##name* cloneTreeNull(Ast##name* nodep, bool cloneNextLink) { \
         return nodep ? nodep->cloneTree(cloneNextLink) : nullptr; \

@@ -1346,7 +1346,7 @@ public:
 // Prefetch a node.
 #define ASTNODE_PREFETCH_NON_NULL(nodep) \
     do { \
-        VL_PREFETCH_RD(&((nodep)->m_nextp)); \
+        VL_PREFETCH_RD(nodep); \
         VL_PREFETCH_RD(&((nodep)->m_type)); \
     } while (false)
 // The if() makes it faster, even though prefetch won't fault on null pointers
@@ -1357,6 +1357,7 @@ public:
 
 class AstNode VL_NOT_FINAL {
     // v ASTNODE_PREFETCH depends on below ordering of members
+public:
     AstNode* m_nextp = nullptr;  // Next peer in the parent's list
     AstNode* m_backp = nullptr;  // Node that points to this one (via next/op1/op2/...)
     AstNode* m_op1p = nullptr;  // Generic pointer 1
@@ -1367,7 +1368,7 @@ class AstNode VL_NOT_FINAL {
         = nullptr;  // Pointer to node iterating on, change it if we replace this node.
     const VNType m_type;  // Node sub-type identifier
     // ^ ASTNODE_PREFETCH depends on above ordering of members
-
+private:
     // VNType is 2 bytes, so we can stick another 6 bytes after it to utilize what would
     // otherwise be padding (on a 64-bit system). We stick the attribute flags, broken state,
     // and the clone count here.
@@ -1856,7 +1857,12 @@ protected:
     // Use instead VNVisitor::iterateChildrenConst
     void iterateChildrenConst(VNVisitor& v);
     // Use instead VNVisitor::iterateAndNextNull
-    void iterateAndNext(VNVisitor& v);
+    VL_ATTR_ALWINLINE void iterateAndNext(VNVisitor& v) {
+        //    VL_PREFETCH_RW(this);
+        *reinterpret_cast<volatile uint64_t*>(this);
+        iterateAndNextImpl(v);
+    }
+    void iterateAndNextImpl(VNVisitor& v);
     // Use instead VNVisitor::iterateAndNextConstNull
     void iterateAndNextConst(VNVisitor& v);
     // Use instead VNVisitor::iterateSubtreeReturnEdits
@@ -3410,7 +3416,10 @@ inline void VNVisitor::iterateChildrenBackwards(AstNode* nodep) {
 }
 inline void VNVisitor::iterateChildrenConst(AstNode* nodep) { nodep->iterateChildrenConst(*this); }
 inline void VNVisitor::iterateAndNextNull(AstNode* nodep) {
-    if (VL_LIKELY(nodep)) nodep->iterateAndNext(*this);
+    if (VL_LIKELY(nodep)) {
+        VL_PREFETCH_RD(nodep);
+        nodep->iterateAndNext(*this);
+    }
 }
 inline void VNVisitor::iterateAndNextConstNullBackwards(AstNode* nodep) {
     if (VL_LIKELY(nodep)) nodep->iterateListBackwards(*this);
