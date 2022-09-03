@@ -820,18 +820,47 @@ void AstNode::operator delete(void* objp, size_t size) {
 //======================================================================
 // Iterators
 
-void AstNode::iterateChildren(VNVisitor& v) {
-    // This is a very hot function
-    // Optimization note: Grabbing m_op#p->m_nextp is a net loss
-    ASTNODE_PREFETCH(m_op1p);
-    ASTNODE_PREFETCH(m_op2p);
-    ASTNODE_PREFETCH(m_op3p);
-    ASTNODE_PREFETCH(m_op4p);
-    if (m_op1p) m_op1p->iterateAndNext(v);
-    if (m_op2p) m_op2p->iterateAndNext(v);
-    if (m_op3p) m_op3p->iterateAndNext(v);
-    if (m_op4p) m_op4p->iterateAndNext(v);
+template <>
+void AstNodeIterateChildren<0>(AstNode*, VNVisitor&) {}
+
+template <>
+void AstNodeIterateChildren<1>(AstNode* nodep, VNVisitor& visitor) {
+    if (nodep->m_op1p) nodep->m_op1p->iterateAndNext(visitor);
 }
+
+template <>
+void AstNodeIterateChildren<2>(AstNode* nodep, VNVisitor& visitor) {
+    ASTNODE_PREFETCH(nodep->m_op1p);
+    ASTNODE_PREFETCH(nodep->m_op2p);
+    if (nodep->m_op1p) nodep->m_op1p->iterateAndNext(visitor);
+    if (nodep->m_op2p) nodep->m_op2p->iterateAndNext(visitor);
+}
+
+template <>
+void AstNodeIterateChildren<3>(AstNode* nodep, VNVisitor& visitor) {
+    ASTNODE_PREFETCH(nodep->m_op1p);
+    ASTNODE_PREFETCH(nodep->m_op2p);
+    ASTNODE_PREFETCH(nodep->m_op3p);
+    if (nodep->m_op1p) nodep->m_op1p->iterateAndNext(visitor);
+    if (nodep->m_op2p) nodep->m_op2p->iterateAndNext(visitor);
+    if (nodep->m_op3p) nodep->m_op3p->iterateAndNext(visitor);
+}
+
+template <>
+void AstNodeIterateChildren<4>(AstNode* nodep, VNVisitor& visitor) {
+    ASTNODE_PREFETCH(nodep->m_op1p);
+    ASTNODE_PREFETCH(nodep->m_op2p);
+    ASTNODE_PREFETCH(nodep->m_op3p);
+    ASTNODE_PREFETCH(nodep->m_op4p);
+    if (nodep->m_op1p) nodep->m_op1p->iterateAndNext(visitor);
+    if (nodep->m_op2p) nodep->m_op2p->iterateAndNext(visitor);
+    if (nodep->m_op3p) nodep->m_op3p->iterateAndNext(visitor);
+    if (nodep->m_op4p) nodep->m_op4p->iterateAndNext(visitor);
+}
+
+#include "V3AstNodes__gen_iterate.h"
+
+void AstNode::iterateChildren(VNVisitor& v) { s_iterateChildernDispatch.m_table[m_type](this, v); }
 
 void AstNode::iterateChildrenConst(VNVisitor& v) {
     // This is a very hot function
@@ -857,6 +886,7 @@ void AstNode::iterateAndNext(VNVisitor& v) {
 #endif
     if (nodep) ASTNODE_PREFETCH(nodep->m_nextp);
     while (nodep) {  // effectively: if (!this) return;  // Callers rely on this
+        VL_PREFETCH_RD(&(nodep->m_type));
         if (nodep->m_nextp) ASTNODE_PREFETCH(nodep->m_nextp->m_nextp);
         AstNode* niterp = nodep;  // Pointer may get stomped via m_iterpp if the node is edited
         // Desirable check, but many places where multiple iterations are OK

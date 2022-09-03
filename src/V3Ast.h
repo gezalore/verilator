@@ -1355,6 +1355,10 @@ public:
         if (nodep) ASTNODE_PREFETCH_NON_NULL(nodep); \
     } while (false)
 
+// Implementation for varying arity
+template <uint8_t T_Arity>
+void AstNodeIterateChildren(AstNode*, VNVisitor&);
+
 class AstNode VL_NOT_FINAL {
     // v ASTNODE_PREFETCH depends on below ordering of members
     AstNode* m_nextp = nullptr;  // Next peer in the parent's list
@@ -1849,6 +1853,10 @@ public:
 protected:
     // All VNVisitor related functions are called as methods off the visitor
     friend class VNVisitor;
+    // Implementation for varying arity
+    template <uint8_t T_Arity>
+    friend void AstNodeIterateChildren(AstNode*, VNVisitor&);
+
     // Use instead VNVisitor::iterateChildren
     void iterateChildren(VNVisitor& v);
     // Use instead VNVisitor::iterateChildrenBackwards
