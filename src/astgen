@@ -382,11 +382,12 @@ def read_types(filename):
                 continue
             match = re.match(r'.*\b\w*[oO]p(\d).*', line)
             if match:
-                Arity[currentClass] = max(Arity[currentClass], int(match.group(1)))
+                Arity[currentClass] = max(Arity[currentClass],
+                                          int(match.group(1)))
     for typen in Classes:
         # subclasses_of really is superclasses_of
         for supertype in subclasses_of(typen):
-            if supertype == "Node": continue # Ignore AstNode itself
+            if supertype == "Node": continue  # Ignore AstNode itself
             Arity[typen] = max(Arity[typen], Arity[supertype])
 
 
@@ -677,11 +678,15 @@ def write_iterate(filename):
     with open_file(filename) as fh:
         fh.write("namespace {\n")
         fh.write("struct IterateChildrenDispatch {\n")
-        fh.write("    void (*m_table[VNType::en::_ENUM_END])(AstNode*, VNVisitor&);\n")
+        fh.write(
+            "    void (*m_table[VNType::en::_ENUM_END])(AstNode*, VNVisitor&);\n"
+        )
         fh.write("    IterateChildrenDispatch() {\n")
         for typen in sorted(Classes):
-            if children_of(typen): continue # Only care about concrete nodes
-            fh.write("        m_table[VNType::at{}] = AstNodeIterateChildren<{}>;\n".format(typen, Arity[typen]))
+            if children_of(typen): continue  # Only care about concrete nodes
+            fh.write(
+                "        m_table[VNType::at{}] = AstNodeIterateChildren<{}>;\n"
+                .format(typen, Arity[typen]))
         fh.write("    }\n")
         fh.write("} s_iterateChildernDispatch;\n")
         fh.write("} // namespace\n")
