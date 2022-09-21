@@ -210,7 +210,6 @@ private:
         pushDeletep(nodep);
     }
     void visit(AstNodeVarRef* nodep) override {
-        iterateChildren(nodep);
         if (!nodep->varScopep()) {
             UASSERT_OBJ(nodep->varp()->isFuncLocal(), nodep,
                         "unscoped reference can only appear to function locals at this point");

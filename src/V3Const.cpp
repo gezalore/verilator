@@ -2594,7 +2594,6 @@ private:
         m_selp = nullptr;
     }
     void visit(AstNodeVarRef* nodep) override {
-        iterateChildren(nodep);
         UASSERT_OBJ(nodep->varp(), nodep, "Not linked");
         bool did = false;
         if (m_doV && nodep->varp()->valuep() && !m_attrp) {

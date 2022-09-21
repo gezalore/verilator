@@ -61,7 +61,6 @@ private:
                               "Assigning to input/const variable: " << nodep->prettyNameQ());
             }
         }
-        iterateChildren(nodep);
     }
 
     // Nodes that start propagating down lvalues

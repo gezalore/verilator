@@ -1102,7 +1102,19 @@ inline std::ostream& operator<<(std::ostream& os, const VUseType& rhs) {
     return os << rhs.ascii();
 }
 
-//######################################################################
+// ######################################################################
+
+class VNodeChildType final {
+public:
+    enum en {
+        NONE,  // AstNode child not used (always nullptr)
+        SCALAR,  // AstNode child always used (always non nullptr), no nextp()
+        OPTIONAL,  //  AstNode child may be nullptr, no nextp()
+        LIST,  //  AstNode child may be nullptr, and may have non-null nextp()
+    };
+};
+
+// ######################################################################
 
 class VBasicTypeKey final {
 public:
@@ -1878,21 +1890,209 @@ public:
     // INVOKERS
     virtual void accept(VNVisitor& v) = 0;
 
-protected:
+public:
     // All VNVisitor related functions are called as methods off the visitor
     friend class VNVisitor;
     // Use instead VNVisitor::iterateChildren
-    void iterateChildren(VNVisitor& v);
+    virtual void iterateChildren(VNVisitor& v) = 0;
     // Use instead VNVisitor::iterateChildrenBackwards
     void iterateChildrenBackwards(VNVisitor& v);
     // Use instead VNVisitor::iterateChildrenConst
-    void iterateChildrenConst(VNVisitor& v);
+    virtual void iterateChildrenConst(VNVisitor& v) = 0;
     // Use instead VNVisitor::iterateAndNextNull
     void iterateAndNext(VNVisitor& v);
+    // Special case of iterateAndNext for when m_nextp is known to be nullptr
+    VL_ATTR_ALWINLINE void iterateNoNext(VNVisitor& v) {
+        // Same as iterateAndNext, with nextp() statically known to be nullptr
+        AstNode* iterp = this;
+        AstNode* nodep;
+        do {
+            nodep = iterp;
+            nodep->m_iterpp = &iterp;
+            nodep->accept(v);
+            // Perhaps node deleted inside accept
+            if (!iterp) return;
+            iterp->m_iterpp = nullptr;
+            // Node edited inside accept, need to re-visit
+        } while (iterp != nodep);
+    }
+
     // Use instead VNVisitor::iterateAndNextConstNull
     void iterateAndNextConst(VNVisitor& v);
     // Use instead VNVisitor::iterateSubtreeReturnEdits
     AstNode* iterateSubtreeReturnEdits(VNVisitor& v);
+
+    template <VNodeChildType::en T_Op1, VNodeChildType::en T_Op2, VNodeChildType::en T_Op3,
+              VNodeChildType::en T_Op4>
+    VL_ATTR_NOINLINE void iterateChildrenImpl(VNVisitor& v) {
+        // This is a very hot function
+
+        // Prefetch op1
+        //if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::NONE) {
+        //    // Nop
+        //} else if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::SCALAR) {
+        //    ASTNODE_PREFETCH_NON_NULL(m_op1p);
+        //} else {
+        //    ASTNODE_PREFETCH(m_op1p);
+        //}
+
+        //// Prefetch op2
+        //if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::NONE) {
+        //    // Nop
+        //} else if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::SCALAR) {
+        //    ASTNODE_PREFETCH_NON_NULL(m_op2p);
+        //} else {
+        //    ASTNODE_PREFETCH(m_op2p);
+        //}
+
+        //// Prefetch op3
+        //if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::NONE) {
+        //    // Nop
+        //} else if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::SCALAR) {
+        //    ASTNODE_PREFETCH_NON_NULL(m_op3p);
+        //} else {
+        //    ASTNODE_PREFETCH(m_op3p);
+        //}
+
+        //// Prefetch op4
+        //if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::NONE) {
+        //    // Nop
+        //} else if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::SCALAR) {
+        //    ASTNODE_PREFETCH_NON_NULL(m_op4p);
+        //} else {
+        //    ASTNODE_PREFETCH(m_op4p);
+        //}
+
+        // Iterate op1
+        if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::NONE) {
+            // Nop
+        } else if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::SCALAR) {
+            m_op1p->iterateNoNext(v);
+        } else if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::OPTIONAL) {
+            if (m_op1p) m_op1p->iterateNoNext(v);
+        } else {
+            if (m_op1p) m_op1p->iterateAndNext(v);
+        }
+
+        // Iterate op2
+        if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::NONE) {
+            // Nop
+        } else if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::SCALAR) {
+            m_op2p->iterateNoNext(v);
+        } else if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::OPTIONAL) {
+            if (m_op2p) m_op2p->iterateNoNext(v);
+        } else {
+            if (m_op2p) m_op2p->iterateAndNext(v);
+        }
+
+        // Iterate op3
+        if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::NONE) {
+            // Nop
+        } else if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::SCALAR) {
+            m_op3p->iterateNoNext(v);
+        } else if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::OPTIONAL) {
+            if (m_op3p) m_op3p->iterateNoNext(v);
+        } else {
+            if (m_op3p) m_op3p->iterateAndNext(v);
+        }
+
+        // Iterate op4
+        if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::NONE) {
+            // Nop
+        } else if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::SCALAR) {
+            m_op4p->iterateNoNext(v);
+        } else if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::OPTIONAL) {
+            if (m_op4p) m_op4p->iterateNoNext(v);
+        } else {
+            if (m_op4p) m_op4p->iterateAndNext(v);
+        }
+    }
+
+    template <VNodeChildType::en T_Op1, VNodeChildType::en T_Op2, VNodeChildType::en T_Op3,
+              VNodeChildType::en T_Op4>
+    VL_ATTR_NOINLINE void iterateChildrenConstImpl(VNVisitor& v) {
+        // This is a very hot function
+
+        //// Prefetch op1
+        //if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::NONE) {
+        //    // Nop
+        //} else if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::SCALAR) {
+        //    ASTNODE_PREFETCH_NON_NULL(m_op1p);
+        //} else {
+        //    ASTNODE_PREFETCH(m_op1p);
+        //}
+
+        //// Prefetch op2
+        //if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::NONE) {
+        //    // Nop
+        //} else if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::SCALAR) {
+        //    ASTNODE_PREFETCH_NON_NULL(m_op2p);
+        //} else {
+        //    ASTNODE_PREFETCH(m_op2p);
+        //}
+
+        //// Prefetch op3
+        //if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::NONE) {
+        //    // Nop
+        //} else if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::SCALAR) {
+        //    ASTNODE_PREFETCH_NON_NULL(m_op3p);
+        //} else {
+        //    ASTNODE_PREFETCH(m_op3p);
+        //}
+
+        //// Prefetch op4
+        //if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::NONE) {
+        //    // Nop
+        //} else if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::SCALAR) {
+        //    ASTNODE_PREFETCH_NON_NULL(m_op4p);
+        //} else {
+        //    ASTNODE_PREFETCH(m_op4p);
+        //}
+
+        // Iterate op1
+        if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::NONE) {
+            // Nop
+        } else if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::SCALAR) {
+            m_op1p->accept(v);
+        } else if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::OPTIONAL) {
+            if (m_op1p) m_op1p->accept(v);
+        } else {
+            for (AstNode* op = m_op1p; op; op = op->nextp()) op->accept(v);
+        }
+
+        // Iterate op2
+        if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::NONE) {
+            // Nop
+        } else if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::SCALAR) {
+            m_op2p->accept(v);
+        } else if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::OPTIONAL) {
+            if (m_op2p) m_op2p->accept(v);
+        } else {
+            for (AstNode* op = m_op2p; op; op = op->nextp()) op->accept(v);
+        }
+
+        // Iterate op3
+        if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::NONE) {
+            // Nop
+        } else if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::SCALAR) {
+            m_op3p->accept(v);
+        } else if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::OPTIONAL) {
+            if (m_op3p) m_op3p->accept(v);
+        } else {
+            for (AstNode* op = m_op3p; op; op = op->nextp()) op->accept(v);
+        }
+
+        // Iterate op4
+        if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::NONE) {
+            // Nop
+        } else if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::SCALAR) {
+            m_op4p->accept(v);
+        } else if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::OPTIONAL) {
+            if (m_op4p) m_op4p->accept(v);
+        } else {
+            for (AstNode* op = m_op4p; op; op = op->nextp()) op->accept(v);
+        }
+    }
 
 private:
     void iterateListBackwards(VNVisitor& v);

@@ -187,19 +187,20 @@ private:
         iterateChildren(nodep);
     }
     void visit(AstAssignW* nodep) override {
+        VL_RESTORER(m_assignwp);
         m_assignwp = nodep;
-        VL_DO_DANGLING(iterateChildren(nodep), nodep);  // May delete nodep.
-        m_assignwp = nullptr;
+        iterateChildren(nodep);
+        if (!m_assignwp) {  // Setting it to nullptr is a request to convert it
+            // Wire assigns must become always statements to deal with insertionV3
+            // of multiple statements.  Perhaps someday make all wassigns into always's?
+            UINFO(5, "     IM_WireRep  " << nodep << endl);
+            nodep->convertToAlways();
+            VL_DO_DANGLING(nodep->deleteTree(), nodep);
+        }
     }
     void visit(AstNodeFTaskRef* nodep) override {
         // Includes handling AstMethodCall, AstNew
-        if (m_assignwp) {
-            // Wire assigns must become always statements to deal with insertion
-            // of multiple statements.  Perhaps someday make all wassigns into always's?
-            UINFO(5, "     IM_WireRep  " << m_assignwp << endl);
-            m_assignwp->convertToAlways();
-            VL_DO_CLEAR(pushDeletep(m_assignwp), m_assignwp = nullptr);
-        }
+        m_assignwp = nullptr;  // Request conversion
         // We make multiple edges if a task is called multiple times from another task.
         UASSERT_OBJ(nodep->taskp(), nodep, "Unlinked task");
         new TaskEdge(&m_callGraph, m_curVxp, getFTaskVertex(nodep->taskp()));
@@ -235,7 +236,6 @@ private:
         nodep->user4p(m_curVxp);  // Remember what task it's under
     }
     void visit(AstVarRef* nodep) override {
-        iterateChildren(nodep);
         if (nodep->varp()->user4u().toGraphVertex() != m_curVxp) {
             if (m_curVxp->pure() && !nodep->varp()->isXTemp()) m_curVxp->impure(nodep);
         }

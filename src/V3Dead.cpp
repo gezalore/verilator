@@ -145,7 +145,6 @@ private:
 
     void visit(AstNodeVarRef* nodep) override {
         // Note NodeAssign skips calling this in some cases
-        iterateChildren(nodep);
         checkAll(nodep);
         checkVarRef(nodep);
         if (nodep->varScopep()) {

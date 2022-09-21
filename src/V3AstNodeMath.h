@@ -186,9 +186,6 @@ protected:
 
 public:
     ASTGEN_MEMBERS_NodeTermop;
-    // Know no children, and hot function, so skip iterator for speed
-    // cppcheck-suppress functionConst
-    void iterateChildren(VNVisitor& v) {}
     void dump(std::ostream& str) const override;
 };
 class AstNodeTriop VL_NOT_FINAL : public AstNodeMath {
@@ -337,9 +334,6 @@ public:
     string selfPointerProtect(bool useSelfForThis) const;
     AstNodeModule* classOrPackagep() const { return m_classOrPackagep; }
     void classOrPackagep(AstNodeModule* nodep) { m_classOrPackagep = nodep; }
-    // Know no children, and hot function, so skip iterator for speed
-    // cppcheck-suppress functionConst
-    void iterateChildren(VNVisitor& v) {}
 };
 
 // === Concrete node types =====================================================

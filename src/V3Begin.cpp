@@ -293,7 +293,6 @@ private:
             UINFO(9, "    relinVarRef " << nodep << endl);
             nodep->name(nodep->varp()->name());
         }
-        iterateChildren(nodep);
     }
     void visit(AstIfaceRefDType* nodep) override {
         // May have changed cell names

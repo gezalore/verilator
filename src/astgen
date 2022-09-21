@@ -851,13 +851,75 @@ def write_macros(filename):
                       t=node.name)
 
             if node.isLeaf:
-                emitBlock('''\
-                void accept(VNVisitor& v) override {{ v.visit(this); }}
-                AstNode* clone() override {{ return new Ast{t}(*this); }}
-                ''',
-                          t=node.name)
+                opNames = []
+                opTypes = []
+                for n in range(1, 5):
+                    op = node.getOp(n)
+                    if op is None:
+                        opNames.append(None)
+                        opTypes.append("NONE")
+                    elif op[1] == "":
+                        opNames.append(op[0])
+                        opTypes.append("SCALAR")
+                    elif op[1] == "Optional":
+                        opNames.append(op[0])
+                        opTypes.append("OPTIONAL")
+                    elif op[1] == "List":
+                        opNames.append(op[0])
+                        opTypes.append("LIST")
+                    else:
+                        sys.exit("Unknown operand type")
+                iterate = "iterateChildrenImpl<VNodeChildType::{o[0]}, VNodeChildType::{o[1]},  VNodeChildType::{o[2]},  VNodeChildType::{o[3]}>(v);".format(o=opTypes)
+                iterateConst = "iterateChildrenConstImpl<VNodeChildType::{o[0]}, VNodeChildType::{o[1]},  VNodeChildType::{o[2]},  VNodeChildType::{o[3]}>(v);".format(o=opTypes)
+                if all(map(lambda _: _ == "NONE", opTypes)):
+                    iterate = ""
+                    iterateConst = ""
+                elif sum(map(lambda _: 1 if _ != "NONE" else 0, opTypes)) == 1:
+                    opType, = filter(lambda _: _ != "NONE", opTypes)
+                    opName = opNames[opTypes.index(opType)]
+                    if opType == "SCALAR":
+                        iterate = "reinterpret_cast<AstNode*>({n}())->iterateNoNext(v);".format(n=opName)
+                        iterateConst = "reinterpret_cast<AstNode*>({n}())->accept(v);".format(n=opName)
+                    elif opType == "OPTIONAL":
+                        iterate = "if ({n}()) reinterpret_cast<AstNode*>({n}())->iterateNoNext(v);".format(n=opName)
+                        iterateConst = "if ({n}()) reinterpret_cast<AstNode*>({n}())->accept(v);".format(n=opName)
+                    elif opType == "LIST":
+                        iterate = "if ({n}()) reinterpret_cast<AstNode*>({n}())->iterateAndNext(v);".format(n=opName)
+                        iterateConst = "if ({n}()) reinterpret_cast<AstNode*>({n}())->iterateAndNextConst(v);".format(n=opName)
+                elif all(map(lambda _: _ == "NONE" or _ == "SCALAR", opTypes)):
+                    prefetch = []
+                    iterate = []
+                    iterateConst = []
+                    for n, t in zip(opNames, opTypes):
+                        if t == "NONE":
+                            continue
+                        prefetch.append("VL_PREFETCH_RD({n}()); ".format(n=n))
+                        iterate.append("reinterpret_cast<AstNode*>({n}())->iterateNoNext(v); ".format(n=n))
+                        iterateConst.append("reinterpret_cast<AstNode*>({n}())->accept(v); ".format(n=n))
+                    iterate = " ".join(prefetch + iterate)
+                    iterateConst = " ".join(prefetch + iterateConst)
+                else:
+                    prefetch = []
+                    for n, t in zip(opNames, opTypes):
+                        if t == "NONE":
+                            continue
+                        elif t == "SCALAR":
+                            prefetch.append("VL_PREFETCH_RD({n}()); ".format(n=n))
+                        else:
+                            prefetch.append("if ({n}()) VL_PREFETCH_RD({n}()); ".format(n=n))
+                    iterate = " ".join(prefetch + [iterate])
+                    iterateConst = " ".join(prefetch + [iterateConst])
 
-            for n in (1, 2, 3, 4):
+                emitBlock('''\
+                    void accept(VNVisitor& v) override {{ v.visit(this); }}
+                    AstNode* clone() override {{ return new Ast{t}(*this); }}
+                    VL_ATTR_ALWINLINE void iterateChildren(VNVisitor& v) override {{ {iterate} }}
+                    VL_ATTR_ALWINLINE void iterateChildrenConst(VNVisitor& v) override {{ {iterateConst} }}
+                    ''',
+                          t=node.name, iterate=iterate, iterateConst=iterateConst
+                          )
+
+            for n in range(1, 5):
                 op = node.getOp(n)
                 if not op:
                     continue

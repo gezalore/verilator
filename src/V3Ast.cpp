@@ -815,31 +815,6 @@ void AstNode::operator delete(void* objp, size_t size) {
 //======================================================================
 // Iterators
 
-void AstNode::iterateChildren(VNVisitor& v) {
-    // This is a very hot function
-    // Optimization note: Grabbing m_op#p->m_nextp is a net loss
-    ASTNODE_PREFETCH(m_op1p);
-    ASTNODE_PREFETCH(m_op2p);
-    ASTNODE_PREFETCH(m_op3p);
-    ASTNODE_PREFETCH(m_op4p);
-    if (m_op1p) m_op1p->iterateAndNext(v);
-    if (m_op2p) m_op2p->iterateAndNext(v);
-    if (m_op3p) m_op3p->iterateAndNext(v);
-    if (m_op4p) m_op4p->iterateAndNext(v);
-}
-
-void AstNode::iterateChildrenConst(VNVisitor& v) {
-    // This is a very hot function
-    ASTNODE_PREFETCH(m_op1p);
-    ASTNODE_PREFETCH(m_op2p);
-    ASTNODE_PREFETCH(m_op3p);
-    ASTNODE_PREFETCH(m_op4p);
-    if (m_op1p) m_op1p->iterateAndNextConst(v);
-    if (m_op2p) m_op2p->iterateAndNextConst(v);
-    if (m_op3p) m_op3p->iterateAndNextConst(v);
-    if (m_op4p) m_op4p->iterateAndNextConst(v);
-}
-
 void AstNode::iterateAndNext(VNVisitor& v) {
     // This is a very hot function
     // IMPORTANT: If you replace a node that's the target of this iterator,
@@ -873,6 +848,21 @@ void AstNode::iterateAndNext(VNVisitor& v) {
         }
     }
 }
+
+//void AstNode::iterateNoNext(VNVisitor& v) {
+//    // Same as iterateAndNext, with nextp() statically known to be nullptr
+//    AstNode* iterp = this;
+//    AstNode* nodep;
+//    do {
+//        nodep = iterp;
+//        nodep->m_iterpp = &iterp;
+//        nodep->accept(v);
+//        // Perhaps node deleted inside accept
+//        if (!iterp) return;
+//        iterp->m_iterpp = nullptr;
+//        // Node edited inside accept, need to re-visit
+//    } while (iterp != nodep);
+//}
 
 void AstNode::iterateListBackwards(VNVisitor& v) {
     AstNode* nodep = this;
