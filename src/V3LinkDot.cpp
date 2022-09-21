@@ -1180,7 +1180,6 @@ class LinkDotFindVisitor final : public VNVisitor {
     }
     void visit(AstTypedefFwd* nodep) override {
         UASSERT_OBJ(m_curSymp, nodep, "Typedef not under module/package/$unit");
-        iterateChildren(nodep);
         // No need to insert, only the real typedef matters, but need to track for errors
         nodep->user1p(m_curSymp);
     }
@@ -1774,7 +1773,6 @@ class LinkDotIfaceVisitor final : public VNVisitor {
     }
     void visit(AstModportFTaskRef* nodep) override {
         UINFO(5, "   fif: " << nodep << endl);
-        iterateChildren(nodep);
         if (nodep->isExport()) nodep->v3warn(E_UNSUPPORTED, "Unsupported: modport export");
         VSymEnt* const symp = m_curSymp->findIdFallback(nodep->name());
         if (!symp) {
@@ -1797,7 +1795,6 @@ class LinkDotIfaceVisitor final : public VNVisitor {
     }
     void visit(AstModportVarRef* nodep) override {
         UINFO(5, "   fiv: " << nodep << endl);
-        iterateChildren(nodep);
         VSymEnt* const symp = m_curSymp->findIdFallback(nodep->name());
         if (!symp) {
             nodep->v3error("Modport item not found: " << nodep->prettyNameQ());
@@ -2564,7 +2561,6 @@ private:
         // ParseRefs are used the first pass (forPrimary) so we shouldn't get can't find
         // errors here now that we have a VarRef.
         // No checkNoDot; created and iterated from a parseRef
-        iterateChildren(nodep);
         if (!nodep->varp()) {
             UINFO(9, " linkVarRef se" << cvtToHex(m_curSymp) << "  n=" << nodep << endl);
             UASSERT_OBJ(m_curSymp, nodep, "nullptr lookup symbol table");
@@ -2670,7 +2666,6 @@ private:
     }
     void visit(AstEnumItemRef* nodep) override {
         // EnumItemRef may be under a dot.  Should already be resolved.
-        iterateChildren(nodep);
     }
     void visit(AstMethodCall* nodep) override {
         // Created here so should already be resolved.
@@ -2964,7 +2959,6 @@ private:
     void visit(AstLambdaArgRef* nodep) override {
         UINFO(5, "   " << nodep << endl);
         // No checknodot(nodep), visit(AstScope) will check for LambdaArgRef
-        iterateChildren(nodep);
     }
     void visit(AstClass* nodep) override {
         UINFO(5, "   " << nodep << endl);
@@ -3114,7 +3108,6 @@ private:
     }
     void visit(AstDpiExport* nodep) override {
         // AstDpiExport: Make sure the function referenced exists, then dump it
-        iterateChildren(nodep);
         checkNoDot(nodep);
         VSymEnt* const foundp = m_curSymp->findIdFallback(nodep->name());
         AstNodeFTask* const taskp = foundp ? VN_AS(foundp->nodep(), NodeFTask) : nullptr;

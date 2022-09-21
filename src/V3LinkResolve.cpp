@@ -108,7 +108,6 @@ private:
     void visit(AstNodeVarRef* nodep) override {
         // VarRef: Resolve its reference
         if (nodep->varp()) nodep->varp()->usedParam(true);
-        iterateChildren(nodep);
     }
 
     void visit(AstNodeFTask* nodep) override {
@@ -289,8 +288,6 @@ private:
                 nodep->unlinkFrBack();
                 VL_DO_DANGLING(pushDeletep(nodep), nodep);
             }
-        } else {
-            iterateChildren(nodep);
         }
     }
 
@@ -500,17 +497,14 @@ private:
     void visit(AstScCtor* nodep) override {
         // Constructor info means the module must remain public
         m_modp->modPublic(true);
-        iterateChildren(nodep);
     }
     void visit(AstScDtor* nodep) override {
         // Destructor info means the module must remain public
         m_modp->modPublic(true);
-        iterateChildren(nodep);
     }
     void visit(AstScInt* nodep) override {
         // Special class info means the module must remain public
         m_modp->modPublic(true);
-        iterateChildren(nodep);
     }
 
     void visit(AstIfaceRefDType* nodep) override {
@@ -518,7 +512,6 @@ private:
         // Keeping them later caused problems with InstDeArray,
         // as it needed to make new modport arrays and such
         nodep->modportp(nullptr);
-        iterateChildren(nodep);
     }
     //  void visit(AstModport* nodep) override { ... }
     // We keep Modport's themselves around for XML dump purposes

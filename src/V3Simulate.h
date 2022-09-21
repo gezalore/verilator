@@ -880,7 +880,6 @@ private:
         // AstJumpGo::broken uses brokeExistsBelow() to check this.
         if (jumpingOver(nodep)) return;
         checkNodeInfo(nodep);
-        iterateChildren(nodep);
         if (m_jumpp && m_jumpp->labelp() == nodep) {
             UINFO(5, "   JUMP DONE " << nodep << endl);
             m_jumpp = nullptr;

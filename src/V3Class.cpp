@@ -127,10 +127,7 @@ private:
         }
     }
 
-    void visit(AstVarScope* nodep) override {
-        iterateChildren(nodep);
-        nodep->varp()->user1p(nodep);
-    }
+    void visit(AstVarScope* nodep) override { nodep->varp()->user1p(nodep); }
 
     void visit(AstNodeFTask* nodep) override {
         VL_RESTORER(m_ftaskp);

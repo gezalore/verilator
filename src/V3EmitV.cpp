@@ -207,10 +207,7 @@ class EmitVBaseVisitor VL_NOT_FINAL : public EmitCBaseVisitor {
         iterateAndNextConstNull(nodep->stmtsp());
         putqs(nodep, "end\n");
     }
-    void visit(AstComment* nodep) override {
-        puts(std::string{"// "} + nodep->name() + "\n");
-        iterateChildrenConst(nodep);
-    }
+    void visit(AstComment* nodep) override { puts(std::string{"// "} + nodep->name() + "\n"); }
     void visit(AstContinue*) override {
         putbs("continue");
         if (!m_suppressSemi) puts(";\n");

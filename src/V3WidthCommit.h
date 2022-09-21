@@ -209,7 +209,6 @@ private:
         }
     }
     void visit(AstNodeVarRef* nodep) override {
-        iterateChildren(nodep);
         editDType(nodep);
         classEncapCheck(nodep, nodep->varp(), VN_CAST(nodep->classOrPackagep(), Class));
     }

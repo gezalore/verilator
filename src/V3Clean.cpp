@@ -294,7 +294,6 @@ private:
         setClean(nodep, true);
     }
     void visit(AstIntfRef* nodep) override {
-        iterateChildren(nodep);
         setClean(nodep, true);  // generates a string, so not relevant
     }
 

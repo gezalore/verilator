@@ -75,10 +75,7 @@ class EmitCLazyDecls final : public VNVisitor {
         iterateChildren(nodep);
     }
 
-    void visit(AstAddrOfCFunc* nodep) override {
-        lazyDeclare(nodep->funcp());
-        iterateChildren(nodep);
-    }
+    void visit(AstAddrOfCFunc* nodep) override { lazyDeclare(nodep->funcp()); }
 
     void visit(AstVarRef* nodep) override {
         AstVar* const varp = nodep->varp();
@@ -487,7 +484,6 @@ public:
         if (!(nodep->protect() && v3Global.opt.protectIds())) {
             putsDecoration(string("// ") + nodep->name() + at + "\n");
         }
-        iterateChildren(nodep);
     }
     void visit(AstCoverDecl* nodep) override {
         puts("vlSelf->__vlCoverInsert(");  // As Declared in emitCoverageDecl

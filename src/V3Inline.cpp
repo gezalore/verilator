@@ -267,8 +267,6 @@ private:
         // Rename
         nodep->name(m_cellp->name() + "__DOT__" + nodep->name());
         UINFO(6, "    Inline " << nodep << endl);
-        // Do CellInlines under this, but don't move them
-        iterateChildren(nodep);
     }
     void visit(AstCell* nodep) override {
         // Cell under the inline cell, need to rename to avoid conflicts
@@ -404,7 +402,6 @@ private:
                 tryname = tryname.substr(0, pos);
             }
         }
-        iterateChildren(nodep);
     }
     void visit(AstNodeFTaskRef* nodep) override {
         // Track what scope it was originally under so V3LinkDot can resolve it
@@ -438,7 +435,6 @@ private:
     void visit(AstCoverDecl* nodep) override {
         // Fix path in coverage statements
         nodep->hier(VString::dot(m_cellp->prettyName(), ".", nodep->hier()));
-        iterateChildren(nodep);
     }
     void visit(AstNode* nodep) override { iterateChildren(nodep); }
 

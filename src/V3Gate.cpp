@@ -217,7 +217,6 @@ private:
     // VISITORS
     void visit(AstNodeVarRef* nodep) override {
         ++m_ops;
-        iterateChildren(nodep);
         // We only allow a LHS ref for the var being set, and a RHS ref for
         // something else being read.
         if (nodep->varScopep()->varp()->isSc()) {

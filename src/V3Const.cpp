@@ -2594,7 +2594,6 @@ private:
         m_selp = nullptr;
     }
     void visit(AstNodeVarRef* nodep) override {
-        iterateChildren(nodep);
         UASSERT_OBJ(nodep->varp(), nodep, "Not linked");
         bool did = false;
         if (m_doV && nodep->varp()->valuep() && !m_attrp) {
@@ -2648,7 +2647,6 @@ private:
         }
     }
     void visit(AstEnumItemRef* nodep) override {
-        iterateChildren(nodep);
         UASSERT_OBJ(nodep->itemp(), nodep, "Not linked");
         bool did = false;
         if (nodep->itemp()->valuep()) {
@@ -3126,7 +3124,7 @@ private:
     }
     void visit(AstInitArray* nodep) override { iterateChildren(nodep); }
     void visit(AstInitItem* nodep) override { iterateChildren(nodep); }
-    void visit(AstUnbounded* nodep) override { iterateChildren(nodep); }
+    void visit(AstUnbounded* nodep) override {}
     // These are converted by V3Param.  Don't constify as we don't want the
     // from() VARREF to disappear, if any.
     // If output of a presel didn't get consted, chances are V3Param didn't visit properly
@@ -3152,7 +3150,6 @@ private:
         m_hasJumpDelay = true;
     }
     void visit(AstJumpGo* nodep) override {
-        iterateChildren(nodep);
         // Jump to label where label immediately follows label is not useful
         if (nodep->labelp() == VN_CAST(nodep->nextp(), JumpLabel)) {
             VL_DO_DANGLING(nodep->unlinkFrBack()->deleteTree(), nodep);

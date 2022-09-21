@@ -236,7 +236,6 @@ private:
         VL_DO_DANGLING(pushDeletep(nodep), nodep);
     }
     void visit(AstBreak* nodep) override {
-        iterateChildren(nodep);
         if (!m_loopp) {
             nodep->v3error("break isn't underneath a loop");
         } else {
@@ -248,7 +247,6 @@ private:
         VL_DO_DANGLING(pushDeletep(nodep), nodep);
     }
     void visit(AstContinue* nodep) override {
-        iterateChildren(nodep);
         if (!m_loopp) {
             nodep->v3error("continue isn't underneath a loop");
         } else {
@@ -262,7 +260,6 @@ private:
     }
     void visit(AstDisable* nodep) override {
         UINFO(8, "   DISABLE " << nodep << endl);
-        iterateChildren(nodep);
         AstNodeBlock* blockp = nullptr;
         for (AstNodeBlock* const stackp : vlstd::reverse_view(m_blockStack)) {
             UINFO(9, "    UNDERBLK  " << stackp << endl);

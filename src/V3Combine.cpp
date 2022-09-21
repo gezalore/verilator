@@ -206,7 +206,6 @@ class CombineVisitor final : VNVisitor {
     }
 
     void visit(AstAddrOfCFunc* nodep) override {
-        iterateChildrenConst(nodep);
         if (nodep->funcp()->dontCombine()) return;
         // LCOV_EXCL_START
         // We cannot yet handle references via AstAddrOfCFunc, but currently those are

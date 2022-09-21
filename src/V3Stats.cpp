@@ -113,7 +113,6 @@ private:
     }
     void visit(AstVarScope* nodep) override {
         allNodes(nodep);
-        iterateChildrenConst(nodep);
         if (m_counting) {
             if (VN_IS(nodep->varp()->dtypeSkipRefp(), BasicDType)) {
                 m_statVarScpBytes += nodep->varp()->dtypeSkipRefp()->widthTotalBytes();

@@ -90,16 +90,9 @@ class EmitCGatherDependencies final : VNVisitor {
     }
     void visit(AstNodeVarRef* nodep) override {
         addSelfDependency(nodep->selfPointer(), nodep->varp());
-        iterateChildrenConst(nodep);
     }
-    void visit(AstCoverDecl* nodep) override {
-        addSymsDependency();
-        iterateChildrenConst(nodep);
-    }
-    void visit(AstCoverInc* nodep) override {
-        addSymsDependency();
-        iterateChildrenConst(nodep);
-    }
+    void visit(AstCoverDecl* nodep) override { addSymsDependency(); }
+    void visit(AstCoverInc* nodep) override { addSymsDependency(); }
     void visit(AstDumpCtl* nodep) override {
         addSymsDependency();
         iterateChildrenConst(nodep);
@@ -108,10 +101,7 @@ class EmitCGatherDependencies final : VNVisitor {
         addSymsDependency();
         iterateChildrenConst(nodep);
     }
-    void visit(AstPrintTimeScale* nodep) override {
-        addSymsDependency();
-        iterateChildrenConst(nodep);
-    }
+    void visit(AstPrintTimeScale* nodep) override { addSymsDependency(); }
     void visit(AstTimeFormat* nodep) override {
         addSymsDependency();
         iterateChildrenConst(nodep);

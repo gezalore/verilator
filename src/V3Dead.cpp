@@ -145,7 +145,6 @@ private:
 
     void visit(AstNodeVarRef* nodep) override {
         // Note NodeAssign skips calling this in some cases
-        iterateChildren(nodep);
         checkAll(nodep);
         checkVarRef(nodep);
         if (nodep->varScopep()) {
@@ -203,7 +202,6 @@ private:
         checkAll(nodep);
     }
     void visit(AstEnumItemRef* nodep) override {
-        iterateChildren(nodep);
         checkAll(nodep);
         if (nodep->classOrPackagep()) {
             if (m_elimCells) {
@@ -249,7 +247,6 @@ private:
         if (nodep->attrPublic() && m_modp && VN_IS(m_modp, Package)) m_modp->user1Inc();
     }
     void visit(AstVarScope* nodep) override {
-        iterateChildren(nodep);
         checkAll(nodep);
         if (nodep->scopep()) nodep->scopep()->user1Inc();
         if (mightElimVar(nodep->varp())) m_vscsp.push_back(nodep);

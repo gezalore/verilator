@@ -243,7 +243,6 @@ private:
     void visit(AstCoverDecl* nodep) override {
         // Don't need to fix path in coverage statements, they're not under
         // any BEGINs, but V3Coverage adds them all under the module itself.
-        iterateChildren(nodep);
     }
     // VISITORS - LINT CHECK
     void visit(AstIf* nodep) override {  // not AstNodeIf; other types not covered
@@ -293,7 +292,6 @@ private:
             UINFO(9, "    relinVarRef " << nodep << endl);
             nodep->name(nodep->varp()->name());
         }
-        iterateChildren(nodep);
     }
     void visit(AstIfaceRefDType* nodep) override {
         // May have changed cell names
@@ -301,7 +299,6 @@ private:
         UINFO(8, "   IFACEREFDTYPE " << nodep << endl);
         if (nodep->cellp()) nodep->cellName(nodep->cellp()->name());
         UINFO(8, "       rename to " << nodep << endl);
-        iterateChildren(nodep);
     }
     //--------------------
     void visit(AstNode* nodep) override { iterateChildren(nodep); }

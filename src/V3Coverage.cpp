@@ -506,7 +506,6 @@ private:
             m_state.m_on = false;
             VL_DO_DANGLING(nodep->unlinkFrBack()->deleteTree(), nodep);
         } else {
-            if (m_state.m_on) iterateChildren(nodep);
             lineTrack(nodep);
         }
     }

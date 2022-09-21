@@ -415,7 +415,6 @@ protected:
         // in always, so the performance gain probably isn't worth the work.
         UINFO(9, "         NoReordering " << nodep << endl);
         m_noReorderWhy = "JumpGo";
-        iterateChildren(nodep);
     }
 
     //--------------------

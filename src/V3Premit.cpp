@@ -275,10 +275,7 @@ private:
     void visit(AstShiftR* nodep) override { visitShift(nodep); }
     void visit(AstShiftRS* nodep) override { visitShift(nodep); }
     // Operators
-    void visit(AstNodeTermop* nodep) override {
-        iterateChildren(nodep);
-        checkNode(nodep);
-    }
+    void visit(AstNodeTermop* nodep) override { checkNode(nodep); }
     void visit(AstNodeUniop* nodep) override {
         iterateChildren(nodep);
         checkNode(nodep);
@@ -323,10 +320,7 @@ private:
         }
         checkNode(nodep);
     }
-    void visit(AstConst* nodep) override {
-        iterateChildren(nodep);
-        checkNode(nodep);
-    }
+    void visit(AstConst* nodep) override { checkNode(nodep); }
     void visit(AstNodeCond* nodep) override {
         iterateChildren(nodep);
         if (nodep->thenp()->isWide() && !VN_IS(nodep->condp(), Const)

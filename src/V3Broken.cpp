@@ -196,6 +196,10 @@ private:
         iterateChildrenConst(nodep);
         processExit(nodep);
     }
+    void process(AstNode* nodep) {
+        processEnter(nodep);
+        processExit(nodep);
+    }
     void processAndIterateList(AstNode* nodep) {
         while (nodep) {
             processAndIterate(nodep);
@@ -235,7 +239,7 @@ private:
         }
     }
     void visit(AstNodeVarRef* nodep) override {
-        processAndIterate(nodep);
+        process(nodep);
         // m_inScope because some Vars have initial variable references without scopes
         // This might false fire with some debug flags, as not certain we don't have temporary
         // clear varScopep's during some an infrequent dump just before we re-LinkDot.

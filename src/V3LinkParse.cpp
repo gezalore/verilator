@@ -555,7 +555,6 @@ private:
     void visit(AstPrintTimeScale* nodep) override {
         // Inlining may change hierarchy, so just save timescale where needed
         cleanFileline(nodep);
-        iterateChildren(nodep);
         nodep->name(m_modp->name());
         nodep->timeunit(m_modp->timeunit());
     }
@@ -566,12 +565,10 @@ private:
     }
     void visit(AstTime* nodep) override {
         cleanFileline(nodep);
-        iterateChildren(nodep);
         nodep->timeunit(m_modp->timeunit());
     }
     void visit(AstTimeD* nodep) override {
         cleanFileline(nodep);
-        iterateChildren(nodep);
         nodep->timeunit(m_modp->timeunit());
     }
     void visit(AstTimeImport* nodep) override {

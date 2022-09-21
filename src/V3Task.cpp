@@ -226,8 +226,6 @@ private:
             // Just mark for the next steps, and we're done with it.
             m_curVxp->noInline(true);
             VL_DO_DANGLING(nodep->unlinkFrBack()->deleteTree(), nodep);
-        } else {
-            iterateChildren(nodep);
         }
     }
     void visit(AstVar* nodep) override {
@@ -235,7 +233,6 @@ private:
         nodep->user4p(m_curVxp);  // Remember what task it's under
     }
     void visit(AstVarRef* nodep) override {
-        iterateChildren(nodep);
         if (nodep->varp()->user4u().toGraphVertex() != m_curVxp) {
             if (m_curVxp->pure() && !nodep->varp()->isXTemp()) m_curVxp->impure(nodep);
         }
