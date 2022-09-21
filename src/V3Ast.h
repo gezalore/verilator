@@ -1928,7 +1928,7 @@ public:
         // This is a very hot function
 
         // Prefetch op1
-        //if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::NONE) {
+        // if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::NONE) {
         //    // Nop
         //} else if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::SCALAR) {
         //    ASTNODE_PREFETCH_NON_NULL(m_op1p);
@@ -1937,7 +1937,7 @@ public:
         //}
 
         //// Prefetch op2
-        //if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::NONE) {
+        // if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::NONE) {
         //    // Nop
         //} else if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::SCALAR) {
         //    ASTNODE_PREFETCH_NON_NULL(m_op2p);
@@ -1946,7 +1946,7 @@ public:
         //}
 
         //// Prefetch op3
-        //if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::NONE) {
+        // if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::NONE) {
         //    // Nop
         //} else if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::SCALAR) {
         //    ASTNODE_PREFETCH_NON_NULL(m_op3p);
@@ -1955,7 +1955,7 @@ public:
         //}
 
         //// Prefetch op4
-        //if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::NONE) {
+        // if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::NONE) {
         //    // Nop
         //} else if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::SCALAR) {
         //    ASTNODE_PREFETCH_NON_NULL(m_op4p);
@@ -2014,7 +2014,7 @@ public:
         // This is a very hot function
 
         //// Prefetch op1
-        //if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::NONE) {
+        // if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::NONE) {
         //    // Nop
         //} else if VL_CONSTEXPR_CXX17 (T_Op1 == VNodeChildType::SCALAR) {
         //    ASTNODE_PREFETCH_NON_NULL(m_op1p);
@@ -2023,7 +2023,7 @@ public:
         //}
 
         //// Prefetch op2
-        //if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::NONE) {
+        // if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::NONE) {
         //    // Nop
         //} else if VL_CONSTEXPR_CXX17 (T_Op2 == VNodeChildType::SCALAR) {
         //    ASTNODE_PREFETCH_NON_NULL(m_op2p);
@@ -2032,7 +2032,7 @@ public:
         //}
 
         //// Prefetch op3
-        //if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::NONE) {
+        // if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::NONE) {
         //    // Nop
         //} else if VL_CONSTEXPR_CXX17 (T_Op3 == VNodeChildType::SCALAR) {
         //    ASTNODE_PREFETCH_NON_NULL(m_op3p);
@@ -2041,7 +2041,7 @@ public:
         //}
 
         //// Prefetch op4
-        //if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::NONE) {
+        // if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::NONE) {
         //    // Nop
         //} else if VL_CONSTEXPR_CXX17 (T_Op4 == VNodeChildType::SCALAR) {
         //    ASTNODE_PREFETCH_NON_NULL(m_op4p);

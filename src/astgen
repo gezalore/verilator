@@ -869,8 +869,10 @@ def write_macros(filename):
                         opTypes.append("LIST")
                     else:
                         sys.exit("Unknown operand type")
-                iterate = "iterateChildrenImpl<VNodeChildType::{o[0]}, VNodeChildType::{o[1]},  VNodeChildType::{o[2]},  VNodeChildType::{o[3]}>(v);".format(o=opTypes)
-                iterateConst = "iterateChildrenConstImpl<VNodeChildType::{o[0]}, VNodeChildType::{o[1]},  VNodeChildType::{o[2]},  VNodeChildType::{o[3]}>(v);".format(o=opTypes)
+                iterate = "iterateChildrenImpl<VNodeChildType::{o[0]}, VNodeChildType::{o[1]},  VNodeChildType::{o[2]},  VNodeChildType::{o[3]}>(v);".format(
+                    o=opTypes)
+                iterateConst = "iterateChildrenConstImpl<VNodeChildType::{o[0]}, VNodeChildType::{o[1]},  VNodeChildType::{o[2]},  VNodeChildType::{o[3]}>(v);".format(
+                    o=opTypes)
                 if all(map(lambda _: _ == "NONE", opTypes)):
                     iterate = ""
                     iterateConst = ""
@@ -878,14 +880,20 @@ def write_macros(filename):
                     opType, = filter(lambda _: _ != "NONE", opTypes)
                     opName = opNames[opTypes.index(opType)]
                     if opType == "SCALAR":
-                        iterate = "reinterpret_cast<AstNode*>({n}())->iterateNoNext(v);".format(n=opName)
-                        iterateConst = "reinterpret_cast<AstNode*>({n}())->accept(v);".format(n=opName)
+                        iterate = "reinterpret_cast<AstNode*>({n}())->iterateNoNext(v);".format(
+                            n=opName)
+                        iterateConst = "reinterpret_cast<AstNode*>({n}())->accept(v);".format(
+                            n=opName)
                     elif opType == "OPTIONAL":
-                        iterate = "if ({n}()) reinterpret_cast<AstNode*>({n}())->iterateNoNext(v);".format(n=opName)
-                        iterateConst = "if ({n}()) reinterpret_cast<AstNode*>({n}())->accept(v);".format(n=opName)
+                        iterate = "if ({n}()) reinterpret_cast<AstNode*>({n}())->iterateNoNext(v);".format(
+                            n=opName)
+                        iterateConst = "if ({n}()) reinterpret_cast<AstNode*>({n}())->accept(v);".format(
+                            n=opName)
                     elif opType == "LIST":
-                        iterate = "if ({n}()) reinterpret_cast<AstNode*>({n}())->iterateAndNext(v);".format(n=opName)
-                        iterateConst = "if ({n}()) reinterpret_cast<AstNode*>({n}())->iterateAndNextConst(v);".format(n=opName)
+                        iterate = "if ({n}()) reinterpret_cast<AstNode*>({n}())->iterateAndNext(v);".format(
+                            n=opName)
+                        iterateConst = "if ({n}()) reinterpret_cast<AstNode*>({n}())->iterateAndNextConst(v);".format(
+                            n=opName)
                 elif all(map(lambda _: _ == "NONE" or _ == "SCALAR", opTypes)):
                     prefetch = []
                     iterate = []
@@ -894,8 +902,12 @@ def write_macros(filename):
                         if t == "NONE":
                             continue
                         prefetch.append("VL_PREFETCH_RD({n}()); ".format(n=n))
-                        iterate.append("reinterpret_cast<AstNode*>({n}())->iterateNoNext(v); ".format(n=n))
-                        iterateConst.append("reinterpret_cast<AstNode*>({n}())->accept(v); ".format(n=n))
+                        iterate.append(
+                            "reinterpret_cast<AstNode*>({n}())->iterateNoNext(v); "
+                            .format(n=n))
+                        iterateConst.append(
+                            "reinterpret_cast<AstNode*>({n}())->accept(v); ".
+                            format(n=n))
                     iterate = " ".join(prefetch + iterate)
                     iterateConst = " ".join(prefetch + iterateConst)
                 else:
@@ -904,9 +916,12 @@ def write_macros(filename):
                         if t == "NONE":
                             continue
                         elif t == "SCALAR":
-                            prefetch.append("VL_PREFETCH_RD({n}()); ".format(n=n))
+                            prefetch.append(
+                                "VL_PREFETCH_RD({n}()); ".format(n=n))
                         else:
-                            prefetch.append("if ({n}()) VL_PREFETCH_RD({n}()); ".format(n=n))
+                            prefetch.append(
+                                "if ({n}()) VL_PREFETCH_RD({n}()); ".format(
+                                    n=n))
                     iterate = " ".join(prefetch + [iterate])
                     iterateConst = " ".join(prefetch + [iterateConst])
 
@@ -916,8 +931,9 @@ def write_macros(filename):
                     VL_ATTR_ALWINLINE void iterateChildren(VNVisitor& v) override {{ {iterate} }}
                     VL_ATTR_ALWINLINE void iterateChildrenConst(VNVisitor& v) override {{ {iterateConst} }}
                     ''',
-                          t=node.name, iterate=iterate, iterateConst=iterateConst
-                          )
+                          t=node.name,
+                          iterate=iterate,
+                          iterateConst=iterateConst)
 
             for n in range(1, 5):
                 op = node.getOp(n)
@@ -972,7 +988,9 @@ def write_op_checks(filename):
         indent = ""
 
         def emitBlock(pattern, **fmt):
-            fh.write(textwrap.indent(textwrap.dedent(pattern), indent).format(**fmt))
+            fh.write(
+                textwrap.indent(textwrap.dedent(pattern),
+                                indent).format(**fmt))
 
         for node in SortedNodes:
             if not node.isLeaf:
@@ -986,7 +1004,7 @@ def write_op_checks(filename):
             indent = "    "
             for n in range(1, 5):
                 op = node.getOp(n)
-                emitBlock("// Checking op{n}p\n",n=n)
+                emitBlock("// Checking op{n}p\n", n=n)
                 if op:
                     name, monad, kind = op
                     if not monad:
@@ -1029,14 +1047,17 @@ def write_op_checks(filename):
                                   nodeName=node.name,
                                   opName=name,
                                   kind=kind,
-next = "VN_AS(opp->nextp(), {kind})".format(kind=kind) if kind != "Node" else "opp->nextp()"
-)
+                                  next="VN_AS(opp->nextp(), {kind})".format(
+                                      kind=kind)
+                                  if kind != "Node" else "opp->nextp()")
                     else:
                         sys.exit("Unknown operand type")
                 else:
                     emitBlock('''\
                         UASSERT_OBJ(!currp->op{n}p(), currp, "Ast{nodeName} does not use op{n}p()");
-                        ''', n=n, nodeName=node.name)
+                        ''',
+                              n=n,
+                              nodeName=node.name)
             indent = ""
             emitBlock('''\
                     break;

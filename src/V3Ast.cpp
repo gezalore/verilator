@@ -849,7 +849,7 @@ void AstNode::iterateAndNext(VNVisitor& v) {
     }
 }
 
-//void AstNode::iterateNoNext(VNVisitor& v) {
+// void AstNode::iterateNoNext(VNVisitor& v) {
 //    // Same as iterateAndNext, with nextp() statically known to be nullptr
 //    AstNode* iterp = this;
 //    AstNode* nodep;
