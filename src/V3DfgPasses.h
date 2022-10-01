@@ -106,6 +106,8 @@ void cse(DfgGraph&, V3DfgCseContext&);
 void peephole(DfgGraph&, V3DfgPeepholeContext&);
 // Remove redundant variables
 void removeVars(DfgGraph&, DfgRemoveVarsContext&);
+// Convert right leaning binary trees into balanced binary trees
+void balanceRightLeaningBinaryTrees(DfgGraph& dfg);
 // Remove unused nodes
 void removeUnused(DfgGraph&);
 }  // namespace V3DfgPasses

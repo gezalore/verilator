@@ -331,6 +331,9 @@ public:
     // Predicate: has 2 or more sinks
     bool hasMultipleSinks() const { return m_sinksp && m_sinksp->m_nextp; }
 
+    // Return pointer to first sink node (must exist)
+    DfgVertex* sinkp() const { return m_sinksp->sinkp(); }
+
     // Fanout (number of sinks) of this vertex (expensive to compute)
     uint32_t fanout() const;
 

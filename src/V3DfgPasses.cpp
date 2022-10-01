@@ -23,6 +23,7 @@
 #include "V3String.h"
 
 #include <algorithm>
+#include <type_traits>
 
 VL_DEFINE_DEBUG_FUNCTIONS;
 
@@ -151,6 +152,113 @@ void V3DfgPasses::removeVars(DfgGraph& dfg, DfgRemoveVarsContext& ctx) {
     });
 }
 
+bool isRootOfRightLeaningBinaryTree(DfgVertexWithArity<2>* vtxp) {
+    // If RHS is a different type of node, then the tree rooted here is a single op, ignore
+    if (vtxp->rhsp()->type() != vtxp->type()) return false;
+    // We can only balance trees, so the tree rooted here is a single op, ignore
+    if (vtxp->rhsp()->hasMultipleSinks()) return false;
+    // This needs a temporary, so root here
+    if (vtxp->hasMultipleSinks()) return true;
+    // Feeds a different type of vertex, so root here
+    if (vtxp->sinkp()->type() != vtxp->type()) return true;
+    // Feeds the same type of vertex, but on the lhs, root here
+    if (vtxp == static_cast<DfgVertexWithArity<2>*>(vtxp->sinkp())->lhsp()) return true;
+    // Not a root
+    return false;
+}
+
+template <typename Vertex>
+void balanceRightLeaningBinaryTreeRootedAt(DfgGraph& dfg, Vertex* vtxp) {
+    DfgVertex* const rootp = vtxp;
+    DfgVertex* lastp = vtxp->rhsp();
+    std::vector<std::pair<DfgVertex*, FileLine*>> terms;
+
+    // Gather all the terms
+    terms.emplace_back(vtxp->lhsp(), vtxp->fileline());
+    while (lastp->is<Vertex>() && !lastp->hasMultipleSinks()) {
+        vtxp = lastp->as<Vertex>();
+        terms.emplace_back(vtxp->lhsp(), vtxp->fileline());
+        lastp = vtxp->rhsp();
+    }
+    terms.emplace_back(lastp, nullptr);
+
+    const size_t nTerms = terms.size();
+
+    // Recursively concatenate them pairwise
+    for (size_t stride = 1; stride < nTerms; stride *= 2) {
+        for (size_t i = 0; i + stride < nTerms; i += 2 * stride) {
+            const size_t j = i + stride;
+            DfgVertex* const lhsp = terms[i].first;
+            DfgVertex* const rhsp = terms[j].first;
+            // The FileLine is chosen such that e.g.: '(a | (b | (c | d))' maps to
+            // '(a | b) | (c | d)' with the locations of the operators being unaltered
+            FileLine* const flp = terms[j - 1].second;
+            const auto dtypep = std::is_same<Vertex, DfgConcat>::value
+                                    ? DfgVertex::dtypeForWidth(lhsp->width() + rhsp->width())
+                                    : lhsp->dtypep();
+            Vertex* const vtxp = new Vertex{dfg, flp, dtypep};
+            vtxp->lhsp(lhsp);
+            vtxp->rhsp(rhsp);
+            terms[i].first = vtxp;
+        }
+    }
+
+    // Replace the root node with the result
+    rootp->replaceWith(terms[0].first);
+
+    // Remove all the replaced terms
+    for (DfgVertex *currp = rootp, *nextp; currp != lastp; currp = nextp) {
+        nextp = currp->as<Vertex>()->rhsp();
+        currp->unlinkDelete(dfg);
+    }
+}
+
+// Convert right leaning binary expression trees (e.g.: 'a | (b | (c | d)') to balanced binary
+// trees (e.g.: '(a | b) | (c | d)'). While the impact of this on the performance of the generated
+// code is close to neutral, it has the following benefits:
+// - Allows for further CSE opportunities in a later pass due to representational perturbations
+// - Reduces peak memory consumption of Verilator in the later stages. Namely, a ~30% peak memory
+//   consumption reduction was observed on OpenTitan in the V3Expand and V3Subst passes using
+//   OpenTitan. The reason for this in relation to this balancing transformation is not clear,
+//   but we will take the win.
+// - DFG dumps are a lot clearer to look at when scouting for further opportunities.
+void V3DfgPasses::balanceRightLeaningBinaryTrees(DfgGraph& dfg) {
+    std::vector<DfgConcat*> rootConcatps;
+    std::vector<DfgAnd*> rootAndps;
+    std::vector<DfgOr*> rootOrps;
+    std::vector<DfgXor*> rootXorps;
+    std::vector<DfgAdd*> rootAddps;
+
+    // Gather all the roots of non-trivial (has more than one vertex) right leaning binary trees.
+    dfg.forEachVertex([&](DfgVertex& vtx) {
+        // No point to optimize unused vertices. Note: We cannot remove vertices here as we rely on
+        // the number of sinks to determine roots. If we remove vertices as we collect the roots,
+        // we might add a root that due to a removal is no longer a root but is a part of a larger
+        // tree, in which case we would invoke the balancing on two nodes within the same tree (one
+        // non-root), which would end badly.
+        if (!vtx.hasSinks()) return;
+
+        if (DfgConcat* const p = vtx.cast<DfgConcat>()) {
+            if (isRootOfRightLeaningBinaryTree(p)) rootConcatps.push_back(p);
+        } else if (DfgAnd* const p = vtx.cast<DfgAnd>()) {
+            if (isRootOfRightLeaningBinaryTree(p)) rootAndps.push_back(p);
+        } else if (DfgOr* const p = vtx.cast<DfgOr>()) {
+            if (isRootOfRightLeaningBinaryTree(p)) rootOrps.push_back(p);
+        } else if (DfgXor* const p = vtx.cast<DfgXor>()) {
+            if (isRootOfRightLeaningBinaryTree(p)) rootXorps.push_back(p);
+        } else if (DfgAdd* const p = vtx.cast<DfgAdd>()) {
+            if (isRootOfRightLeaningBinaryTree(p)) rootAddps.push_back(p);
+        }
+    });
+
+    // Optimize each root
+    for (const auto p : rootConcatps) balanceRightLeaningBinaryTreeRootedAt(dfg, p);
+    for (const auto p : rootAndps) balanceRightLeaningBinaryTreeRootedAt(dfg, p);
+    for (const auto p : rootOrps) balanceRightLeaningBinaryTreeRootedAt(dfg, p);
+    for (const auto p : rootXorps) balanceRightLeaningBinaryTreeRootedAt(dfg, p);
+    for (const auto p : rootAddps) balanceRightLeaningBinaryTreeRootedAt(dfg, p);
+}
+
 void V3DfgPasses::removeUnused(DfgGraph& dfg) {
     const auto processVertex = [&](DfgVertex& vtx) {
         // Keep variables
@@ -191,6 +299,7 @@ void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgOptimizationContext& ctx) {
         apply(4, "removeVars    ", [&]() { removeVars(dfg, ctx.m_removeVarsContext); });
         apply(4, "cse           ", [&]() { cse(dfg, ctx.m_cseContext1); });
     }
+    apply(4, "balance       ", [&]() { balanceRightLeaningBinaryTrees(dfg); });
     apply(3, "optimized     ", [&]() { removeUnused(dfg); });
     if (dumpDfg() >= 8) dfg.dumpDotAllVarConesPrefixed(ctx.prefix() + "optimized");
 }
