@@ -377,6 +377,61 @@ class AstToDfgVisitor final : public VNVisitor {
         convertEquation(nodep, nodep->lhsp(), nodep->rhsp());
     }
 
+    void visit(AstAlways* nodep) override {
+        // Ignore sequential logic, or if there are multiple statements
+        if (nodep->sensesp() || !nodep->isJustOneBodyStmt()) {
+            markReferenced(nodep);
+            return;
+        }
+
+        AstNode* const stmtp = nodep->stmtsp();
+
+        if (AstAssign* const assignp = VN_CAST(stmtp, Assign)) {
+            ++m_ctx.m_inputEquations;
+            if (assignp->timingControlp()) {
+                markReferenced(stmtp);
+                ++m_ctx.m_nonRepTiming;
+                return;
+            }
+            convertEquation(nodep, assignp->lhsp(), assignp->rhsp());
+        } else if (AstIf* const ifp = VN_CAST(stmtp, If)) {
+            // Will only handle single assignments to the same LHS in both branches
+            AstAssign* const thenp = VN_CAST(ifp->thensp(), Assign);
+            AstAssign* const elsep = VN_CAST(ifp->elsesp(), Assign);
+            if (!thenp || !elsep || thenp->nextp() || elsep->nextp()
+                || !thenp->lhsp()->sameTree(elsep->lhsp())) {
+                markReferenced(stmtp);
+                return;
+            }
+
+            ++m_ctx.m_inputEquations;
+            if (thenp->timingControlp() || elsep->timingControlp()) {
+                markReferenced(stmtp);
+                ++m_ctx.m_nonRepTiming;
+                return;
+            }
+
+            // Create a conditional for the rhs by borrowing the components from the AstIf
+            AstCond* const rhsp = new AstCond{ifp->fileline(),  //
+                                              ifp->condp()->unlinkFrBack(),  //
+                                              thenp->rhsp()->unlinkFrBack(),  //
+                                              elsep->rhsp()->unlinkFrBack()};
+
+            if (!convertEquation(nodep, thenp->lhsp(), rhsp)) {
+                // Failed to convert. Mark 'rhsp', as 'convertEquation' only marks 'nodep'.
+                markReferenced(rhsp);
+                // Put the AstIf back together
+                ifp->condp(rhsp->condp()->unlinkFrBack());
+                thenp->rhsp(rhsp->thenp()->unlinkFrBack());
+                elsep->rhsp(rhsp->elsep()->unlinkFrBack());
+            }
+            // Delete the auxiliary conditional
+            VL_DO_DANGLING(rhsp->deleteTree(), rhsp);
+        } else {
+            markReferenced(stmtp);
+        }
+    }
+
     void visit(AstVarRef* nodep) override {
         UASSERT_OBJ(!nodep->user1p(), nodep, "Already has Dfg vertex");
         if (unhandled(nodep)) return;
