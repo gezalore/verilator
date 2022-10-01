@@ -190,7 +190,7 @@ public:
     }
 
 private:
-    bool treeTest(AstAlways* nodep) {
+    bool treeTest(AstNode* nodep) {
         // Process alw/assign tree
         m_inWidthBits = 0;
         m_outWidthBytes = 0;
@@ -243,7 +243,7 @@ private:
         return chkvis.optimizable();
     }
 
-    void replaceWithTable(AstAlways* nodep) {
+    void replaceWithTable(AstNode* nodep) {
         // We've determined this table of nodes is optimizable, do it.
         ++m_modTables;
         ++m_statTablesCre;
@@ -274,13 +274,16 @@ private:
         createOutputAssigns(nodep, stmtsp, indexVscp, outputAssignedTableBuilder.varScopep());
 
         // Link it in.
+        AstAlways* const alwaysp = VN_IS(nodep, AssignW)
+                                       ? VN_CAST(nodep, AssignW)->convertToAlways()
+                                       : VN_AS(nodep, Always);
         // Keep sensitivity list, but delete all else
-        nodep->stmtsp()->unlinkFrBackWithNext()->deleteTree();
-        nodep->addStmtsp(stmtsp);
+        alwaysp->stmtsp()->unlinkFrBackWithNext()->deleteTree();
+        alwaysp->addStmtsp(stmtsp);
         if (debug() >= 6) nodep->dumpTree(cout, "  table_new: ");
     }
 
-    void createTables(AstAlways* nodep, TableBuilder& outputAssignedTableBuilder) {
+    void createTables(AstNode* nodep, TableBuilder& outputAssignedTableBuilder) {
         // Create table
         // There may be a simulation path by which the output doesn't change value.
         // We could bail on these cases, or we can have a "change it" boolean.
@@ -403,11 +406,13 @@ private:
             replaceWithTable(nodep);
         }
     }
-    void visit(AstNodeAssign* nodep) override {
-        // It's nearly impossible to have a large enough assign to make this worthwhile
-        // For now we won't bother.
-        // Accelerated: no iterate
+    void visit(AstAssignW* nodep) override {
+        // Skip some frequent, obvious non optimizable cases for speed.
+        if (VN_IS(nodep->rhsp(), VarRef) || VN_IS(nodep->rhsp(), Const)) return;
+        // After the DFG optimizer, these can become quite big, so try to optimize them
+        if (treeTest(nodep)) replaceWithTable(nodep);
     }
+    void visit(AstNodeAssign* nodep) override {}
 
 public:
     // CONSTRUCTORS
