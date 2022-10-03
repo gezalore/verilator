@@ -89,11 +89,9 @@ class V3DfgPeephole final : public DfgVisitor {
     AstNodeDType* const m_bitDType = DfgVertex::dtypeForWidth(1);  // Common, so grab it up front
     // Vertices cannot remove as they are referenced by other data structures
     std::unordered_set<const DfgVertex*> m_keep;
-
+    // Map from vertex to the selected
     std::map<std::pair<const DfgVertex*, uint32_t>, DfgSel*> m_machineWords;
     std::map<std::pair<const DfgVertex*, uint32_t>, DfgReplicate*> m_broadcasts;
-
-    size_t m_nnn = 0;
 
 #define APPLYING(id) if (checkApplying(VDfgPeepholePattern::id))
 
@@ -136,12 +134,12 @@ class V3DfgPeephole final : public DfgVisitor {
     // and the lsb index of the returned vertex.
     std::pair<DfgVertex*, uint32_t> getMachineWord(DfgVertex* fromp, uint32_t bit) {
         if (fromp->width() <= VL_QUADSIZE) return {fromp, 0};
-        const auto pair = m_machineWords.emplace(std::piecewise_construct,  //
-                                                 std::forward_as_tuple(fromp, bit),  //
-                                                 std::forward_as_tuple(nullptr));
-        DfgSel*& resultp = pair.first->second;
         const uint32_t word = VL_BITWORD_E(bit);
         const uint32_t lsb = word * VL_EDATASIZE;
+        const auto pair = m_machineWords.emplace(std::piecewise_construct,  //
+                                                 std::forward_as_tuple(fromp, word),  //
+                                                 std::forward_as_tuple(nullptr));
+        DfgSel*& resultp = pair.first->second;
         if (pair.second) {
             FileLine* const flp = fromp->fileline();
             const uint32_t width = std::min<uint32_t>(VL_EDATASIZE, fromp->width() - lsb);
@@ -345,30 +343,7 @@ class V3DfgPeephole final : public DfgVisitor {
                     }
                 }
             }
-            //            return false;
         }
-        //
-        //        // If this is a one bit operation
-        //        if (vtxp->width() == 1) {
-        //            // Get the whole machine word containing the selected bit
-        //            const uint32_t idx = aLsbp->toU32();
-        //            const auto pair = getMachineWord(aSelp->fromp(), idx);
-        //            DfgVertex* const lhsp = pair.first;
-        //            if (lhsp != aSelp) {
-        //                APPLYING(PUSH_BITWISE_THROUGH_ONE_BIT_SEL) {
-        //                    const uint32_t lsb = pair.second;
-        //                    UASSERT_OBJ(idx >= lsb, vtxp, "Wrong word selected");
-        //                    DfgVertex* const rhsp = getBroadcast(bVtxp, lhsp->width());
-        //                    Bitwise* const opp = new Bitwise{m_dfg, vtxp->fileline(),
-        //                    lhsp->dtypep()}; opp->lhsp(lhsp); opp->rhsp(rhsp); DfgSel* const selp
-        //                    = new DfgSel{m_dfg, aSelp->fileline(), m_bitDType}; selp->fromp(opp);
-        //                    selp->lsbp(makeI32(aSelp->fileline(), idx - lsb));
-        //                    selp->widthp(makeI32(aSelp->fileline(), 1));
-        //                    vtxp->replaceWith(selp);
-        //                    return true;
-        //                }
-        //            }
-        //        }
 
         return false;
     }
