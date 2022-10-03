@@ -87,6 +87,13 @@ class V3DfgPeephole final : public DfgVisitor {
     V3DfgPeepholeContext& m_ctx;  // The config structure
     bool m_changed = false;  // Changed a vertex
     AstNodeDType* const m_bitDType = DfgVertex::dtypeForWidth(1);  // Common, so grab it up front
+    // Vertices cannot remove as they are referenced by other data structures
+    std::unordered_set<const DfgVertex*> m_keep;
+
+    std::map<std::pair<const DfgVertex*, uint32_t>, DfgSel*> m_machineWords;
+    std::map<std::pair<const DfgVertex*, uint32_t>, DfgReplicate*> m_broadcasts;
+
+    size_t m_nnn = 0;
 
 #define APPLYING(id) if (checkApplying(VDfgPeepholePattern::id))
 
@@ -97,6 +104,17 @@ class V3DfgPeephole final : public DfgVisitor {
         ++m_ctx.m_count[id];
         m_changed = true;
         return true;
+    }
+
+    bool keep(const DfgVertex& vtx) {
+        // Keep DfgVertexLValue vertices in this pass. We will remove them later if they become
+        // redundant. We want to keep the original variables for non-var vertices that drive
+        // multiple sinks (otherwise we would need to introduce a temporary, but it is better for
+        // debugging to keep the original variable name, if one is available), so we can't remove
+        // redundant variables here.
+        if (vtx.is<DfgVarPacked>() || vtx.is<DfgVarArray>()) return true;
+        // Also keep anything that might be referenced in local datastructures.
+        return m_keep.count(&vtx);
     }
 
     // Shorthand
@@ -113,6 +131,46 @@ class V3DfgPeephole final : public DfgVisitor {
 
     // Create a new DfgConst vertex with the given width and value zero
     DfgConst* makeZero(FileLine* flp, uint32_t width) { return makeConst(flp, width, 0); }
+
+    // Returns a vertex representing the machine word of 'fromp' that contains 'bit',
+    // and the lsb index of the returned vertex.
+    std::pair<DfgVertex*, uint32_t> getMachineWord(DfgVertex* fromp, uint32_t bit) {
+        if (fromp->width() <= VL_QUADSIZE) return {fromp, 0};
+        const auto pair = m_machineWords.emplace(std::piecewise_construct,  //
+                                                 std::forward_as_tuple(fromp, bit),  //
+                                                 std::forward_as_tuple(nullptr));
+        DfgSel*& resultp = pair.first->second;
+        const uint32_t word = VL_BITWORD_E(bit);
+        const uint32_t lsb = word * VL_EDATASIZE;
+        if (pair.second) {
+            FileLine* const flp = fromp->fileline();
+            const uint32_t width = std::min<uint32_t>(VL_EDATASIZE, fromp->width() - lsb);
+            resultp = new DfgSel{m_dfg, flp, dtypeForWidth(width)};
+            resultp->fromp(fromp);
+            resultp->lsbp(makeI32(flp, lsb));
+            resultp->widthp(makeI32(flp, width));
+            m_keep.insert(resultp);
+        }
+        return {resultp, lsb};
+    }
+
+    // Return vertex representing the given 1-bit vertex broadcast to the given width.
+    DfgVertex* getBroadcast(DfgVertex* vtxp, uint32_t width) {
+        UASSERT_OBJ(vtxp->width() == 1, vtxp, "Can only broadcast 1 bit signals");
+        if (width == 1) return vtxp;
+        const auto pair = m_broadcasts.emplace(std::piecewise_construct,  //
+                                               std::forward_as_tuple(vtxp, width),  //
+                                               std::forward_as_tuple(nullptr));
+        DfgReplicate*& resultp = pair.first->second;
+        if (pair.second) {
+            FileLine* const flp = vtxp->fileline();
+            resultp = new DfgReplicate{m_dfg, flp, dtypeForWidth(width)};
+            resultp->srcp(vtxp);
+            resultp->countp(makeI32(flp, width));
+            m_keep.insert(resultp);
+        }
+        return resultp;
+    }
 
     // Transformations that apply to all commutative binary vertices
     void commutativeBinary(DfgVertexWithArity<2>* vtxp) {
@@ -213,6 +271,108 @@ class V3DfgPeephole final : public DfgVisitor {
         return false;
     }
 
+    template <typename Bitwise>
+    bool tryPushBitwiseOpThroughReductions(Bitwise* vtxp) {
+        using Reduction = BitwiseToReduction<Bitwise>;
+
+        if (Reduction* const lRedp = vtxp->lhsp()->template cast<Reduction>()) {
+            if (Reduction* const rRedp = vtxp->rhsp()->template cast<Reduction>()) {
+                DfgVertex* const lSrcp = lRedp->srcp();
+                DfgVertex* const rSrcp = rRedp->srcp();
+                if (lSrcp->dtypep() == rSrcp->dtypep()) {
+                    APPLYING(PUSH_BITWISE_THROUGH_REDUCTION) {
+                        FileLine* const flp = vtxp->fileline();
+                        Bitwise* const bwp = new Bitwise{m_dfg, flp, lSrcp->dtypep()};
+                        bwp->lhsp(lSrcp);
+                        bwp->rhsp(rSrcp);
+                        Reduction* const redp = new Reduction{m_dfg, flp, m_bitDType};
+                        redp->srcp(bwp);
+                        vtxp->replaceWith(redp);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    template <typename Bitwise>
+    bool tryPushBitwiseOpThroughSel(Bitwise* vtxp) {
+
+        // At least one side must be a select
+        DfgSel* const aSelp
+            = vtxp->lhsp()->template is<DfgSel>()   ? vtxp->lhsp()->template as<DfgSel>()
+              : vtxp->rhsp()->template is<DfgSel>() ? vtxp->rhsp()->template as<DfgSel>()
+                                                    : nullptr;
+        if (!aSelp) return false;
+
+        // Full width sel will be simplified elsewhere
+        if (aSelp->dtypep() == aSelp->fromp()->dtypep()) return false;
+
+        // The select must be a constant offset
+        DfgConst* const aLsbp = aSelp->lsbp()->cast<DfgConst>();
+        if (!aLsbp) return false;
+
+        // Pick up other operand
+        DfgVertex* const bVtxp = aSelp == vtxp->lhsp() ? vtxp->rhsp() : vtxp->lhsp();
+
+        if (DfgSel* const bSelp = bVtxp->cast<DfgSel>()) {
+            if (DfgConst* const bLsbp = bSelp->lsbp()->cast<DfgConst>()) {
+                const uint32_t idx = aLsbp->toU32();
+                if (bLsbp->toU32() == idx) {
+                    const auto lPair = getMachineWord(aSelp->fromp(), idx);
+                    const auto rPair = getMachineWord(bSelp->fromp(), idx);
+                    DfgVertex* const lhsp = lPair.first;
+                    DfgVertex* const rhsp = rPair.first;
+                    const uint32_t lOff = idx - lPair.second;
+                    const uint32_t rOff = idx - rPair.second;
+                    if (lOff == rOff && lhsp->dtypep() == rhsp->dtypep()
+                        && (lhsp != aSelp || rhsp != bSelp)) {
+                        APPLYING(PUSH_BITWISE_THROUGH_SEL_SAME) {
+                            Bitwise* const opp
+                                = new Bitwise{m_dfg, vtxp->fileline(), lhsp->dtypep()};
+                            opp->lhsp(lhsp);
+                            opp->rhsp(rhsp);
+                            DfgSel* const selp
+                                = new DfgSel{m_dfg, aSelp->fileline(), vtxp->dtypep()};
+                            selp->fromp(opp);
+                            selp->lsbp(makeI32(aSelp->fileline(), lOff));
+                            selp->widthp(makeI32(aSelp->fileline(), vtxp->width()));
+                            vtxp->replaceWith(selp);
+                            return true;
+                        }
+                    }
+                }
+            }
+            //            return false;
+        }
+        //
+        //        // If this is a one bit operation
+        //        if (vtxp->width() == 1) {
+        //            // Get the whole machine word containing the selected bit
+        //            const uint32_t idx = aLsbp->toU32();
+        //            const auto pair = getMachineWord(aSelp->fromp(), idx);
+        //            DfgVertex* const lhsp = pair.first;
+        //            if (lhsp != aSelp) {
+        //                APPLYING(PUSH_BITWISE_THROUGH_ONE_BIT_SEL) {
+        //                    const uint32_t lsb = pair.second;
+        //                    UASSERT_OBJ(idx >= lsb, vtxp, "Wrong word selected");
+        //                    DfgVertex* const rhsp = getBroadcast(bVtxp, lhsp->width());
+        //                    Bitwise* const opp = new Bitwise{m_dfg, vtxp->fileline(),
+        //                    lhsp->dtypep()}; opp->lhsp(lhsp); opp->rhsp(rhsp); DfgSel* const selp
+        //                    = new DfgSel{m_dfg, aSelp->fileline(), m_bitDType}; selp->fromp(opp);
+        //                    selp->lsbp(makeI32(aSelp->fileline(), idx - lsb));
+        //                    selp->widthp(makeI32(aSelp->fileline(), 1));
+        //                    vtxp->replaceWith(selp);
+        //                    return true;
+        //                }
+        //            }
+        //        }
+
+        return false;
+    }
+
     template <typename Vertex>
     bool tryPushCompareOpThroughConcat(Vertex* vtxp, DfgConst* constp, DfgConcat* concatp) {
         UASSERT_OBJ(constp->width() == concatp->width(), vtxp, "Mismatched widths");
@@ -257,32 +417,6 @@ class V3DfgPeephole final : public DfgVisitor {
                 return true;
             }
         }
-        return false;
-    }
-
-    template <typename Bitwise>
-    bool tryPushBitwiseOpThroughReductions(Bitwise* vtxp) {
-        using Reduction = BitwiseToReduction<Bitwise>;
-
-        if (Reduction* const lRedp = vtxp->lhsp()->template cast<Reduction>()) {
-            if (Reduction* const rRedp = vtxp->rhsp()->template cast<Reduction>()) {
-                DfgVertex* const lSrcp = lRedp->srcp();
-                DfgVertex* const rSrcp = rRedp->srcp();
-                if (lSrcp->dtypep() == rSrcp->dtypep()) {
-                    APPLYING(PUSH_BITWISE_THROUGH_REDUCTION) {
-                        FileLine* const flp = vtxp->fileline();
-                        Bitwise* const bwp = new Bitwise{m_dfg, flp, lSrcp->dtypep()};
-                        bwp->lhsp(lSrcp);
-                        bwp->rhsp(rSrcp);
-                        Reduction* const redp = new Reduction{m_dfg, flp, m_bitDType};
-                        redp->srcp(bwp);
-                        vtxp->replaceWith(redp);
-                        return true;
-                    }
-                }
-            }
-        }
-
         return false;
     }
 
@@ -537,6 +671,8 @@ class V3DfgPeephole final : public DfgVisitor {
 
         if (tryPushBitwiseOpThroughReductions(vtxp)) return;
 
+        if (tryPushBitwiseOpThroughSel(vtxp)) return;
+
         if (DfgNot* const lhsNotp = lhsp->cast<DfgNot>()) {
             // ~A & A is all zeroes
             if (lhsNotp->srcp() == rhsp) {
@@ -647,6 +783,8 @@ class V3DfgPeephole final : public DfgVisitor {
 
         if (tryPushBitwiseOpThroughReductions(vtxp)) return;
 
+        if (tryPushBitwiseOpThroughSel(vtxp)) return;
+
         if (DfgNot* const lhsNotp = lhsp->cast<DfgNot>()) {
             // ~A | A is all ones
             if (lhsNotp->srcp() == rhsp) {
@@ -701,6 +839,8 @@ class V3DfgPeephole final : public DfgVisitor {
         }
 
         if (tryPushBitwiseOpThroughReductions(vtxp)) return;
+
+        if (tryPushBitwiseOpThroughSel(vtxp)) return;
     }
 
     void visit(DfgAdd* vtxp) override {
@@ -1256,14 +1396,15 @@ class V3DfgPeephole final : public DfgVisitor {
             }
         }
 
-        if (vtxp->width() == 1) {
+        if (vtxp->width() <= 64) {
             AstNodeDType* const dtypep = vtxp->dtypep();
+            const uint32_t width = vtxp->width();
             if (thenp->isZero()) {  // a ? 0 : b becomes ~a & b
                 APPLYING(REPLACE_COND_WITH_THEN_BRANCH_ZERO) {
                     DfgAnd* const repalcementp = new DfgAnd{m_dfg, flp, dtypep};
-                    DfgNot* const notp = new DfgNot{m_dfg, flp, dtypep};
+                    DfgNot* const notp = new DfgNot{m_dfg, flp, m_bitDType};
                     notp->srcp(condp);
-                    repalcementp->lhsp(notp);
+                    repalcementp->lhsp(getBroadcast(notp, width));
                     repalcementp->rhsp(elsep);
                     vtxp->replaceWith(repalcementp);
                     return;
@@ -1272,7 +1413,7 @@ class V3DfgPeephole final : public DfgVisitor {
             if (thenp->isOnes()) {  // a ? 1 : b becomes a | b
                 APPLYING(REPLACE_COND_WITH_THEN_BRANCH_ONES) {
                     DfgOr* const repalcementp = new DfgOr{m_dfg, flp, dtypep};
-                    repalcementp->lhsp(condp);
+                    repalcementp->lhsp(getBroadcast(condp, width));
                     repalcementp->rhsp(elsep);
                     vtxp->replaceWith(repalcementp);
                     return;
@@ -1281,7 +1422,7 @@ class V3DfgPeephole final : public DfgVisitor {
             if (elsep->isZero()) {  // a ? b : 0 becomes a & b
                 APPLYING(REPLACE_COND_WITH_ELSE_BRANCH_ZERO) {
                     DfgAnd* const repalcementp = new DfgAnd{m_dfg, flp, dtypep};
-                    repalcementp->lhsp(condp);
+                    repalcementp->lhsp(getBroadcast(condp, width));
                     repalcementp->rhsp(thenp);
                     vtxp->replaceWith(repalcementp);
                     return;
@@ -1290,9 +1431,9 @@ class V3DfgPeephole final : public DfgVisitor {
             if (elsep->isOnes()) {  // a ? b : 1 becomes ~a | b
                 APPLYING(REPLACE_COND_WITH_ELSE_BRANCH_ONES) {
                     DfgOr* const repalcementp = new DfgOr{m_dfg, flp, dtypep};
-                    DfgNot* const notp = new DfgNot{m_dfg, flp, dtypep};
+                    DfgNot* const notp = new DfgNot{m_dfg, flp, m_bitDType};
                     notp->srcp(condp);
-                    repalcementp->lhsp(notp);
+                    repalcementp->lhsp(getBroadcast(notp, width));
                     repalcementp->rhsp(thenp);
                     vtxp->replaceWith(repalcementp);
                     return;
@@ -1330,17 +1471,14 @@ class V3DfgPeephole final : public DfgVisitor {
 
     // Process one vertex. Return true if graph changed
     bool processVertex(DfgVertex& vtx) {
-        // Keep DfgVertexLValue vertices in this pass. We will remove them later if they become
-        // redundant. We want to keep the original variables for non-var vertices that drive
-        // multiple sinks (otherwise we would need to introduce a temporary, but it is better for
-        // debugging to keep the original variable name, if one is available), so we can't remove
-        // redundant variables here.
-        const bool keep = vtx.is<DfgVarPacked>() || vtx.is<DfgVarArray>();
-
         // If it has no sinks (unused), we can remove it
-        if (!keep && !vtx.hasSinks()) {
-            vtx.unlinkDelete(m_dfg);
-            return true;
+        if (!vtx.hasSinks()) {
+            if (!keep(vtx)) {
+                vtx.unlinkDelete(m_dfg);
+                return true;
+            }
+            // No need to dispatch to unused vertices, even if they are kept
+            return false;
         }
 
         // Transform node
@@ -1348,7 +1486,7 @@ class V3DfgPeephole final : public DfgVisitor {
         iterate(&vtx);
 
         // If it became unused, we can remove it
-        if (!keep && !vtx.hasSinks()) {
+        if (!vtx.hasSinks() && !keep(vtx)) {
             UASSERT_OBJ(m_changed, &vtx, "'m_changed' must be set if node became unused");
             vtx.unlinkDelete(m_dfg);
             return true;
@@ -1370,5 +1508,6 @@ public:
 };
 
 void V3DfgPasses::peephole(DfgGraph& dfg, V3DfgPeepholeContext& ctx) {
+    UINFO(8, "Applying DFG peephole pass to: " << dfg.name() << endl);
     V3DfgPeephole::apply(dfg, ctx);
 }
