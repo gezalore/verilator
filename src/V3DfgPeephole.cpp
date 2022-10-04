@@ -269,6 +269,31 @@ class V3DfgPeephole final : public DfgVisitor {
         return false;
     }
 
+    template <typename Vertex>
+    bool tryPushBitwiseOpThroughReplicate(Vertex* vtxp) {
+        FileLine* const flp = vtxp->fileline();
+
+        if (DfgReplicate* const lRepp = vtxp->lhsp()->template cast<DfgReplicate>()) {
+            if (DfgReplicate* const rRepp = vtxp->rhsp()->template cast<DfgReplicate>()) {
+                DfgVertex* const lSrcp = lRepp->srcp();
+                DfgVertex* const rSrcp = rRepp->srcp();
+                if (lSrcp->dtypep() == rSrcp->dtypep()) {
+                    APPLYING(PUSH_BITWISE_THROUGH_REPLICATE) {
+                        Vertex* const opp = new Vertex{m_dfg, flp, lSrcp->dtypep()};
+                        opp->lhsp(lSrcp);
+                        opp->rhsp(rSrcp);
+                        DfgReplicate* const repp = new DfgReplicate{m_dfg, flp, vtxp->dtypep()};
+                        repp->srcp(opp);
+                        repp->countp(lRepp->countp());
+                        vtxp->replaceWith(repp);
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     template <typename Bitwise>
     bool tryPushBitwiseOpThroughReductions(Bitwise* vtxp) {
         using Reduction = BitwiseToReduction<Bitwise>;
@@ -648,6 +673,8 @@ class V3DfgPeephole final : public DfgVisitor {
 
         if (tryPushBitwiseOpThroughSel(vtxp)) return;
 
+        if (tryPushBitwiseOpThroughReplicate(vtxp)) return;
+
         if (DfgNot* const lhsNotp = lhsp->cast<DfgNot>()) {
             // ~A & A is all zeroes
             if (lhsNotp->srcp() == rhsp) {
@@ -760,6 +787,8 @@ class V3DfgPeephole final : public DfgVisitor {
 
         if (tryPushBitwiseOpThroughSel(vtxp)) return;
 
+        if (tryPushBitwiseOpThroughReplicate(vtxp)) return;
+
         if (DfgNot* const lhsNotp = lhsp->cast<DfgNot>()) {
             // ~A | A is all ones
             if (lhsNotp->srcp() == rhsp) {
@@ -816,6 +845,8 @@ class V3DfgPeephole final : public DfgVisitor {
         if (tryPushBitwiseOpThroughReductions(vtxp)) return;
 
         if (tryPushBitwiseOpThroughSel(vtxp)) return;
+
+        if (tryPushBitwiseOpThroughReplicate(vtxp)) return;
     }
 
     void visit(DfgAdd* vtxp) override {
@@ -872,6 +903,29 @@ class V3DfgPeephole final : public DfgVisitor {
             if (DfgConcat* const rhsConcatp = rhsp->cast<DfgConcat>()) {
                 if (tryPushCompareOpThroughConcat(vtxp, lhsConstp, rhsConcatp)) return;
             }
+        }
+    }
+
+    void visit(DfgNeq* vtxp) override {
+        commutativeBinary(vtxp);
+
+        DfgVertex* const lhsp = vtxp->lhsp();
+        DfgVertex* const rhsp = vtxp->rhsp();
+
+        if (DfgConst* const lhsConstp = lhsp->cast<DfgConst>()) {
+            if (DfgConst* const rhsConstp = rhsp->cast<DfgConst>()) {
+                APPLYING(REPLACE_NEQ_OF_CONST_AND_CONST) {
+                    DfgConst* const replacementp = makeZero(vtxp->fileline(), 1);
+                    replacementp->num().opNeq(lhsConstp->num(), rhsConstp->num());
+                    vtxp->replaceWith(replacementp);
+                    return;
+                }
+            }
+
+            //            if (DfgConcat* const rhsConcatp = rhsp->cast<DfgConcat>()) {
+            //                if (tryPushCompareOpThroughConcat(vtxp, lhsConstp, rhsConcatp))
+            //                return;
+            //            }
         }
     }
 
@@ -1262,6 +1316,17 @@ class V3DfgPeephole final : public DfgVisitor {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    void visit(DfgReplicate* vtxp) override {
+        if (DfgConst* const constp = vtxp->srcp()->cast<DfgConst>()) {
+            APPLYING(REPLACE_REPLICATE_CONST) {
+                DfgConst* const replacementp = makeZero(vtxp->fileline(), vtxp->width());
+                replacementp->num().opRepl(constp->num(), vtxp->countp()->as<DfgConst>()->num());
+                vtxp->replaceWith(replacementp);
+                return;
             }
         }
     }

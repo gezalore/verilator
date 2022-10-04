@@ -296,10 +296,20 @@ void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgOptimizationContext& ctx) {
     if (v3Global.opt.fDfgPeephole()) {
         apply(4, "peephole      ", [&]() { peephole(dfg, ctx.m_peepholeContext); });
         // Without peephole no variables will be redundant, and we just did CSE, so skip these
-        apply(4, "removeVars    ", [&]() { removeVars(dfg, ctx.m_removeVarsContext); });
         apply(4, "cse           ", [&]() { cse(dfg, ctx.m_cseContext1); });
+        apply(4, "removeVars    ", [&]() { removeVars(dfg, ctx.m_removeVarsContext); });
     }
     apply(4, "balance       ", [&]() { balanceRightLeaningBinaryTrees(dfg); });
     apply(3, "optimized     ", [&]() { removeUnused(dfg); });
     if (dumpDfg() >= 8) dfg.dumpDotAllVarConesPrefixed(ctx.prefix() + "optimized");
+
+    static size_t n = 0;
+    dfg.forEachVertex([&](DfgVertex& vtx) {
+        if (vtx.hasSinks() && vtx.arity() > 0 && !vtx.findSourceEdge([](const DfgEdge& e, size_t) {
+                return !e.sourcep() || !e.sourcep()->is<DfgConst>();
+            })) {
+            dfg.dumpDotUpstreamCone("const-" + cvtToStr(++n) + ".dot", vtx);
+            UINFO(0, "all const: " << vtx.type().ascii() << endl);
+        }
+    });
 }
