@@ -2928,7 +2928,7 @@ public:
         V3ERROR_NA; /* How can from be a const? */
     }
     string emitVerilog() override { return "%k(%l%f[%r])"; }
-    string emitC() override { return "%li%k[%ri]"; }
+    string emitC() override { return "%li[%ri]"; }
     bool cleanOut() const override { return true; }
     bool cleanLhs() const override { return false; }
     bool cleanRhs() const override { return true; }

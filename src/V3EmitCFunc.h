@@ -984,13 +984,20 @@ public:
                     << " bits exceeds hardcoded limit VL_MULS_MAX_WORDS in verilatedos.h");
         }
         if (emitSimpleOk(nodep)) {
-            putbs("(");
+            const bool paren
+                = (nodep->backp()->type() != nodep->type()) || !VN_IS(nodep, NodeBiComAsv);
+            ofp()->putBreakExpr();
+            if (paren) puts("(");
             iterateAndNextNull(nodep->lhsp());
             puts(" ");
-            putbs(nodep->emitSimpleOperator());
+            if (!VN_IS(nodep->lhsp(), Const) && !VN_IS(nodep->rhsp(), Const)) {
+                putbs(nodep->emitSimpleOperator());
+            } else {
+                puts(nodep->emitSimpleOperator());
+            }
             puts(" ");
             iterateAndNextNull(nodep->rhsp());
-            puts(")");
+            if (paren) puts(")");
         } else {
             emitOpName(nodep, nodep->emitC(), nodep->lhsp(), nodep->rhsp(), nullptr);
         }
