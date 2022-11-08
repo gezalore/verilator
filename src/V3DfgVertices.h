@@ -163,6 +163,7 @@ public:
     void fromp(DfgVertex* vtxp) { relinkSource<0>(vtxp); }
     uint32_t lsb() const { return m_lsb; }
     void lsb(uint32_t value) { m_lsb = value; }
+    uint32_t msb() const { return m_lsb + width() - 1; }
 
     const string srcName(size_t) const override { return "fromp"; }
 };

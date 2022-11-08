@@ -40,6 +40,21 @@ public:
     ~V3DfgCseContext() VL_MT_DISABLED;
 };
 
+class V3DfgVectorizeContext final {
+    const std::string m_label;  // Label to apply to stats
+
+public:
+    VDouble0 m_initialPacks;  // Number of initial packs considered
+    VDouble0 m_sinkPacks;  // Number of packs created beyond initial packs
+    VDouble0 m_convertedPacks;  // Number of packs converted to vectorized form
+    VDouble0 m_packingRequired;  // Number of concatenations required to form pack inputs
+    VDouble0 m_unpackingRequired;  // Number of selects required to extract from packs
+
+    explicit V3DfgVectorizeContext(const std::string& label)
+        : m_label{label} {}
+    ~V3DfgVectorizeContext() VL_MT_DISABLED;
+};
+
 class V3DfgRegularizeContext final {
     const std::string m_label;  // Label to apply to stats
 
@@ -90,6 +105,7 @@ public:
     V3DfgCseContext m_cseContext0{m_label + " 1st"};
     V3DfgCseContext m_cseContext1{m_label + " 2nd"};
     V3DfgPeepholeContext m_peepholeContext{m_label};
+    V3DfgVectorizeContext m_vectorizeContext{m_label};
     V3DfgRegularizeContext m_regularizeContext{m_label};
     V3DfgEliminateVarsContext m_eliminateVarsContext{m_label};
 
@@ -130,11 +146,12 @@ void inlineVars(DfgGraph&) VL_MT_DISABLED;
 void peephole(DfgGraph&, V3DfgPeepholeContext&) VL_MT_DISABLED;
 // Regularize graph. This must be run before converting back to Ast.
 void regularize(DfgGraph&, V3DfgRegularizeContext&) VL_MT_DISABLED;
+// Vectorize compatible vertices
+void vectorize(DfgGraph&, V3DfgVectorizeContext&) VL_MT_DISABLED;
 // Remove unused nodes
 void removeUnused(DfgGraph&) VL_MT_DISABLED;
 // Eliminate (remove or replace) redundant variables. Also removes resulting unused logic.
 void eliminateVars(DfgGraph&, V3DfgEliminateVarsContext&) VL_MT_DISABLED;
-
 }  // namespace V3DfgPasses
 
 #endif
