@@ -30,6 +30,18 @@ V3DfgCseContext::~V3DfgCseContext() {
                      m_eliminated);
 }
 
+V3DfgVectorizeContext::~V3DfgVectorizeContext() {
+    V3Stats::addStat("Optimizations, DFG " + m_label + " Vectorize, initial packs",
+                     m_initialPacks);
+    V3Stats::addStat("Optimizations, DFG " + m_label + " Vectorize, sink packs", m_sinkPacks);
+    V3Stats::addStat("Optimizations, DFG " + m_label + " Vectorize, converted packs",
+                     m_convertedPacks);
+    V3Stats::addStat("Optimizations, DFG " + m_label + " Vectorize, packing required",
+                     m_packingRequired);
+    V3Stats::addStat("Optimizations, DFG " + m_label + " Vectorize, unpacking required",
+                     m_unpackingRequired);
+}
+
 V3DfgRegularizeContext::~V3DfgRegularizeContext() {
     V3Stats::addStat("Optimizations, DFG " + m_label + " Regularize, temporaries introduced",
                      m_temporariesIntroduced);
@@ -360,6 +372,9 @@ void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgOptimizationContext& ctx) {
     }
     // Accumulate patterns for reporting
     if (v3Global.opt.stats()) ctx.m_patternStats.accumulate(dfg);
+    if (v3Global.opt.fDfgVectorize()) {
+        apply(4, "vectorize", [&]() { vectorize(dfg, ctx.m_vectorizeContext); });
+    }
     apply(4, "regularize", [&]() { regularize(dfg, ctx.m_regularizeContext); });
     if (dumpDfgLevel() >= 8) dfg.dumpDotAllVarConesPrefixed(ctx.prefix() + "optimized");
 }

@@ -234,6 +234,7 @@ set(COMMON_SOURCES
     V3DfgPasses.cpp
     V3DfgPeephole.cpp
     V3DfgRegularize.cpp
+    V3DfgVectorize.cpp
     V3DiagSarif.cpp
     V3DupFinder.cpp
     V3EmitCBase.cpp

@@ -280,6 +280,11 @@ public:
     // Fanout (number of sinks) of this vertex (expensive to compute)
     uint32_t fanout() const VL_MT_DISABLED;
 
+    // If this vertex has a single sink, return it, otherwise return nullptr
+    DfgVertex* singleSink() {
+        return m_sinksp && !m_sinksp->m_nextp ? m_sinksp->sinkp() : nullptr;
+    }
+
     // Unlink from container (graph or builder), then delete this vertex
     void unlinkDelete(DfgGraph& dfg) VL_MT_DISABLED;
 
@@ -398,6 +403,11 @@ public:
 
     // Human-readable name for source operand with given index for debugging
     virtual const string srcName(size_t idx) const = 0;
+
+    // Returns Graphviz id of this vertex.
+    const std::string toDotId() const;
+    // Dump this vertex and all it's source edges in Graphviz format to given stream 'os'.
+    void dumpDotVertexAndSourceEdges(std::ostream& os) const;
 };
 
 //------------------------------------------------------------------------------

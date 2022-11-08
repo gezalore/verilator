@@ -1336,6 +1336,7 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc,
     });
     DECL_OPTION("-fdfg-pre-inline", FOnOff, &m_fDfgPreInline);
     DECL_OPTION("-fdfg-post-inline", FOnOff, &m_fDfgPostInline);
+    DECL_OPTION("-fdfg-vectorize", FOnOff, &m_fDfgVectorize);
     DECL_OPTION("-fexpand", FOnOff, &m_fExpand);
     DECL_OPTION("-ffunc-opt", CbFOnOff, [this](bool flag) {  //
         m_fFuncSplitCat = flag;

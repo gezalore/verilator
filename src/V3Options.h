@@ -393,6 +393,7 @@ private:
     bool m_fDfgPeephole = true; // main switch: -fno-dfg-peephole
     bool m_fDfgPreInline;    // main switch: -fno-dfg-pre-inline and -fno-dfg
     bool m_fDfgPostInline;   // main switch: -fno-dfg-post-inline and -fno-dfg
+    bool m_fDfgVectorize = true;   // main switch: -fno-dfg-vectorize and -fno-dfg
     bool m_fDeadAssigns;     // main switch: -fno-dead-assigns: remove dead assigns
     bool m_fDeadCells;   // main switch: -fno-dead-cells: remove dead cells
     bool m_fExpand;      // main switch: -fno-expand: expansion of C macros
@@ -708,6 +709,7 @@ public:
     bool fDfgPeepholeEnabled(const std::string& name) const {
         return !m_fDfgPeepholeDisabled.count(name);
     }
+    bool fDfgVectorize() const { return m_fDfgVectorize; }
     bool fDeadAssigns() const { return m_fDeadAssigns; }
     bool fDeadCells() const { return m_fDeadCells; }
     bool fExpand() const { return m_fExpand; }
