@@ -108,8 +108,10 @@ void inlineVars(DfgGraph&);
 void peephole(DfgGraph&, V3DfgPeepholeContext&);
 // Remove redundant variables
 void removeVars(DfgGraph&, DfgRemoveVarsContext&);
-// Remove unused nodes
+// Remove unused vertices
 void removeUnused(DfgGraph&);
+// Vectorize compatible vertices
+void slpVectorize(DfgGraph&);
 }  // namespace V3DfgPasses
 
 #endif

@@ -303,6 +303,7 @@ void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgOptimizationContext& ctx) {
         // We just did CSE above, so without peephole there is no need to run it again these
         apply(4, "cse1            ", [&]() { cse(dfg, ctx.m_cseContext1); });
     }
+    apply(4, "slpVectorize    ", [&]() { slpVectorize(dfg); });
     apply(4, "removeVars      ", [&]() { removeVars(dfg, ctx.m_removeVarsContext); });
     if (dumpDfg() >= 8) dfg.dumpDotAllVarConesPrefixed(ctx.prefix() + "optimized");
 }

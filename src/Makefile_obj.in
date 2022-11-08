@@ -187,6 +187,7 @@ RAW_OBJS = \
 	V3DfgOptimizer.o \
 	V3DfgPasses.o \
 	V3DfgPeephole.o \
+	V3DfgSlpVectorize.o \
 	V3DupFinder.o \
 	V3Timing.o \
 	V3EmitCBase.o \

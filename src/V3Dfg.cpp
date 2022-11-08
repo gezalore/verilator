@@ -55,14 +55,14 @@ void DfgGraph::addGraph(DfgGraph& other) {
     moveVertexList(other.m_opVertices, m_opVertices);
 }
 
-static const string toDotId(const DfgVertex& vtx) { return '"' + cvtToHex(&vtx) + '"'; }
+const std::string DfgVertex::toDotId() const { return '"' + cvtToHex(this) + '"'; }
 
 // Dump one DfgVertex in Graphviz format
 static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
 
     if (const DfgVarPacked* const varVtxp = vtx.cast<DfgVarPacked>()) {
         AstVar* const varp = varVtxp->varp();
-        os << toDotId(vtx);
+        os << vtx.toDotId();
         os << " [label=\"" << varp->name() << "\nW" << varVtxp->width() << " / F"
            << varVtxp->fanout() << '"';
 
@@ -88,7 +88,7 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
     if (const DfgVarArray* const arrVtxp = vtx.cast<DfgVarArray>()) {
         AstVar* const varp = arrVtxp->varp();
         const int elements = VN_AS(arrVtxp->dtypep(), UnpackArrayDType)->elementsConst();
-        os << toDotId(vtx);
+        os << vtx.toDotId();
         os << " [label=\"" << varp->name() << "[" << elements << "]\"";
         if (varp->direction() == VDirection::INPUT) {
             os << ", shape=box3d, style=filled, fillcolor=chartreuse2";  // Green
@@ -112,7 +112,7 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
     if (const DfgConst* const constVtxp = vtx.cast<DfgConst>()) {
         const V3Number& num = constVtxp->num();
 
-        os << toDotId(vtx);
+        os << vtx.toDotId();
         os << " [label=\"";
         if (num.width() <= 32 && !num.isSigned()) {
             os << constVtxp->width() << "'d" << num.toUInt() << "\n";
@@ -129,7 +129,7 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
     if (const DfgSel* const selVtxp = vtx.cast<DfgSel>()) {
         const uint32_t lsb = selVtxp->lsb();
         const uint32_t msb = lsb + selVtxp->width() - 1;
-        os << toDotId(vtx);
+        os << vtx.toDotId();
         os << " [label=\"SEL\n_[" << msb << ":" << lsb << "]\nW" << vtx.width() << " / F"
            << vtx.fanout() << '"';
         if (vtx.hasMultipleSinks()) {
@@ -141,7 +141,7 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         return;
     }
 
-    os << toDotId(vtx);
+    os << vtx.toDotId();
     os << " [label=\"" << vtx.typeName() << "\nW" << vtx.width() << " / F" << vtx.fanout() << '"';
     if (vtx.hasMultipleSinks()) {
         os << ", shape=doublecircle";
@@ -153,18 +153,18 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
 
 // Dump one DfgEdge in Graphviz format
 static void dumpDotEdge(std::ostream& os, const DfgEdge& edge, const string& headlabel) {
-    os << toDotId(*edge.sourcep()) << " -> " << toDotId(*edge.sinkp());
+    os << edge.sourcep()->toDotId() << " -> " << edge.sinkp()->toDotId();
     if (!headlabel.empty()) os << " [headlabel=\"" << headlabel << "\"]";
     os << endl;
 }
 
 // Dump one DfgVertex and all of its source DfgEdges in Graphviz format
-static void dumpDotVertexAndSourceEdges(std::ostream& os, const DfgVertex& vtx) {
-    dumpDotVertex(os, vtx);
-    vtx.forEachSourceEdge([&](const DfgEdge& edge, size_t idx) {  //
+void DfgVertex::dumpDotVertexAndSourceEdges(std::ostream& os) const {
+    dumpDotVertex(os, *this);
+    forEachSourceEdge([&](const DfgEdge& edge, size_t idx) {
         if (edge.sourcep()) {
             string headLabel;
-            if (vtx.arity() > 1 || vtx.is<DfgVertexVar>()) headLabel = vtx.srcName(idx);
+            if (arity() > 1 || is<DfgVertexVar>()) headLabel = srcName(idx);
             dumpDotEdge(os, edge, headLabel);
         }
     });
@@ -179,7 +179,7 @@ void DfgGraph::dumpDot(std::ostream& os, const string& label) const {
     os << "graph [rankdir=LR]" << endl;
 
     // Emit all vertices
-    forEachVertex([&](const DfgVertex& vtx) { dumpDotVertexAndSourceEdges(os, vtx); });
+    forEachVertex([&](const DfgVertex& vtx) { vtx.dumpDotVertexAndSourceEdges(os); });
 
     // Footer
     os << "}" << endl;
@@ -224,13 +224,13 @@ static void dumpDotUpstreamConeFromVertex(std::ostream& os, const DfgVertex& vtx
         itemp->forEachSource([&](const DfgVertex& src) { queue.push_back(&src); });
 
         // Emit this vertex and all of its source edges
-        dumpDotVertexAndSourceEdges(os, *itemp);
+        itemp->dumpDotVertexAndSourceEdges(os);
     }
 
     // Emit all DfgVarPacked vertices that have external references driven by this vertex
     vtx.forEachSink([&](const DfgVertex& dst) {
         if (const DfgVarPacked* const varVtxp = dst.cast<DfgVarPacked>()) {
-            if (varVtxp->hasRefs()) dumpDotVertexAndSourceEdges(os, dst);
+            if (varVtxp->hasRefs()) dst.dumpDotVertexAndSourceEdges(os);
         }
     });
 }
