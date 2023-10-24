@@ -2783,16 +2783,10 @@ public:
     template <typename U>
     // cppcheck-suppress noExplicitConstructor
     VNRef(U&& x)
-        : std::reference_wrapper<T_Node> {
-        x
-    }
-    {}
+        : std::reference_wrapper<T_Node>{x} {}
     // cppcheck-suppress noExplicitConstructor
     VNRef(const std::reference_wrapper<T_Node>& other)
-        : std::reference_wrapper<T_Node> {
-        other
-    }
-    {}
+        : std::reference_wrapper<T_Node>{other} {}
 };
 
 static_assert(sizeof(VNRef<AstNode>) == sizeof(std::reference_wrapper<AstNode>),
