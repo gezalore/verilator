@@ -80,6 +80,7 @@ AstNode::AstNode(VNType t, FileLine* fl)
     , m_fileline{fl} {
     m_headtailp = this;  // When made, we're a list of only a single element
     // Attributes
+    m_iterated = false;
     m_flags.didWidth = false;
     m_flags.doingWidth = false;
     m_flags.protect = true;
@@ -311,8 +312,8 @@ void AstNode::debugTreeChange(const AstNode* nodep, const char* prefix, int line
 // Note this may be null.
 // if (debug() && nodep) cout << "-treeChange: V3Ast.cpp:" << lineno
 //          << " Tree Change for " << prefix << ": "
-//          << cvtToHex(nodep) << " <e" << AstNode::s_editCntGbl << ">"
-//          << "m_iterpp=" << (void*)nodep->m_iterpp << endl;
+//          << cvtToHex(nodep) << " <e" << AstNode::s_editCntGbl << ">";
+//          << "iterated=" << " nodep->m_iterated << endl;
 // if (debug()) {
 //  cout<<"-treeChange: V3Ast.cpp:"<<lineno<<" Tree Change for "<<prefix<<endl;
 //  // Commenting out the section below may crash, as the tree state
@@ -518,12 +519,27 @@ void AstNode::replaceWith(AstNode* newp) {
 
 void VNRelinker::dump(std::ostream& str) const {
     str << " BK=" << reinterpret_cast<uint32_t*>(m_backp);
-    str << " ITER=" << reinterpret_cast<uint32_t*>(m_iterpp);
+    str << " ITER=" << m_iterpp;
     str << " CHG=" << (m_chg == RELINK_NEXT ? "[NEXT] " : "");
     str << (m_chg == RELINK_OP1 ? "[OP1] " : "");
     str << (m_chg == RELINK_OP2 ? "[OP2] " : "");
     str << (m_chg == RELINK_OP3 ? "[OP3] " : "");
     str << (m_chg == RELINK_OP4 ? "[OP4] " : "");
+}
+
+//__attribute__((tls_model("local-exec"))) thread_local
+static AstNode* t_iterps[1024] = {nullptr};
+//__attribute__((tls_model("local-exec"))) thread_local
+static AstNode** t_iterpp = t_iterps - 1;
+
+static AstNode** fixIterStack(AstNode* oldp, AstNode* newp) {
+    for (AstNode** iterpp = t_iterps; iterpp <= t_iterpp; ++iterpp) {
+        if (*iterpp == oldp) {
+            *iterpp = newp;
+            return iterpp;
+        }
+    }
+    UASSERT_OBJ(false, oldp, "Can't find the damn thing");
 }
 
 AstNode* AstNode::unlinkFrBackWithNext(VNRelinker* linkerp) {
@@ -535,7 +551,10 @@ AstNode* AstNode::unlinkFrBackWithNext(VNRelinker* linkerp) {
     if (linkerp) {
         linkerp->m_oldp = oldp;
         linkerp->m_backp = backp;
-        linkerp->m_iterpp = oldp->m_iterpp;
+        if (oldp->m_iterated) {
+            linkerp->m_iterpp = fixIterStack(oldp, nullptr);
+            oldp->m_iterated = false;
+        }
         if (backp->m_nextp == oldp) {
             linkerp->m_chg = VNRelinker::RELINK_NEXT;
         } else if (backp->m_op1p == oldp) {
@@ -580,9 +599,9 @@ AstNode* AstNode::unlinkFrBackWithNext(VNRelinker* linkerp) {
     // Relink
     oldp->m_backp = nullptr;
     // Iterator fixup
-    if (oldp->m_iterpp) {
-        *(oldp->m_iterpp) = nullptr;
-        oldp->m_iterpp = nullptr;
+    if (oldp->m_iterated) {
+        fixIterStack(oldp, nullptr);
+        oldp->m_iterated = false;
     }
     debugTreeChange(oldp, "-unlinkWNextOut: ", __LINE__, true);
     return oldp;
@@ -597,10 +616,9 @@ AstNode* AstNode::unlinkFrBack(VNRelinker* linkerp) {
     if (linkerp) {
         linkerp->m_oldp = oldp;
         linkerp->m_backp = backp;
-        if (oldp->m_iterpp) {  // Assumes we will always relink() if want to keep iterating
-            linkerp->m_iterpp = oldp->m_iterpp;
-            *(oldp->m_iterpp) = nullptr;
-            oldp->m_iterpp = nullptr;
+        if (oldp->m_iterated) {  // Assumes we will always relink() if want to keep iterating
+            linkerp->m_iterpp = fixIterStack(oldp, nullptr);
+            oldp->m_iterated = false;
         }
         if (backp->m_nextp == oldp) {
             linkerp->m_chg = VNRelinker::RELINK_NEXT;
@@ -646,10 +664,10 @@ AstNode* AstNode::unlinkFrBack(VNRelinker* linkerp) {
         }
     }
     // Iterator fixup
-    if (oldp->m_iterpp) {  // Only if no linker, point to next in list
-        if (oldp->m_nextp) oldp->m_nextp->m_iterpp = oldp->m_iterpp;
-        *(oldp->m_iterpp) = oldp->m_nextp;
-        oldp->m_iterpp = nullptr;
+    if (oldp->m_iterated) {  // Only if no linker, point to next in list
+        if (oldp->m_nextp) oldp->m_nextp->m_iterated = true;
+        fixIterStack(oldp, oldp->m_nextp);
+        oldp->m_iterated = false;
     }
     // Relink
     oldp->m_nextp = nullptr;
@@ -693,11 +711,8 @@ void AstNode::relink(VNRelinker* linkerp) {
     if (linkerp->m_iterpp) {
         // If we're iterating over a next() link, we need to follow links off the
         // NEW node, which is always assumed to be what we are relinking to.
-        // This adds a unfortunate hot 8 bytes to every AstNode, but is faster than passing
-        // across every function.
-        // If anyone has a cleaner way, I'd be grateful.
-        newp->m_iterpp = linkerp->m_iterpp;
-        *(newp->m_iterpp) = newp;
+        newp->m_iterated = true;
+        *linkerp->m_iterpp = newp;
     }
     // Empty the linker so not used twice accidentally
     linkerp->m_backp = nullptr;
@@ -805,7 +820,7 @@ AstNode* AstNode::cloneTreeIter(bool needPure) {
     if (this->m_op2p) newp->op2p(this->m_op2p->cloneTreeIterList(needPure));
     if (this->m_op3p) newp->op3p(this->m_op3p->cloneTreeIterList(needPure));
     if (this->m_op4p) newp->op4p(this->m_op4p->cloneTreeIterList(needPure));
-    newp->m_iterpp = nullptr;
+    newp->m_iterated = false;
     newp->clonep(this);  // Save pointers to/from both to simplify relinking.
     this->clonep(newp);  // Save pointers to/from both to simplify relinking.
     return newp;
@@ -852,7 +867,7 @@ AstNode* AstNode::cloneTree(bool cloneNextLink, bool needPure) {
 void AstNode::deleteNode() {
     // private: Delete single node. Publicly call deleteTree() instead.
     UASSERT(!m_backp, "Delete called on node with backlink still set");
-    UASSERT(!m_iterpp, "Delete called on node with iterpp still set");
+    UASSERT(!m_iterated, "Delete called on node still being iterated");
     editCountInc();
     // Change links of old node so we coredump if used
     this->m_nextp = reinterpret_cast<AstNode*>(0x1);
@@ -862,7 +877,7 @@ void AstNode::deleteNode() {
     this->m_op2p = reinterpret_cast<AstNode*>(0x1);
     this->m_op3p = reinterpret_cast<AstNode*>(0x1);
     this->m_op4p = reinterpret_cast<AstNode*>(0x1);
-    this->m_iterpp = reinterpret_cast<AstNode**>(0x1);
+    this->m_iterated = false;
     if (
 #if !defined(VL_DEBUG) || defined(VL_LEAK_CHECKS)
         true
@@ -956,36 +971,41 @@ void AstNode::iterateAndNext(VNVisitor& v) {
 
 #ifdef VL_DEBUG
     UASSERT_OBJ(m_backp, this, "iterateAndNext called on node which has no m_backp");
-    UASSERT_OBJ(!m_iterpp, this, "iterateAndNext called on node already under iteration");
+    UASSERT_OBJ(!m_iterated, this, "iterateAndNext called on node already under iteration");
 #endif
     ASTNODE_PREFETCH(m_nextp);
 
     AstNode* nodep = this;
+    ++t_iterpp;
+    AstNode** const iterpp = t_iterpp;
     do {
 
         if (nodep->m_nextp) ASTNODE_PREFETCH(nodep->m_nextp->m_nextp);
 
         // This pointer may get changed via m_iterpp if the current node is edited
-        AstNode* niterp = nodep;
-        nodep->m_iterpp = &niterp;
+        *iterpp = nodep;
+        nodep->m_iterated = true;
         nodep->accept(v);
 
-        if (VL_UNLIKELY(niterp != nodep)) {
+        if (*iterpp != nodep) {
             // Node edited inside 'accept' (may have been deleted entirely)
-            nodep = niterp;
+            nodep = *iterpp;
 #ifdef VL_DEBUG
-            UASSERT_OBJ(!nodep || (nodep->m_iterpp == &niterp), nodep,
-                        "New node already being iterated elsewhere");
+            UASSERT_OBJ(!nodep || nodep->m_iterated, nodep, "Replacement node not marked");
 #endif
         } else {
             // Unchanged node (though maybe updated m_next), just continue loop
-            nodep->m_iterpp = nullptr;
+#ifdef VL_DEBUG
+            UASSERT_OBJ(nodep || nodep->m_iterated, nodep, "Old node is missing mark");
+#endif
+            nodep->m_iterated = false;
             nodep = nodep->m_nextp;
 #ifdef VL_DEBUG
-            UASSERT_OBJ(!nodep || !nodep->m_iterpp, niterp, "Next node already being iterated");
+            UASSERT_OBJ(!nodep || !nodep->m_iterated, nodep, "Next node already being iterated");
 #endif
         }
     } while (nodep);
+    --t_iterpp;
 }
 
 void AstNode::iterateListBackwardsConst(VNVisitorConst& v) {
@@ -1210,7 +1230,7 @@ void AstNode::dumpTreeFileGdb(const AstNode* nodep,  // LCOV_EXCL_START
 
 // cppcheck-suppress unusedFunction  // Debug only
 void AstNode::checkIter() const {
-    if (m_iterpp) {
+    if (m_iterated) {
         dumpPtrs(cout);
         // Perhaps something forgot to clear m_iterpp?
         this->v3fatalSrc("Iteration link m_iterpp should be nullptr");
@@ -1235,11 +1255,6 @@ void AstNode::dumpPtrs(std::ostream& os) const {
     if (user3p()) os << " user3p=" << cvtToHex(user3p());
     if (user4p()) os << " user4p=" << cvtToHex(user4p());
     if (user5p()) os << " user5p=" << cvtToHex(user5p());
-    if (m_iterpp) {
-        os << " iterpp=" << cvtToHex(m_iterpp);
-        // This may cause address sanitizer failures as iterpp can be stale
-        // os << "*=" << cvtToHex(*m_iterpp);
-    }
     os << std::endl;
 }
 

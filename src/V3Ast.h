@@ -1770,21 +1770,20 @@ class AstNode VL_NOT_FINAL {
     AstNode* m_op2p = nullptr;  // Generic pointer 2
     AstNode* m_op3p = nullptr;  // Generic pointer 3
     AstNode* m_op4p = nullptr;  // Generic pointer 4
-    AstNode** m_iterpp
-        = nullptr;  // Pointer to node iterating on, change it if we replace this node.
     const VNType m_type;  // Node sub-type identifier
+    bool m_iterated = false;  // Currently iteraed by iterateAndNext
     // ^ ASTNODE_PREFETCH depends on above ordering of members
 
-    // VNType is 2 bytes, so we can stick another 6 bytes after it to utilize what would
-    // otherwise be padding (on a 64-bit system). We stick the attribute flags, broken state,
-    // and the clone count here.
+    // VNType is 2 bytes, m_iterated is 1 byte, so we can stick another 5 bytes after it to
+    // utilize what would otherwise be padding (on a 64-bit system). We stick the attribute flags,
+    // and the broken state here. There is another 2 bytes free.
 
     struct {
         bool didWidth : 1;  // Did V3Width computation
         bool doingWidth : 1;  // Inside V3Width
         bool protect : 1;  // Protect name if protection is on
         // Space for more flags here (there must be 8 bits in total)
-        uint8_t unused : 5;
+        uint8_t unused : 4;
     } m_flags;  // Attribute flags
 
     // State variable used by V3Broken for consistency checking. The top bit of this is byte is a
@@ -1793,11 +1792,9 @@ class AstNode VL_NOT_FINAL {
     // field masking resulting in unnecessary read-modify-write ops.
     uint8_t m_brokenState = 0;
 
-    int m_cloneCnt = 0;  // Sequence number for when last clone was made
-
 #if defined(__x86_64__) && defined(__gnu_linux__)
     // Only assert this on known platforms, as it only affects performance, not correctness
-    static_assert(sizeof(m_type) + sizeof(m_flags) + sizeof(m_brokenState) + sizeof(m_cloneCnt)
+    static_assert(sizeof(m_type) + sizeof(m_iterated) + sizeof(m_flags) + sizeof(m_brokenState)
                       <= sizeof(void*),
                   "packing requires padding");
 #endif
@@ -1827,6 +1824,8 @@ class AstNode VL_NOT_FINAL {
     VNUser m_user4u{0};  // Contains any information the user iteration routine wants
     VNUser m_user5u{0};  // Contains any information the user iteration routine wants
     uint32_t m_user5Cnt = 0;  // Mark of when userp was set
+
+    int m_cloneCnt = 0;  // Sequence number for when last clone was made
 
     // METHODS
     void op1p(AstNode* nodep) {
@@ -2784,10 +2783,16 @@ public:
     template <typename U>
     // cppcheck-suppress noExplicitConstructor
     VNRef(U&& x)
-        : std::reference_wrapper<T_Node>{x} {}
+        : std::reference_wrapper<T_Node> {
+        x
+    }
+    {}
     // cppcheck-suppress noExplicitConstructor
     VNRef(const std::reference_wrapper<T_Node>& other)
-        : std::reference_wrapper<T_Node>{other} {}
+        : std::reference_wrapper<T_Node> {
+        other
+    }
+    {}
 };
 
 static_assert(sizeof(VNRef<AstNode>) == sizeof(std::reference_wrapper<AstNode>),
