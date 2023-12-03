@@ -491,12 +491,12 @@ static void process() {
             V3Expand::expandAll(v3Global.rootp());
         }
 
-        // Propagate constants across WORDSEL arrayed temporaries
-        if (!v3Global.opt.xmlOnly() && v3Global.opt.fSubst()) {
-            // Constant folding of expanded stuff
-            V3Const::constifyCpp(v3Global.rootp());
-            V3Subst::substituteAll(v3Global.rootp());
-        }
+        //        // Propagate constants across WORDSEL arrayed temporaries
+        //        if (!v3Global.opt.xmlOnly() && v3Global.opt.fSubst()) {
+        //            // Constant folding of expanded stuff
+        //            V3Const::constifyCpp(v3Global.rootp());
+        //            V3Subst::substituteAll(v3Global.rootp());
+        //        }
 
         if (!v3Global.opt.xmlOnly() && v3Global.opt.fSubstConst()) {
             // Constant folding of substitutions
