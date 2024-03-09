@@ -26,7 +26,9 @@
 #include "V3OrderInternal.h"
 #include "V3OrderMoveGraphBuilder.h"
 
+#include <deque>
 #include <memory>
+#include <unordered_map>
 
 VL_DEFINE_DEBUG_FUNCTIONS;
 
@@ -229,37 +231,101 @@ class OrderSerial final {
              currDomScopep; currDomScopep = nextDomScopep) {
             m_emitter.forceNewFunction();
 
+            using ReadyList = V3List<OrderMoveVertex*>;
+
             // Emit all logic ready under the current DomScope
-            V3List<OrderMoveVertex*>& currReadyList = currDomScopep->readyVertices();
-            UASSERT(!currReadyList.empty(), "DomScope on ready list, not has no ready vertices");
-            while (OrderMoveVertex* const lVtxp = currReadyList.begin()) {
-                UASSERT_OBJ(&lVtxp->domScope() == currDomScopep, lVtxp, "DomScope mismatch");
-                // Unlink vertex from ready list under the DomScope
-                lVtxp->unlinkFrom(currReadyList);
-                // Unlink DomScope from the global ready list if this is the last vertex
-                // TODO: should do this later
-                if (currReadyList.empty()) currDomScopep->unlinkFrom(m_readyDomScopeps);
+            ReadyList& currDomScopeReadyList = currDomScopep->readyVertices();
+            UASSERT(!currDomScopeReadyList.empty(),
+                    "DomScope on ready list, not has no ready vertices");
 
-                // Actually emit the logic under this vertex
-                m_emitter.emitLogic(lVtxp->logicp());
+            // Process this DomScope (currDomScopeReadyList) until it's empty
+            do {
+                // We want to bias ordering so that conditionals are grouped together. This
+                // allows for merging them in a later pass, which has a large performance benefit.
+                using ReadyList = V3List<OrderMoveVertex*>;
+                std::unordered_map<VNRef<const AstNodeExpr>, ReadyList> readyConds;
+                ReadyList readyNonCond;
+                ReadyList* lastConditionalReadyListp = nullptr;
+                std::deque<std::reference_wrapper<ReadyList>> nextReadyList;
+                size_t nReadyVertices = 0;
 
-                // Remove dependency of produced variables on this logic, and mark them ready if
-                // this is the last producer.
-                for (V3GraphEdge *edgep = lVtxp->outBeginp(), *nextp; edgep; edgep = nextp) {
-                    // Pick up next as we are deleting it
-                    nextp = edgep->outNextp();
-                    // The dependent variable
-                    OrderMoveVertex* const vVtxp = edgep->top()->as<OrderMoveVertex>();
-                    UASSERT_OBJ(!vVtxp->logicp(), vVtxp, "The move graph should be bipartite");
-                    // Delete this edge
-                    VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
-                    // If this was the last producer, the produced variable is ready
-                    if (vVtxp->inEmpty()) varReady(vVtxp);
-                }
+                const auto addtoReadyList = [&](OrderMoveVertex* lVtxp, ReadyList& readyList) {
+                    //                    if (readyList.empty())
+                    nextReadyList.emplace_back(readyList);
+                    lVtxp->appendTo(readyList);
+                };
 
-                // Can delete the vertex now
-                VL_DO_DANGLING(lVtxp->unlinkDelete(m_moveGraphp.get()), lVtxp);
-            }
+                do {
+                    // Take all the ready vertices and separate conditionals from non-conditionals
+                    while (OrderMoveVertex* const lVtxp = currDomScopeReadyList.begin()) {
+                        UASSERT_OBJ(&lVtxp->domScope() == currDomScopep, lVtxp,
+                                    "DomScope mismatch");
+                        // Unlink vertex from ready list under the DomScope
+                        lVtxp->unlinkFrom(currDomScopeReadyList);
+                        ++nReadyVertices;
+                        // Add to the cond/nonCon lists
+                        const AstNode* const logicp = lVtxp->logicp()->nodep();
+                        if (const AstNodeCond* const condp = VN_CAST(logicp, NodeCond)) {
+                            addtoReadyList(lVtxp, readyConds[*condp->condp()]);
+                            continue;
+                        }
+                        if (const AstNodeProcedure* const procp = VN_CAST(logicp, NodeProcedure)) {
+                            if (const AstIf* const ifp = VN_CAST(procp->stmtsp(), If)) {
+                                addtoReadyList(lVtxp, readyConds[*ifp->condp()]);
+                                continue;
+                            }
+                        }
+                        addtoReadyList(lVtxp, readyNonCond);
+                    }
+
+                    // Pick the next vertex to emit
+                    OrderMoveVertex* const lVtxp = [&]() {
+                        // Prefer to emit ready conditionals with the same condition
+                        if (lastConditionalReadyListp) {
+                            if (OrderMoveVertex* const lVtxp
+                                = lastConditionalReadyListp->begin()) {
+                                lVtxp->unlinkFrom(*lastConditionalReadyListp);
+                                return lVtxp;
+                            }
+                        }
+                        lastConditionalReadyListp = nullptr;
+                        // Pick the next ready list in the order they were filled, for determinism
+                        while (true) {  // There must be a non-empty list, so won't loop forever
+                            ReadyList& readyList = nextReadyList.front();
+                            nextReadyList.pop_front();
+                            if (readyList.empty()) continue;
+                            if (&readyList != &readyNonCond)
+                                lastConditionalReadyListp = &readyList;
+                            OrderMoveVertex* const lVtxp = readyList.begin();
+                            lVtxp->unlinkFrom(readyList);
+                            return lVtxp;
+                        }
+                    }();
+
+                    // Actually emit the logic under this vertex
+                    m_emitter.emitLogic(lVtxp->logicp());
+
+                    // Remove dependency of produced variables on this logic, and mark them ready
+                    // if this is the last producer.
+                    for (V3GraphEdge *edgep = lVtxp->outBeginp(), *nextp; edgep; edgep = nextp) {
+                        // Pick up next as we are deleting it
+                        nextp = edgep->outNextp();
+                        // The dependent variable
+                        OrderMoveVertex* const vVtxp = edgep->top()->as<OrderMoveVertex>();
+                        UASSERT_OBJ(!vVtxp->logicp(), vVtxp, "The move graph should be bipartite");
+                        // Delete this edge
+                        VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
+                        // If this was the last producer, the produced variable is ready
+                        if (vVtxp->inEmpty()) varReady(vVtxp);
+                    }
+
+                    // Can delete the vertex now
+                    VL_DO_DANGLING(lVtxp->unlinkDelete(m_moveGraphp.get()), lVtxp);
+                } while (--nReadyVertices);
+            } while (!currDomScopeReadyList.empty());
+
+            // Unlink DomScope from the global ready list now that we have emitted all ready logic
+            currDomScopep->unlinkFrom(m_readyDomScopeps);
 
             // Done with this DomScope, pick a new one to emit. Prefer a new scope under the
             // same domain. If there isn't one, just pick teh head of the global ready list
