@@ -132,6 +132,28 @@ std::unique_ptr<Graph> buildGraph(const LogicByScope& lbs) {
         new V3GraphEdge{graphp.get(), fromp, top, weight, cuttable};
     };
 
+    const auto addVertex = [&](AstNode* logicp, AstScope* scopep) {
+        SchedAcyclicLogicVertex* const lvtxp
+            = new SchedAcyclicLogicVertex{graphp.get(), logicp, scopep};
+
+        logicp->foreach([&](AstVarRef* refp) {
+            AstVarScope* const vscp = refp->varScopep();
+            SchedAcyclicVarVertex* const vvtxp = getVarVertex(vscp);
+            // We want to cut the narrowest signals
+            const int weight = vscp->width() / 8 + 1;
+            // If written, add logic -> var edge
+            if (refp->access().isWriteOrRW() && !vscp->user2SetOnce())
+                addEdge(lvtxp, vvtxp, weight, true);
+            // If read, add var -> logic edge
+            // Note: Use same heuristic as ordering does to ignore written variables
+            // TODO: Use live variable analysis.
+            if (refp->access().isReadOrRW() && !vscp->user3SetOnce() && !vscp->user2())
+                addEdge(vvtxp, lvtxp, weight, true);
+        });
+
+        return lvtxp;
+    };
+
     for (const auto& pair : lbs) {
         AstScope* const scopep = pair.first;
         AstActive* const activep = pair.second;
@@ -140,25 +162,22 @@ std::unique_ptr<Graph> buildGraph(const LogicByScope& lbs) {
             // Can safely ignore Postponed as we generate them all
             if (VN_IS(nodep, AlwaysPostponed)) continue;
 
-            SchedAcyclicLogicVertex* const lvtxp
-                = new SchedAcyclicLogicVertex{graphp.get(), nodep, scopep};
             const VNUser2InUse user2InUse;
             const VNUser3InUse user3InUse;
 
-            nodep->foreach([&](AstVarRef* refp) {
-                AstVarScope* const vscp = refp->varScopep();
-                SchedAcyclicVarVertex* const vvtxp = getVarVertex(vscp);
-                // We want to cut the narrowest signals
-                const int weight = vscp->width() / 8 + 1;
-                // If written, add logic -> var edge
-                if (refp->access().isWriteOrRW() && !vscp->user2SetOnce())
-                    addEdge(lvtxp, vvtxp, weight, true);
-                // If read, add var -> logic edge
-                // Note: Use same heuristic as ordering does to ignore written variables
-                // TODO: Use live variable analysis.
-                if (refp->access().isReadOrRW() && !vscp->user3SetOnce() && !vscp->user2())
-                    addEdge(vvtxp, lvtxp, weight, true);
-            });
+            if (AstNodeProcedure* const procp = VN_CAST(nodep, NodeProcedure)) {
+                if (!procp->isSuspendable()) {
+                    SchedAcyclicLogicVertex* prevlVtxp = nullptr;
+                    for (AstNode* stmtp = procp->stmtsp(); stmtp; stmtp = stmtp->nextp()) {
+                        SchedAcyclicLogicVertex* const lVtxp = addVertex(stmtp, scopep);
+                        if (prevlVtxp) addEdge(prevlVtxp, lVtxp, 1, false);
+                        prevlVtxp = lVtxp;
+                    }
+                    continue;
+                }
+            }
+
+            addVertex(nodep, scopep);
         }
     }
 

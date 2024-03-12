@@ -190,7 +190,7 @@ public:
     string dotShape() const override final { return "ellipse"; }
     virtual string nameSuffix() const VL_MT_SAFE = 0;
     string name() const override final VL_MT_STABLE {
-        return cvtToHex(m_vscp) + " " + nameSuffix() + "\\n " + m_vscp->name();
+        return cvtToHex(m_vscp) + " " + nameSuffix() + "\\n " + (m_vscp ? m_vscp->name() : "");
     }
     // LCOV_EXCL_STOP
 };

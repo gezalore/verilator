@@ -112,6 +112,26 @@ public:
     string dotShape() const override { return "rectangle"; }
 };
 
+class SchedReplicateStmtVertex final : public SchedReplicateVertex {
+    VL_RTTI_IMPL(SchedReplicateStmtVertex, SchedReplicateVertex)
+    AstNode* const m_stmtp;  // The stmt node this vertex represents
+    RegionFlags const m_assignedRegion;  // The region this logic is originally assigned to
+
+public:
+    SchedReplicateStmtVertex(V3Graph* graphp, AstNode* stmtp, RegionFlags assignedRegion)
+        : SchedReplicateVertex{graphp}
+        , m_stmtp{stmtp}
+        , m_assignedRegion{assignedRegion} {
+        addDrivingRegions(assignedRegion);
+    }
+
+    RegionFlags assignedRegion() const { return m_assignedRegion; }
+
+    // For graph dumping
+    string name() const override VL_MT_STABLE { return m_stmtp->fileline()->ascii(); };
+    string dotShape() const override { return "octagon"; }
+};
+
 class SchedReplicateVarVertex final : public SchedReplicateVertex {
     VL_RTTI_IMPL(SchedReplicateVarVertex, SchedReplicateVertex)
     AstVarScope* const m_vscp;  // The AstVarScope this vertex represents
@@ -182,31 +202,49 @@ std::unique_ptr<Graph> buildGraph(const LogicRegions& logicRegions) {
             });
         }
 
-        for (AstNode* nodep = activep->stmtsp(); nodep; nodep = nodep->nextp()) {
-            SchedReplicateLogicVertex* const lvtxp
-                = new SchedReplicateLogicVertex{graphp.get(), scopep, senTreep, nodep, region};
+        for (AstNode* logicp = activep->stmtsp(); logicp; logicp = logicp->nextp()) {
             const VNUser2InUse user2InUse;
             const VNUser3InUse user3InUse;
 
-            nodep->foreach([&](AstVarRef* refp) {
-                AstVarScope* const vscp = refp->varScopep();
-                SchedReplicateVarVertex* const vvtxp = getVarVertex(vscp);
+            SchedReplicateLogicVertex* const lvtxp
+                = new SchedReplicateLogicVertex{graphp.get(), scopep, senTreep, logicp, region};
 
-                // If read, add var -> logic edge
-                // Note: Use same heuristic as ordering does to ignore written variables
-                // TODO: Use live variable analysis.
-                if (refp->access().isReadOrRW() && !vscp->user3SetOnce()
-                    && readTriggersThisLogic(vscp) && !vscp->user2()) {  //
-                    addEdge(vvtxp, lvtxp);
+            const auto addEdgesWithVars
+                = [&](SchedReplicateVertex* vtxp, AstNode* logicOrStmtp) -> void {
+                logicOrStmtp->foreach([&](AstVarRef* refp) {
+                    AstVarScope* const vscp = refp->varScopep();
+                    SchedReplicateVarVertex* const vvtxp = getVarVertex(vscp);
+
+                    // If read, add var -> logic edge
+                    // Note: Use same heuristic as ordering does to ignore written variables
+                    // TODO: Use live variable analysis.
+                    if (refp->access().isReadOrRW() && !vscp->user3SetOnce()
+                        && readTriggersThisLogic(vscp) && !vscp->user2()) {  //
+                        addEdge(vvtxp, vtxp);
+                    }
+                    // If written, add logic -> var edge
+                    // Note: See V3Order for why AlwaysPostponed is safe to be ignored. We ignore
+                    // it as otherwise we would end up with a false cycle.
+                    if (refp->access().isWriteOrRW() && !vscp->user2SetOnce()
+                        && !VN_IS(logicp, AlwaysPostponed)) {  //
+                        addEdge(vtxp, vvtxp);
+                    }
+                });
+            };
+
+            if (AstNodeProcedure* const procp = VN_CAST(logicp, NodeProcedure)) {
+                if (!procp->isSuspendable()) {
+                    for (AstNode* stmtp = procp->stmtsp(); stmtp; stmtp = stmtp->nextp()) {
+                        SchedReplicateStmtVertex* const sVtxp
+                            = new SchedReplicateStmtVertex{graphp.get(), stmtp, region};
+                        addEdgesWithVars(sVtxp, stmtp);
+                        addEdge(sVtxp, lvtxp);
+                    }
+                    continue;
                 }
-                // If written, add logic -> var edge
-                // Note: See V3Order for why AlwaysPostponed is safe to be ignored. We ignore it
-                // as otherwise we would end up with a false cycle.
-                if (refp->access().isWriteOrRW() && !vscp->user2SetOnce()
-                    && !VN_IS(nodep, AlwaysPostponed)) {  //
-                    addEdge(lvtxp, vvtxp);
-                }
-            });
+            }
+
+            addEdgesWithVars(lvtxp, logicp);
         }
     };
 

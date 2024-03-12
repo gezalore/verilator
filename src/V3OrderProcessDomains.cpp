@@ -110,6 +110,7 @@ class V3OrderProcessDomains final {
                 // Add in any external domains of variables
                 if (OrderVarVertex* const varVtxp = fromVtxp->cast<OrderVarVertex>()) {
                     AstVarScope* const vscp = varVtxp->vscp();
+                    if (!vscp) continue;
                     externalDomainps.clear();
                     m_externalDomains(vscp, externalDomainps);
                     for (AstSenTree* const externalDomainp : externalDomainps) {

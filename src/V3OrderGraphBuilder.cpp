@@ -109,15 +109,37 @@ class OrderGraphBuilder final : public VNVisitor {
     // METHODS
 
     void iterateLogic(AstNode* nodep) {
-        UASSERT_OBJ(!m_logicVxp, nodep, "Should not nest");
+        const auto addLogicVertex = [&](AstNode* logicp) {
+            UASSERT_OBJ(!m_logicVxp, logicp, "Should not nest");
+            VL_RESTORER(m_logicVxp);
+            // Create LogicVertex for this logic node
+            m_logicVxp = new OrderLogicVertex{m_graphp, m_scopep, m_domainp, m_hybridp, logicp};
+            // Gather variable dependencies based on usage
+            iterateChildren(logicp);
+            // Finished with this logic
+            return m_logicVxp;
+        };
+
         // Reset VarUsage
         AstNode::user2ClearTree();
-        // Create LogicVertex for this logic node
-        m_logicVxp = new OrderLogicVertex{m_graphp, m_scopep, m_domainp, m_hybridp, nodep};
-        // Gather variable dependencies based on usage
-        iterateChildren(nodep);
-        // Finished with this logic
-        m_logicVxp = nullptr;
+
+        if (AstNodeProcedure* const procp = VN_CAST(nodep, NodeProcedure)) {
+            if (!procp->isSuspendable()) {
+                OrderLogicVertex* prevlVtxp = nullptr;
+                for (AstNode* stmtp = procp->stmtsp(); stmtp; stmtp = stmtp->nextp()) {
+                    OrderLogicVertex* const lVtxp = addLogicVertex(stmtp);
+                    if (prevlVtxp) {
+                        OrderVarVertex* const dVarp = new OrderVarStdVertex{m_graphp, nullptr};
+                        m_graphp->addHardEdge(prevlVtxp, dVarp, WEIGHT_NORMAL);
+                        m_graphp->addHardEdge(dVarp, lVtxp, WEIGHT_NORMAL);
+                    }
+                    prevlVtxp = lVtxp;
+                }
+                return;
+            }
+        }
+
+        addLogicVertex(nodep);
     }
 
     OrderVarVertex* getVarVertex(AstVarScope* varscp, VarVertexType type) {

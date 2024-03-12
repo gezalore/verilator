@@ -59,6 +59,15 @@ struct LogicByScope final : public std::vector<std::pair<AstScope*, AstActive*>>
     void deleteActives() {
         for (const auto& pair : *this) {
             AstActive* const activep = pair.second;
+            // Delete empty procedures so we can check there is nothing left
+            for (AstNode *stmtp = activep->stmtsp(), *nextp; stmtp; stmtp = nextp) {
+                nextp = stmtp->nextp();
+                if (AstNodeProcedure* const procp = VN_CAST(stmtp, NodeProcedure)) {
+                    if (!procp->stmtsp()) {
+                        VL_DO_DANGLING(procp->unlinkFrBack()->deleteTree(), stmtp);
+                    }
+                }
+            }
             UASSERT_OBJ(!activep->stmtsp(), activep, "Leftover logic");
             if (activep->backp()) activep->unlinkFrBack();
             activep->deleteTree();
