@@ -116,7 +116,7 @@ public:
         AstNode* const headp = [&]() -> AstNode* {
             if (!procp) return logicp;  // Not a procedure, handle as a unit
             AstNode* const stmtsp = procp->stmtsp();
-            if (stmtsp) stmtsp->unlinkFrBackWithNext();
+            stmtsp->unlinkFrBackWithNext();
             // Procedure is no longer needed and can be deleted right now
             VL_DO_DANGLING(procp->deleteTree(), procp);
             return stmtsp;
