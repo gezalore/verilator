@@ -201,7 +201,7 @@ class V3OrderMoveGraphBuilder final {
             const OrderLogicVertex* const lVtxp = edgep->top()->as<OrderLogicVertex>();
 
             // Do not construct dependencies across exclusive domains.
-            if (domainsExclusive(domainp, lVtxp->domainp())) continue;
+            //            if (domainsExclusive(domainp, lVtxp->domainp())) continue;
 
             // there is a path from this vvtx to a logic vertex. Add the new edge.
             if (!vMoveVtxp) vMoveVtxp = new T_MoveVertex{*m_outGraphp, nullptr, domainp};

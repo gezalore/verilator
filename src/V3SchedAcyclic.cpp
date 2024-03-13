@@ -58,22 +58,24 @@ namespace {
 class SchedAcyclicLogicVertex final : public V3GraphVertex {
     VL_RTTI_IMPL(SchedAcyclicLogicVertex, V3GraphVertex)
     AstNode* const m_logicp;  // The logic node this vertex represents
+    AstNode* const m_stmtp;  // The logic node this vertex represents
     AstScope* const m_scopep;  // The enclosing AstScope of the logic node
 
 public:
-    SchedAcyclicLogicVertex(V3Graph* graphp, AstNode* logicp, AstScope* scopep)
+    SchedAcyclicLogicVertex(V3Graph* graphp, AstNode* logicp, AstNode* stmtp, AstScope* scopep)
         : V3GraphVertex{graphp}
         , m_logicp{logicp}
+        , m_stmtp{stmtp}
         , m_scopep{scopep} {}
     V3GraphVertex* clone(V3Graph* graphp) const override {
-        return new SchedAcyclicLogicVertex{graphp, logicp(), scopep()};
+        return new SchedAcyclicLogicVertex{graphp, logicp(), m_stmtp, scopep()};
     }
 
     AstNode* logicp() const { return m_logicp; }
     AstScope* scopep() const { return m_scopep; }
 
     // LCOV_EXCL_START // Debug code
-    string name() const override VL_MT_STABLE { return m_logicp->fileline()->ascii(); };
+    string name() const override VL_MT_STABLE { return m_stmtp->fileline()->ascii(); };
     string dotShape() const override { return "rectangle2"; }
     // LCOV_EXCL_STOP
 };
@@ -132,40 +134,40 @@ std::unique_ptr<Graph> buildGraph(const LogicByScope& lbs) {
         new V3GraphEdge{graphp.get(), fromp, top, weight, cuttable};
     };
 
-    const auto addVertex = [&](AstNode* logicp, AstScope* scopep) {
-        SchedAcyclicLogicVertex* const lvtxp
-            = new SchedAcyclicLogicVertex{graphp.get(), logicp, scopep};
-
-        logicp->foreach([&](AstVarRef* refp) {
-            AstVarScope* const vscp = refp->varScopep();
-            SchedAcyclicVarVertex* const vvtxp = getVarVertex(vscp);
-            // We want to cut the narrowest signals
-            const int weight = vscp->width() / 8 + 1;
-            // If written, add logic -> var edge
-            if (refp->access().isWriteOrRW() && !vscp->user2SetOnce())
-                addEdge(lvtxp, vvtxp, weight, true);
-            // If read, add var -> logic edge
-            // Note: Use same heuristic as ordering does to ignore written variables
-            // TODO: Use live variable analysis.
-            if (refp->access().isReadOrRW() && !vscp->user3SetOnce() && !vscp->user2())
-                addEdge(vvtxp, lvtxp, weight, true);
-        });
-
-        return lvtxp;
-    };
-
     for (const auto& pair : lbs) {
         AstScope* const scopep = pair.first;
         AstActive* const activep = pair.second;
         UASSERT_OBJ(activep->hasCombo(), activep, "Not combinational logic");
-        for (AstNode* nodep = activep->stmtsp(); nodep; nodep = nodep->nextp()) {
+        for (AstNode* logicp = activep->stmtsp(); logicp; logicp = logicp->nextp()) {
             // Can safely ignore Postponed as we generate them all
-            if (VN_IS(nodep, AlwaysPostponed)) continue;
+            if (VN_IS(logicp, AlwaysPostponed)) continue;
+
+            const auto addVertex = [&](AstNode* nodep, AstScope* scopep) {
+                SchedAcyclicLogicVertex* const lvtxp
+                    = new SchedAcyclicLogicVertex{graphp.get(), logicp, nodep, scopep};
+
+                nodep->foreach([&](AstVarRef* refp) {
+                    AstVarScope* const vscp = refp->varScopep();
+                    SchedAcyclicVarVertex* const vvtxp = getVarVertex(vscp);
+                    // We want to cut the narrowest signals
+                    const int weight = vscp->width() / 8 + 1;
+                    // If written, add logic -> var edge
+                    if (refp->access().isWriteOrRW() && !vscp->user2SetOnce())
+                        addEdge(lvtxp, vvtxp, weight, true);
+                    // If read, add var -> logic edge
+                    // Note: Use same heuristic as ordering does to ignore written variables
+                    // TODO: Use live variable analysis.
+                    if (refp->access().isReadOrRW() && !vscp->user3SetOnce() && !vscp->user2())
+                        addEdge(vvtxp, lvtxp, weight, true);
+                });
+
+                return lvtxp;
+            };
 
             const VNUser2InUse user2InUse;
             const VNUser3InUse user3InUse;
 
-            if (AstNodeProcedure* const procp = VN_CAST(nodep, NodeProcedure)) {
+            if (AstNodeProcedure* const procp = VN_CAST(logicp, NodeProcedure)) {
                 if (!procp->isSuspendable()) {
                     SchedAcyclicLogicVertex* prevlVtxp = nullptr;
                     for (AstNode* stmtp = procp->stmtsp(); stmtp; stmtp = stmtp->nextp()) {
@@ -177,7 +179,7 @@ std::unique_ptr<Graph> buildGraph(const LogicByScope& lbs) {
                 }
             }
 
-            addVertex(nodep, scopep);
+            addVertex(logicp, scopep);
         }
     }
 
@@ -373,7 +375,7 @@ LogicByScope fixCuts(AstNetlist* netlistp,
                      const std::vector<SchedAcyclicVarVertex*>& cutVertices) {
     // For all logic that reads a cut vertex, build a map from logic -> list of cut AstVarScope
     // they read. Also build a vector of the involved logic for deterministic results.
-    std::unordered_map<SchedAcyclicLogicVertex*, std::vector<AstVarScope*>> lvtx2Cuts;
+    std::unordered_map<AstNode*, std::vector<AstVarScope*>> lvtx2Cuts;
     std::vector<SchedAcyclicLogicVertex*> lvtxps;
     {
         const VNUser1InUse user1InUse;  // bool: already added to 'lvtxps'
@@ -382,7 +384,7 @@ LogicByScope fixCuts(AstNetlist* netlistp,
                 SchedAcyclicLogicVertex* const lvtxp
                     = static_cast<SchedAcyclicLogicVertex*>(edgep->top());
                 if (!lvtxp->logicp()->user1SetOnce()) lvtxps.push_back(lvtxp);
-                lvtx2Cuts[lvtxp].push_back(vvtxp->vscp());
+                lvtx2Cuts[lvtxp->logicp()].push_back(vvtxp->vscp());
             }
         }
     }
@@ -397,7 +399,7 @@ LogicByScope fixCuts(AstNetlist* netlistp,
         FileLine* const flp = logicp->fileline();
         // Build the hybrid sensitivity list
         AstSenItem* senItemsp = nullptr;
-        for (AstVarScope* const vscp : lvtx2Cuts[lvtxp]) {
+        for (AstVarScope* const vscp : lvtx2Cuts[logicp]) {
             AstVarRef* const refp = new AstVarRef{flp, vscp, VAccess::READ};
             AstSenItem* const nextp = new AstSenItem{flp, VEdgeType::ET_HYBRID, refp};
             senItemsp = AstNode::addNext(senItemsp, nextp);

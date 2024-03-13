@@ -110,13 +110,14 @@ class V3OrderProcessDomains final {
                 // Add in any external domains of variables
                 if (OrderVarVertex* const varVtxp = fromVtxp->cast<OrderVarVertex>()) {
                     AstVarScope* const vscp = varVtxp->vscp();
-                    if (!vscp) continue;
-                    externalDomainps.clear();
-                    m_externalDomains(vscp, externalDomainps);
-                    for (AstSenTree* const externalDomainp : externalDomainps) {
-                        UASSERT_OBJ(!externalDomainp->hasCombo(), vscp,
-                                    "There should be no need for combinational domains");
-                        fromDomainp = combineDomains(fromDomainp, externalDomainp);
+                    if (vscp) {
+                        externalDomainps.clear();
+                        m_externalDomains(vscp, externalDomainps);
+                        for (AstSenTree* const externalDomainp : externalDomainps) {
+                            UASSERT_OBJ(!externalDomainp->hasCombo(), vscp,
+                                        "There should be no need for combinational domains");
+                            fromDomainp = combineDomains(fromDomainp, externalDomainp);
+                        }
                     }
                 }
 
@@ -212,7 +213,6 @@ class V3OrderProcessDomains final {
 
         // Assign vertices to their sensitivity domains
         processDomains();
-        if (dumpGraphLevel()) m_graph.dumpDotFilePrefixed(m_tag + "_orderg_domain");
 
         // Report domain assignments if requested
         if (dumpLevel()) processEdgeReport();
@@ -224,6 +224,8 @@ class V3OrderProcessDomains final {
             lVtxp->nodep()->unlinkFrBack()->deleteTree();
             lVtxp->unlinkDelete(&m_graph);
         }
+
+        if (dumpGraphLevel()) m_graph.dumpDotFilePrefixed(m_tag + "_orderg_domain");
     }
 
     ~V3OrderProcessDomains() = default;

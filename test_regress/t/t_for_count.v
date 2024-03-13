@@ -18,7 +18,7 @@ module t (/*AUTOARG*/
    integer hit_count;
    always @(/*AUTOSENSE*/cam_lookup_hit_vector) begin
       hit_count = 0;
-      for (j=0; j < 64; j=j+1) begin
+      for (j=0; j < 4; j=j+1) begin
          hit_count = hit_count + {31'h0, cam_lookup_hit_vector[j]};
       end
    end
@@ -34,7 +34,7 @@ module t (/*AUTOARG*/
    integer hit_count3;
    always @(/*AUTOSENSE*/cam_lookup_hit_vector) begin
       hit_count3 = 0;
-      for (j=63; j > 0; j=j-1) begin
+      for (j=3; j > 0; j=j-1) begin
          if (cam_lookup_hit_vector[j]) hit_count3 = hit_count3 + 32'd1;
       end
    end

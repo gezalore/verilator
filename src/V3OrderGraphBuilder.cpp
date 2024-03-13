@@ -123,19 +123,21 @@ class OrderGraphBuilder final : public VNVisitor {
         // Reset VarUsage
         AstNode::user2ClearTree();
 
-        if (AstNodeProcedure* const procp = VN_CAST(nodep, NodeProcedure)) {
-            if (!procp->isSuspendable()) {
-                OrderLogicVertex* prevlVtxp = nullptr;
-                for (AstNode* stmtp = procp->stmtsp(); stmtp; stmtp = stmtp->nextp()) {
-                    OrderLogicVertex* const lVtxp = addLogicVertex(stmtp);
-                    if (prevlVtxp) {
-                        OrderVarVertex* const dVarp = new OrderVarStdVertex{m_graphp, nullptr};
-                        m_graphp->addHardEdge(prevlVtxp, dVarp, WEIGHT_NORMAL);
-                        m_graphp->addHardEdge(dVarp, lVtxp, WEIGHT_NORMAL);
+        if (!m_inClocked) {
+            if (AstNodeProcedure* const procp = VN_CAST(nodep, NodeProcedure)) {
+                if (!procp->isSuspendable()) {
+                    OrderLogicVertex* prevlVtxp = nullptr;
+                    for (AstNode* stmtp = procp->stmtsp(); stmtp; stmtp = stmtp->nextp()) {
+                        OrderLogicVertex* const lVtxp = addLogicVertex(stmtp);
+                        if (prevlVtxp) {
+                            OrderVarVertex* const dVarp = new OrderVarStdVertex{m_graphp, nullptr};
+                            m_graphp->addHardEdge(prevlVtxp, dVarp, WEIGHT_NORMAL);
+                            m_graphp->addHardEdge(dVarp, lVtxp, WEIGHT_NORMAL);
+                        }
+                        prevlVtxp = lVtxp;
                     }
-                    prevlVtxp = lVtxp;
+                    return;
                 }
-                return;
             }
         }
 

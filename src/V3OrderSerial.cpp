@@ -128,7 +128,7 @@ class OrderMoveVertex final : public V3GraphVertex {
     V3ListEnt<OrderMoveVertex*> m_listEnt;  // List entry for ready list under DomScope
 
     // METHODS
-    std::string dotColor() const override { return logicp() ? logicp()->dotColor() : ""; }
+    std::string dotColor() const override { return logicp() ? logicp()->dotColor() : "yellow"; }
 
     std::string name() const override VL_MT_STABLE {
         if (!logicp()) {
@@ -207,6 +207,7 @@ class OrderSerial final {
     void process(const OrderGraph& orderGraph, const std::string& tag,
                  const V3Order::TrigToSenMap& trigToSen) {
         // Build the move graph
+        if (dumpGraphLevel() >= 9) orderGraph.dumpDotFilePrefixed(tag + "_og_in");
         m_moveGraphp = V3OrderMoveGraphBuilder<OrderMoveVertex>::apply(orderGraph, trigToSen);
         if (dumpGraphLevel() >= 9) m_moveGraphp->dumpDotFilePrefixed(tag + "_ordermv_start");
         m_moveGraphp->removeRedundantEdgesMax(&V3GraphEdge::followAlwaysTrue);

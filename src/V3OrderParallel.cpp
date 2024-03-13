@@ -1905,6 +1905,7 @@ class FixDataHazards final {
             // Only consider OrderVarStdVertex which reflects
             // an actual lvalue assignment; the others do not.
             if (const OrderVarStdVertex* const vvtxp = vtxp->cast<OrderVarStdVertex>()) {
+                if (!vvtxp->vscp()) continue;
                 if (vvtxp->vscp()->varp()->isSc()) {
                     systemCVars.push_back(vvtxp);
                 } else {
@@ -2495,11 +2496,13 @@ AstExecGraph* V3Order::createParallel(const OrderGraph& orderGraph, const std::s
         for (const V3GraphEdge* edgep = logicp->inBeginp(); edgep; edgep = edgep->inNextp()) {
             const OrderVarVertex* const vVtxp = edgep->fromp()->cast<const OrderVarVertex>();
             if (!vVtxp) continue;
+            if (!vVtxp->vscp()) continue;
             vVtxp->vscp()->varp()->addMTaskId(mtaskId);
         }
         for (const V3GraphEdge* edgep = logicp->outBeginp(); edgep; edgep = edgep->outNextp()) {
             const OrderVarVertex* const vVtxp = edgep->top()->cast<const OrderVarVertex>();
             if (!vVtxp) continue;
+            if (!vVtxp->vscp()) continue;
             vVtxp->vscp()->varp()->addMTaskId(mtaskId);
         }
     }
