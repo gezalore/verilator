@@ -263,6 +263,10 @@ void V3DfgOptimizer::optimize(AstNetlist* netlistp, const string& label) {
 
         // Build the DFG of this module
         const std::unique_ptr<DfgGraph> dfg{V3DfgPasses::astToDfg(*modp, ctx)};
+        UINFO(0, "A   " << dfg->size() << " " << dfg->varVertices().empty() << std::endl);
+        UINFO(0, "A   " << dfg->size() << " " << dfg->constVertices().empty() << std::endl);
+        UINFO(0, "A   " << dfg->size() << " " << dfg->opVertices().empty() << std::endl);
+
         if (dumpDfgLevel() >= 8) dfg->dumpDotFilePrefixed(ctx.prefix() + "whole-input");
 
         // Extract the cyclic sub-graphs. We do this because a lot of the optimizations assume a
