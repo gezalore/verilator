@@ -200,14 +200,6 @@ class V3List2 final {
             : m_currp{nullptr} {}
 
     public:
-        Iterator(const SelfType& other)
-            : m_currp{other.m_currp} {}
-        SelfType& operator=(const SelfType& other) {
-            m_currp = other.m_iterator;
-            return *this;
-        }
-        VL_UNMOVABLE(Iterator);
-
         // Dereference
         IteratorElement& operator*() const {
             UASSERT(m_currp, "Dereferencing end of list iterator");
