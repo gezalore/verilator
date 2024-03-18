@@ -179,24 +179,24 @@ class V3List2 final {
     // Bare-bones iterator class for List. This is just enough to support range based for loops and
     // basic usage. Feel free to extend as required.
     template <typename IteratorElement>
-    class Iterator final {
+    class ItertatorImpl final {
         static_assert(std::is_same<IteratorElement, Element>::value
                           || std::is_same<IteratorElement, const Element>::value,
-                      "'Iterator' must be used with element type only");
+                      "'ItertatorImpl' must be used with element type only");
 
         // The List itself, but nothing else can construct iterators
         template <typename B, V3List2Links<B> B::*P, typename>
         friend class V3List2;
 
-        using SelfType = Iterator<IteratorElement>;
+        using SelfType = ItertatorImpl<IteratorElement>;
 
         Base* m_currp;  // Currently iterated element, or 'nullptr' for 'end()'
 
-        Iterator(Base* elementp)
+        ItertatorImpl(Base* elementp)
             : m_currp{elementp} {
             VL_PREFETCH_RW(elementp);
         }
-        Iterator(std::nullptr_t)
+        ItertatorImpl(std::nullptr_t)
             : m_currp{nullptr} {}
 
     public:
@@ -225,15 +225,15 @@ class V3List2 final {
         // Not equals
         bool operator!=(const SelfType& other) const { return m_currp != other.m_currp; }
         // Convert to const iterator
-        operator Iterator<const IteratorElement>() const {
-            return Iterator<const IteratorElement>{m_currp};
+        operator ItertatorImpl<const IteratorElement>() const {
+            return ItertatorImpl<const IteratorElement>{m_currp};
         }
     };
 
 public:
     using List = V3List2<Base, LinksPointer, Element>;
-    using iterator = Iterator<Element>;
-    using const_iterator = Iterator<const Element>;
+    using iterator = ItertatorImpl<Element>;
+    using const_iterator = ItertatorImpl<const Element>;
 
     V3List2() = default;
     ~V3List2() {
