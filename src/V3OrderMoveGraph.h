@@ -29,14 +29,75 @@
 #include "V3Order.h"
 #include "V3OrderGraph.h"
 
-class OrderMoveVertex;
+class OrderMoveDomScope;
+class OrderMoveGraph;
+
+//======================================================================
+// Vertex types
+
+class OrderMoveVertex final : public V3GraphVertex {
+    VL_RTTI_IMPL(OrderMoveVertex, V3GraphVertex)
+
+    // The corresponding logic vertex, or nullptr if this MoveVertex stands for a variable vertex.
+    OrderLogicVertex* const m_logicp;
+    OrderMoveDomScope& m_domScope;  // DomScope this vertex is under
+    V3List2Links<OrderMoveVertex> m_links;  // List links to store this Vertex
+
+    // METHODS
+    std::string dotColor() const override { return logicp() ? logicp()->dotColor() : "yellow"; }
+
+    std::string name() const override VL_MT_STABLE {
+        std::string nm;
+        if (!logicp()) {
+            nm = "var";
+        } else {
+            nm = logicp()->name() + "\\n";
+            nm += "MV:";
+            nm += +" d=" + cvtToHex(logicp()->domainp());
+            nm += +" s=" + cvtToHex(logicp()->scopep());
+        }
+        if (userp()) nm += "\nu=" + cvtToHex(userp());
+        return nm;
+    }
+
+public:
+    // List type to store OrderMoveVertex instances
+    using List = V3List2<OrderMoveVertex, &OrderMoveVertex::m_links>;
+
+    // CONSTRUCTORS
+    OrderMoveVertex(OrderMoveGraph& graph, OrderLogicVertex* lVtxp,
+                    const AstSenTree* domainp) VL_MT_DISABLED;
+    ~OrderMoveVertex() override = default;
+    VL_UNCOPYABLE(OrderMoveVertex);
+
+    OrderLogicVertex* logicp() const VL_MT_STABLE { return m_logicp; }
+    OrderMoveDomScope& domScope() const { return m_domScope; }
+
+    //    void unlinkFrom(V3List<OrderMoveVertex*>& list) { m_listEnt.unlink(list, this); }
+    //    void appendTo(V3List<OrderMoveVertex*>& list) { m_listEnt.pushBack(list, this); }
+    //    void moveAppend(V3List<OrderMoveVertex*>& src, V3List<OrderMoveVertex*>& dst) {
+    //        m_listEnt.moveAppend(src, dst, this);
+    //    }
+    //    OrderMoveVertex* nextp() const { return m_listEnt.nextp(); }
+};
+
+//======================================================================
+// Graph type
+
+// OrderMoveGraph is constructed from the fine-grained OrderGraph.
+// It is a slightly coarsened representation of dependencies used to drive serialization.
+class OrderMoveGraph final : public V3Graph {
+public:
+    // Build an OrderMoveGraph from an OrderGraph
+    static std::unique_ptr<OrderMoveGraph> build(const OrderGraph&, const V3Order::TrigToSenMap&);
+};
 
 // Information stored for each unique (domain, scope) pair. Mainly a list of ready vertices under
 // that (domain, scope). OrderMoveDomScope instances are themselves organized into a global ready
 // list if they have ready vertices.
 class OrderMoveDomScope final {
     // STATE
-    V3List<OrderMoveVertex*> m_readyVertices;  // Ready vertices in this domain/scope
+    OrderMoveVertex::List m_readyVertices;  // Ready vertices in this domain/scope
     V3ListEnt<OrderMoveDomScope*> m_listEnt;  // List entry to store this instance
     bool m_isOnList = false;  // True if DomScope is already on a list through m_listEnt
     const AstSenTree* const m_domainp;  // Domain the vertices belong to
@@ -92,7 +153,7 @@ public:
     VL_UNMOVABLE(OrderMoveDomScope);
 
     // MEMBERS
-    V3List<OrderMoveVertex*>& readyVertices() { return m_readyVertices; }
+    OrderMoveVertex::List& readyVertices() { return m_readyVertices; }
     const AstSenTree* domainp() const { return m_domainp; }
     const AstScope* scopep() const { return m_scopep; }
 
@@ -116,63 +177,6 @@ public:
 };
 
 //======================================================================
-// Graph type
-
-// OrderMoveGraph is constructed from the fine-grained OrderGraph.
-// It is a slightly coarsened representation of dependencies used to drive serialization.
-class OrderMoveGraph final : public V3Graph {
-public:
-    // Build an OrderMoveGraph from an OrderGraph
-    static std::unique_ptr<OrderMoveGraph> build(const OrderGraph&, const V3Order::TrigToSenMap&);
-};
-
-//======================================================================
-// Vertex types
-
-class OrderMoveVertex final : public V3GraphVertex {
-    VL_RTTI_IMPL(OrderMoveVertex, V3GraphVertex)
-
-    // The corresponding logic vertex, or nullptr if this MoveVertex stands for a variable vertex.
-    OrderLogicVertex* const m_logicp;
-    OrderMoveDomScope& m_domScope;  // DomScope this vertex is under
-    V3ListEnt<OrderMoveVertex*> m_listEnt;  // List entry to store this Vertex
-
-    // METHODS
-    std::string dotColor() const override { return logicp() ? logicp()->dotColor() : "yellow"; }
-
-    std::string name() const override VL_MT_STABLE {
-        std::string nm;
-        if (!logicp()) {
-            nm = "var";
-        } else {
-            nm = logicp()->name() + "\\n";
-            nm += "MV:";
-            nm += +" d=" + cvtToHex(logicp()->domainp());
-            nm += +" s=" + cvtToHex(logicp()->scopep());
-        }
-        if (userp()) nm += "\nu=" + cvtToHex(userp());
-        return nm;
-    }
-
-public:
-    // CONSTRUCTORS
-    OrderMoveVertex(OrderMoveGraph& graph, OrderLogicVertex* lVtxp,
-                    const AstSenTree* domainp) VL_MT_DISABLED;
-    ~OrderMoveVertex() override = default;
-    VL_UNCOPYABLE(OrderMoveVertex);
-
-    OrderLogicVertex* logicp() const VL_MT_STABLE { return m_logicp; }
-    OrderMoveDomScope& domScope() const { return m_domScope; }
-
-    void unlinkFrom(V3List<OrderMoveVertex*>& list) { m_listEnt.unlink(list, this); }
-    void appendTo(V3List<OrderMoveVertex*>& list) { m_listEnt.pushBack(list, this); }
-    void moveAppend(V3List<OrderMoveVertex*>& src, V3List<OrderMoveVertex*>& dst) {
-        m_listEnt.moveAppend(src, dst, this);
-    }
-    OrderMoveVertex* nextp() const { return m_listEnt.nextp(); }
-};
-
-//======================================================================
 // Serializer for OrderMoveGraph
 
 class OrderMoveGraphSerializer final {
@@ -187,7 +191,7 @@ class OrderMoveGraphSerializer final {
         if (vtxp->logicp()) {
             // Add this vertex to the ready list of its DomScope
             OrderMoveDomScope& domScope = vtxp->domScope();
-            vtxp->appendTo(domScope.readyVertices());
+            domScope.readyVertices().push_back(*vtxp);
             // Add the DomScope to the global ready list if not there yet
             if (!domScope.isOnList()) domScope.appendTo(m_readyDomScopeps);
         } else {  // This is a bit nonsense at this point, but equivalent to the old version
@@ -229,18 +233,18 @@ public:
         // If nothing is ready, we are done
         if (!currDomScopep) return nullptr;
 
-        V3List<OrderMoveVertex*>& currReadyList = currDomScopep->readyVertices();
+        OrderMoveVertex::List& currReadyList = currDomScopep->readyVertices();
+        UASSERT(!currReadyList.empty(), "DomScope on ready list, but has no ready vertices");
         // This is the vertex we are returning now
-        OrderMoveVertex* const mVtxp = currReadyList.begin();
-        UASSERT(mVtxp, "DomScope on ready list, but has no ready vertices");
-        // Unlink vertex from ready list under the DomScope
-        mVtxp->unlinkFrom(currReadyList);
+        OrderMoveVertex& mVtx = currReadyList.front();
+        // Remove vertex from ready list under the DomScope
+        currReadyList.pop_front();
 
         // Nonsesne, but what we used to do
         if (currReadyList.empty()) currDomScopep->unlinkFrom(m_readyDomScopeps);
 
         // Remove dependency on vertex we are returning. This might add vertices to currReadyList.
-        for (V3GraphEdge *edgep = mVtxp->outBeginp(), *nextp; edgep; edgep = nextp) {
+        for (V3GraphEdge *edgep = mVtx.outBeginp(), *nextp; edgep; edgep = nextp) {
             nextp = edgep->outNextp();
             // The dependent variable
             OrderMoveVertex* const dVtxp = edgep->top()->as<OrderMoveVertex>();
@@ -264,7 +268,7 @@ public:
         }
 
         // Finally yield the selected vertex
-        return mVtxp;
+        return &mVtx;
     }
 };
 

@@ -193,7 +193,7 @@ private:
 
     // List of OrderMoveVertex's assigned to this mtask. LogicMTask does not
     // own the OrderMoveVertex objects, we merely keep them in a list here.
-    V3List<OrderMoveVertex*> m_mVertices;
+    OrderMoveVertex::List m_mVertices;
 
     // Cost estimate for this LogicMTask, derived from V3InstrCount.
     // In abstract time units.
@@ -233,7 +233,7 @@ public:
         UASSERT(s_nextId < 0xFFFFFFFFUL, "Too many mTaskGraphp");
         for (uint32_t& item : m_critPathCost) item = 0;
         if (mVtxp) {
-            mVtxp->appendTo(m_mVertices);
+            m_mVertices.push_back(*mVtxp);
             if (const OrderLogicVertex* const olvp = mVtxp->logicp()) {
                 m_cost += V3InstrCount::count(olvp->nodep(), true);
             }
@@ -245,10 +245,10 @@ public:
     V3List<SiblingMC*>& aSiblingMCs() { return m_aSiblingMCs; };
     V3List<SiblingMC*>& bSiblingMCs() { return m_bSiblingMCs; };
 
-    V3List<OrderMoveVertex*>& vertexList() { return m_mVertices; }
-    const V3List<OrderMoveVertex*>& vertexList() const { return m_mVertices; }
+    OrderMoveVertex::List& vertexList() { return m_mVertices; }
+    const OrderMoveVertex::List& vertexList() const { return m_mVertices; }
     void moveAllVerticesFrom(LogicMTask* otherp) {
-        otherp->m_mVertices.begin()->moveAppend(otherp->m_mVertices, m_mVertices);
+        m_mVertices.splice(m_mVertices.end(), otherp->vertexList());
         m_cost += otherp->m_cost;
     }
     static uint64_t incGeneration() {
@@ -637,10 +637,8 @@ void LogicMTask::dumpCpFilePrefixed(const V3Graph& graph, const string& nameComm
     // Dump
     for (const LogicMTask* mtaskp : path) {
         *osp << "begin mtask with cost " << mtaskp->cost() << '\n';
-        const V3List<OrderMoveVertex*>& vertexList = mtaskp->vertexList();
-        for (OrderMoveVertex *mVtxp = vertexList.begin(), *nextp; mVtxp; mVtxp = nextp) {
-            nextp = mVtxp->nextp();
-            const OrderLogicVertex* const logicp = mVtxp->logicp();
+        for (const OrderMoveVertex& mVtx : mtaskp->vertexList()) {
+            const OrderLogicVertex* const logicp = mVtx.logicp();
             if (!logicp) continue;
             // Show nodes with hierarchical costs
             V3InstrCount::count(logicp->nodep(), false, osp);
@@ -1855,11 +1853,11 @@ class FixDataHazards final {
                 // Entry and exit MTasks have no MTaskMoveVertices under them, so move on
                 if (mtaskp->vertexList().empty()) continue;
                 // Otherwise there should be only one OrderMoveVertex in each MTask at this stage
-                const V3List<OrderMoveVertex*>& vertexList = mtaskp->vertexList();
-                UASSERT_OBJ(!vertexList.begin()->nextp(), mtaskp, "Multiple OrderMoveVertex");
-                const OrderMoveVertex* const moveVtxp = vertexList.begin();
+                const OrderMoveVertex::List& vertexList = mtaskp->vertexList();
+                const OrderMoveVertex& mVtx = vertexList.front();
+                UASSERT_OBJ(&mVtx == &vertexList.back(), mtaskp, "Multiple OrderMoveVertex");
                 // Set up mapping back to the MTask from the OrderLogicVertex
-                if (OrderLogicVertex* const lvtxp = moveVtxp->logicp()) lvtxp->userp(mtaskp);
+                if (OrderLogicVertex* const lvtxp = mVtx.logicp()) lvtxp->userp(mtaskp);
             }
         }
 
@@ -1982,10 +1980,8 @@ class FixDataHazards final {
                 // Merge donor into recipient.
                 if (donorp == recipientp) continue;
                 // Fix up the map, so donor's OLVs map to recipientp
-                const V3List<OrderMoveVertex*>& vtxList = donorp->vertexList();
-                for (const OrderMoveVertex *vtxp = vtxList.begin(), *nextp; vtxp; vtxp = nextp) {
-                    nextp = vtxp->nextp();
-                    vtxp->logicp()->userp(recipientp);
+                for (const OrderMoveVertex& vtx : donorp->vertexList()) {
+                    vtx.logicp()->userp(recipientp);
                 }
                 // Move all vertices from donorp to recipientp
                 recipientp->moveAllVerticesFrom(donorp);
@@ -2000,9 +1996,8 @@ class FixDataHazards final {
         }
     }
     bool hasDpiHazard(LogicMTask* mtaskp) {
-        const V3List<OrderMoveVertex*>& vertexList = mtaskp->vertexList();
-        for (const OrderMoveVertex* mVtxp = vertexList.begin(); mVtxp; mVtxp = mVtxp->nextp()) {
-            if (OrderLogicVertex* const lvtxp = mVtxp->logicp()) {
+        for (const OrderMoveVertex& mVtx : mtaskp->vertexList()) {
+            if (OrderLogicVertex* const lvtxp = mVtx.logicp()) {
                 // NOTE: We don't handle DPI exports. If testbench code calls a
                 // DPI-exported function at any time during eval() we may have
                 // a data hazard. (Likewise in non-threaded mode if an export
@@ -2204,11 +2199,11 @@ class Partitioner final {
             // Entry and exit vertices handled separately
             if (VL_UNLIKELY((mtaskp == m_entryMTaskp) || (mtaskp == m_exitMTaskp))) continue;
 
-            const V3List<OrderMoveVertex*>& vertexList = mtaskp->vertexList();
-            OrderMoveVertex* const mvtxp = vertexList.begin();
+            OrderMoveVertex::List& vertexList = mtaskp->vertexList();
+            OrderMoveVertex& mVtx = vertexList.front();
             // At this point, there should only be one OrderMoveVertex per LogicMTask
-            UASSERT_OBJ(!mvtxp->nextp(), mtaskp, "Multiple OrderMoveVertex");
-            UASSERT_OBJ(mvtxp->userp(), mtaskp, "Bypassed OrderMoveVertex should not have MTask");
+            UASSERT_OBJ(&mVtx == &vertexList.back(), mtaskp, "Multiple OrderMoveVertex");
+            UASSERT_OBJ(mVtx.userp(), mtaskp, "Bypassed OrderMoveVertex should not have MTask");
 
             // Function to add a edge to a dependent from 'mtaskp'
             const auto addEdge = [this, mtaskp](LogicMTask* otherp) {
@@ -2218,7 +2213,7 @@ class Partitioner final {
             };
 
             // Iterate downstream direct dependents
-            for (V3GraphEdge *dEdgep = mvtxp->outBeginp(), *dNextp; dEdgep; dEdgep = dNextp) {
+            for (V3GraphEdge *dEdgep = mVtx.outBeginp(), *dNextp; dEdgep; dEdgep = dNextp) {
                 dNextp = dEdgep->outNextp();
                 V3GraphVertex* const top = dEdgep->top();
                 if (LogicMTask* const otherp = static_cast<LogicMTask*>(top->userp())) {
@@ -2234,7 +2229,7 @@ class Partitioner final {
                             = static_cast<LogicMTask*>(tEdgep->top()->userp());
                         // The Move graph is bipartite (logic <-> var), and logic is never
                         // bypassed, hence 'transp' must be non nullptr.
-                        UASSERT_OBJ(transp, mvtxp, "This cannot be a bypassed vertex");
+                        UASSERT_OBJ(transp, &mVtx, "This cannot be a bypassed vertex");
                         addEdge(transp);
                     }
                 }
@@ -2336,12 +2331,11 @@ class Partitioner final {
         for (V3GraphVertex *vtxp = m_mTaskGraphp->verticesBeginp(), *nextp; vtxp; vtxp = nextp) {
             nextp = vtxp->verticesNextp();
             LogicMTask* const mtaskp = vtxp->as<LogicMTask>();
-            V3List<OrderMoveVertex*>& vertexList = mtaskp->vertexList();
+            OrderMoveVertex::List& vertexList = mtaskp->vertexList();
             // Check if MTask is empty
             bool empty = true;
-            for (OrderMoveVertex *mVtxp = vertexList.begin(), *nextp; mVtxp; mVtxp = nextp) {
-                nextp = mVtxp->nextp();
-                if (mVtxp->logicp()) {
+            for (OrderMoveVertex& mVtx : vertexList) {
+                if (mVtx.logicp()) {
                     empty = false;
                     break;
                 }
@@ -2353,9 +2347,10 @@ class Partitioner final {
                 continue;
             }
             // Annotate the underlying OrderMoveVertex vertices and unlink them
-            while (OrderMoveVertex* mVtxp = vertexList.begin()) {
-                mVtxp->userp(mtaskp);
-                mVtxp->unlinkFrom(vertexList);
+            while (!vertexList.empty()) {
+                OrderMoveVertex& mVtx = vertexList.front();
+                vertexList.pop_front();
+                mVtx.userp(mtaskp);
             }
         }
         m_mTaskGraphp->removeRedundantEdgesSum(&V3GraphEdge::followAlwaysTrue);
@@ -2413,7 +2408,7 @@ AstExecGraph* V3Order::createParallel(const OrderGraph& orderGraph, const std::s
         OrderMoveVertex* const mVtxp = vtxp->as<OrderMoveVertex>();
         LogicMTask* const mtaskp = static_cast<LogicMTask*>(mVtxp->userp());
         // Add to list in MTask, in MoveGraph order. This should not be necessary, but see #4993.
-        mVtxp->appendTo(mtaskp->vertexList());
+        mtaskp->vertexList().push_back(*mVtxp);
         // Remove edges crossing between MTasks
         for (V3GraphEdge *edgep = mVtxp->outBeginp(), *nextEdgep; edgep; edgep = nextEdgep) {
             nextEdgep = edgep->outNextp();
@@ -2440,11 +2435,12 @@ AstExecGraph* V3Order::createParallel(const OrderGraph& orderGraph, const std::s
 
         // Add initially ready vertices within this MTask to the serializer as seeds,
         // and unlink them from the vertex list in the MTask as we go.
-        V3List<OrderMoveVertex*>& vertexList = mTaskp->vertexList();
-        while (OrderMoveVertex* vtxp = vertexList.begin()) {
-            // The serializer uses the list node in the vertex, so must unlink here
-            vtxp->unlinkFrom(vertexList);
-            if (vtxp->inEmpty()) serializer.addSeed(vtxp);
+        OrderMoveVertex::List& vertexList = mTaskp->vertexList();
+        while (!vertexList.empty()) {
+            OrderMoveVertex& vtx = vertexList.front();
+            // The serializer uses the list node in the vertex, so must remove it  here
+            vertexList.pop_front();
+            if (vtxp->inEmpty()) serializer.addSeed(&vtx);
         }
 
         // Emit all logic within the MTask as they become ready

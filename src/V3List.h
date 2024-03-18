@@ -141,47 +141,57 @@ public:
 
 //============================================================================
 
-// The list links, to be added as a member to 'Element'. They are considered mutable, even in a
-// 'const Element', as they are only used for storing 'Element' in a collection.
-template <typename Base>
+// The list links, to be instantiated as a member in list element base class 'T_Base'. They are
+// considered mutable, even if the list element is 'const', as they are only used for storing the
+// elements in the collection.
+template <typename T_Base>
 class V3List2Links final {
     // The List itself, but nothing else can access the link pointers
-    template <typename B, V3List2Links<B> B::*P, typename>
+    template <typename B, V3List2Links<B> B::*, typename>
     friend class V3List2;
 
-    Base* m_nextp = nullptr;  // Next element in list
-    Base* m_prevp = nullptr;  // Previous element in list
+    T_Base* m_nextp = nullptr;  // Next element in list
+    T_Base* m_prevp = nullptr;  // Previous element in list
 
 public:
     V3List2Links() = default;
     ~V3List2Links() {
 #ifdef VL_DEBUG
-        m_nextp = reinterpret_cast<Base*>(1);
-        m_prevp = reinterpret_cast<Base*>(1);
+        m_nextp = reinterpret_cast<T_Base*>(1);
+        m_prevp = reinterpret_cast<T_Base*>(1);
 #endif
     }
     VL_UNCOPYABLE(V3List2Links);
     VL_UNMOVABLE(V3List2Links);
 };
 
-template <typename Base, V3List2Links<Base> Base::*LinksPointer, typename Element = Base>
+//============================================================================
+// Generic endogenous (or intrusive) doubly linked list,
+// with links stored inside the elements. The template parameters are:
+// - 'T_Base' is the base type of elements that contains the V3List2Links
+//   instance as a data member.
+// - 'LinksPointer' is a member pointer to the links within 'T_Base'
+// - 'T_Element' is the actual type of elements, which must be the same,
+//    or a subtype of 'T_Base'.
+template <typename T_Base, V3List2Links<T_Base> T_Base::*LinksPointer, typename T_Element = T_Base>
 class V3List2 final {
-    static_assert(std::is_base_of<Base, Element>::value, "'Element' must be a subtype of 'Base");
-    Base* m_headp = nullptr;
-    Base* m_tailp = nullptr;
+    static_assert(std::is_base_of<T_Base, T_Element>::value,
+                  "'T_Element' must be a subtype of 'T_Base");
+    T_Base* m_headp = nullptr;
+    T_Base* m_tailp = nullptr;
 
-    // Given the Element, return the Links. The links are always mutable, even in const elements.
+    // Given the T_Element, return the Links. The links are always mutable, even in const elements.
     VL_ATTR_ALWINLINE
-    static V3List2Links<Base>& toLinks(const Base& element) {
-        return const_cast<Base&>(element).*LinksPointer;
+    static V3List2Links<T_Base>& toLinks(const T_Base& element) {
+        return const_cast<T_Base&>(element).*LinksPointer;
     }
 
     // Bare-bones iterator class for List. This is just enough to support range based for loops and
     // basic usage. Feel free to extend as required.
     template <typename IteratorElement>
     class ItertatorImpl final {
-        static_assert(std::is_same<IteratorElement, Element>::value
-                          || std::is_same<IteratorElement, const Element>::value,
+        static_assert(std::is_same<IteratorElement, T_Element>::value
+                          || std::is_same<IteratorElement, const T_Element>::value,
                       "'ItertatorImpl' must be used with element type only");
 
         // The List itself, but nothing else can construct iterators
@@ -190,9 +200,9 @@ class V3List2 final {
 
         using SelfType = ItertatorImpl<IteratorElement>;
 
-        Base* m_currp;  // Currently iterated element, or 'nullptr' for 'end()'
+        T_Base* m_currp;  // Currently iterated element, or 'nullptr' for 'end()'
 
-        ItertatorImpl(Base* elementp)
+        ItertatorImpl(T_Base* elementp)
             : m_currp{elementp} {
             VL_PREFETCH_RW(elementp);
         }
@@ -202,27 +212,25 @@ class V3List2 final {
     public:
         // Dereference
         IteratorElement& operator*() const {
-            UASSERT(m_currp, "Dereferencing end of list iterator");
+            UDEBUGONLY(UASSERT(m_currp, "Dereferencing end of list iterator"););
             return *static_cast<IteratorElement*>(m_currp);
         }
         // Pre increment
         SelfType& operator++() {
-            UASSERT(m_currp, "Pre-incrementing end of list iterator");
+            UDEBUGONLY(UASSERT(m_currp, "Pre-incrementing end of list iterator"););
             m_currp = toLinks(*m_currp).m_nextp;
             if (VL_LIKELY(m_currp)) VL_PREFETCH_RW(m_currp);
             return *this;
         }
         // Post increment
         SelfType operator++(int) {
-            UASSERT(m_currp, "Post-incrementing end of list iterator");
-            Base* const elementp = m_currp;
+            UDEBUGONLY(UASSERT(m_currp, "Post-incrementing end of list iterator"););
+            T_Base* const elementp = m_currp;
             m_currp = toLinks(*elementp).m_nextp;
             if (VL_LIKELY(m_currp)) VL_PREFETCH_RW(m_currp);
             return SelfType{elementp};
         }
-        // Equals
         bool operator==(const SelfType& other) const { return m_currp == other.m_currp; }
-        // Not equals
         bool operator!=(const SelfType& other) const { return m_currp != other.m_currp; }
         // Convert to const iterator
         operator ItertatorImpl<const IteratorElement>() const {
@@ -231,40 +239,40 @@ class V3List2 final {
     };
 
 public:
-    using List = V3List2<Base, LinksPointer, Element>;
-    using iterator = ItertatorImpl<Element>;
-    using const_iterator = ItertatorImpl<const Element>;
+    using List = V3List2<T_Base, LinksPointer, T_Element>;
+    using iterator = ItertatorImpl<T_Element>;
+    using const_iterator = ItertatorImpl<const T_Element>;
 
     V3List2() = default;
     ~V3List2() {
 #ifdef VL_DEBUG
-        m_headp = reinterpret_cast<Element*>(1);
-        m_tailp = reinterpret_cast<Element*>(1);
+        m_headp = reinterpret_cast<T_Element*>(1);
+        m_tailp = reinterpret_cast<T_Element*>(1);
 #endif
     }
     VL_UNCOPYABLE(V3List2);
     VL_UNMOVABLE(V3List2);
 
     bool empty() const {
-        UASSERT(!m_headp == !m_tailp, "Inconsistent list");
+        UDEBUGONLY(UASSERT(!m_headp == !m_tailp, "Inconsistent list"););
         return !m_headp;
     }
-    Element& front() { return *static_cast<Element*>(m_headp); }
-    const Element& front() const { return *static_cast<Element*>(m_headp); }
-    Element& back() { return *static_cast<Element*>(m_tailp); }
-    const Element& back() const { return *static_cast<Element*>(m_tailp); }
+    T_Element& front() { return *static_cast<T_Element*>(m_headp); }
+    const T_Element& front() const { return *static_cast<T_Element*>(m_headp); }
+    T_Element& back() { return *static_cast<T_Element*>(m_tailp); }
+    const T_Element& back() const { return *static_cast<T_Element*>(m_tailp); }
 
     iterator begin() { return iterator{m_headp}; }
     const_iterator begin() const { return const_iterator{m_headp}; }
     iterator end() { return iterator{nullptr}; }
     const_iterator end() const { return const_iterator{nullptr}; }
 
-    void push_back(const Element& element) {
+    void push_back(const T_Element& element) {
         auto& links = toLinks(element);
         links.m_nextp = nullptr;
         links.m_prevp = m_tailp;
-        if (m_tailp) toLinks(*m_tailp).m_nextp = &const_cast<Element&>(element);
-        m_tailp = &const_cast<Element&>(element);
+        if (m_tailp) toLinks(*m_tailp).m_nextp = &const_cast<T_Element&>(element);
+        m_tailp = &const_cast<T_Element&>(element);
         if (!m_headp) m_headp = m_tailp;
     }
 
@@ -278,18 +286,18 @@ public:
         }
     }
 
-    void push_front(const Element& element) {
+    void push_front(const T_Element& element) {
         auto& links = toLinks(element);
         links.m_nextp = m_headp;
         links.m_prevp = nullptr;
-        if (m_headp) toLinks(*m_headp).m_prevp = &const_cast<Element&>(element);
-        m_headp = &const_cast<Element&>(element);
+        if (m_headp) toLinks(*m_headp).m_prevp = &const_cast<T_Element&>(element);
+        m_headp = &const_cast<T_Element&>(element);
         if (!m_tailp) m_tailp = m_headp;
     }
 
     void pop_front() {
         UASSERT(!empty(), "'pop_front' called on empty list");
-        m_headp = static_cast<Element*>(toLinks(*m_headp).m_nextp);
+        m_headp = static_cast<T_Element*>(toLinks(*m_headp).m_nextp);
         if (m_headp) {
             toLinks(*m_headp).m_prevp = nullptr;
         } else {
@@ -297,7 +305,7 @@ public:
         }
     }
 
-    void erase(const Element& element) {
+    void erase(const T_Element& element) {
         auto& links = toLinks(element);
         if (links.m_nextp) toLinks(*links.m_nextp).m_prevp = links.m_prevp;
         if (links.m_prevp) toLinks(*links.m_prevp).m_nextp = links.m_nextp;
