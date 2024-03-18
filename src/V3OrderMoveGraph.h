@@ -41,7 +41,7 @@ class OrderMoveVertex final : public V3GraphVertex {
     // The corresponding logic vertex, or nullptr if this MoveVertex stands for a variable vertex.
     OrderLogicVertex* const m_logicp;
     OrderMoveDomScope& m_domScope;  // DomScope this vertex is under
-    V3List2Links<OrderMoveVertex> m_links;  // List links to store this Vertex
+    V3List2Links<OrderMoveVertex> m_links;  // List links to store instances of this class
 
     // METHODS
     std::string dotColor() const override { return logicp() ? logicp()->dotColor() : "yellow"; }
@@ -61,7 +61,7 @@ class OrderMoveVertex final : public V3GraphVertex {
     }
 
 public:
-    // List type to store OrderMoveVertex instances
+    // List type to store instances of this class
     using List = V3List2<OrderMoveVertex, &OrderMoveVertex::m_links>;
 
     // CONSTRUCTORS
@@ -72,13 +72,6 @@ public:
 
     OrderLogicVertex* logicp() const VL_MT_STABLE { return m_logicp; }
     OrderMoveDomScope& domScope() const { return m_domScope; }
-
-    //    void unlinkFrom(V3List<OrderMoveVertex*>& list) { m_listEnt.unlink(list, this); }
-    //    void appendTo(V3List<OrderMoveVertex*>& list) { m_listEnt.pushBack(list, this); }
-    //    void moveAppend(V3List<OrderMoveVertex*>& src, V3List<OrderMoveVertex*>& dst) {
-    //        m_listEnt.moveAppend(src, dst, this);
-    //    }
-    //    OrderMoveVertex* nextp() const { return m_listEnt.nextp(); }
 };
 
 //======================================================================
@@ -98,7 +91,7 @@ public:
 class OrderMoveDomScope final {
     // STATE
     OrderMoveVertex::List m_readyVertices;  // Ready vertices in this domain/scope
-    V3ListEnt<OrderMoveDomScope*> m_listEnt;  // List entry to store this instance
+    V3List2Links<OrderMoveDomScope> m_links;  // List links to store instances of this class
     bool m_isOnList = false;  // True if DomScope is already on a list through m_listEnt
     const AstSenTree* const m_domainp;  // Domain the vertices belong to
     const AstScope* const m_scopep;  // Scope the vertices belong to
@@ -134,6 +127,9 @@ class OrderMoveDomScope final {
     static DomScopeMap s_dsMap;
 
 public:
+    // List type to store instances of this class
+    using List = V3List2<OrderMoveDomScope, &OrderMoveDomScope::m_links>;
+
     // STATIC MEMBERS
     static OrderMoveDomScope& getOrCreate(const AstSenTree* domainp, const AstScope* scopep) {
         return s_dsMap
@@ -158,22 +154,7 @@ public:
     const AstScope* scopep() const { return m_scopep; }
 
     bool isOnList() const { return m_isOnList; }
-    void unlinkFrom(V3List<OrderMoveDomScope*>& list) {
-        UASSERT_OBJ(m_isOnList, m_domainp, "unlinkFrom, but DomScope is not on a list");
-        m_isOnList = false;
-        m_listEnt.unlink(list, this);
-    }
-    void appendTo(V3List<OrderMoveDomScope*>& list) {
-        UASSERT_OBJ(!m_isOnList, m_domainp, "appendTo, but DomScope is already on a list");
-        m_isOnList = true;
-        m_listEnt.pushBack(list, this);
-    }
-    void prependTo(V3List<OrderMoveDomScope*>& list) {
-        UASSERT_OBJ(!m_isOnList, m_domainp, "prependTo, but DomScope is already on a list");
-        m_isOnList = true;
-        m_listEnt.pushFront(list, this);
-    }
-    OrderMoveDomScope* nextp() const { return m_listEnt.nextp(); }
+    void isOnList(bool value) { m_isOnList = value; }
 };
 
 //======================================================================
@@ -181,7 +162,7 @@ public:
 
 class OrderMoveGraphSerializer final {
     // STATE
-    V3List<OrderMoveDomScope*> m_readyDomScopeps;  // List of DomScopes which have ready vertices
+    OrderMoveDomScope::List m_readyDomScopeps;  // List of DomScopes which have ready vertices
     OrderMoveDomScope* m_nextDomScopep = nullptr;  // Next DomScope to yield from
 
     // METHODS
@@ -193,7 +174,10 @@ class OrderMoveGraphSerializer final {
             OrderMoveDomScope& domScope = vtxp->domScope();
             domScope.readyVertices().push_back(*vtxp);
             // Add the DomScope to the global ready list if not there yet
-            if (!domScope.isOnList()) domScope.appendTo(m_readyDomScopeps);
+            if (!domScope.isOnList()) {
+                domScope.isOnList(true);
+                m_readyDomScopeps.push_back(domScope);
+            }
         } else {  // This is a bit nonsense at this point, but equivalent to the old version
             // Remove dependency on vertex we are returning. This might add vertices to
             // currReadyList.
@@ -228,12 +212,12 @@ public:
     void addSeed(OrderMoveVertex* vtxp) { ready(vtxp); }
 
     OrderMoveVertex* getNext() {
-        if (!m_nextDomScopep) m_nextDomScopep = m_readyDomScopeps.begin();
-        OrderMoveDomScope* const currDomScopep = m_nextDomScopep;
+        if (!m_nextDomScopep) m_nextDomScopep = &m_readyDomScopeps.front();
         // If nothing is ready, we are done
-        if (!currDomScopep) return nullptr;
+        if (!m_nextDomScopep) return nullptr;
+        OrderMoveDomScope& currDomScope = *m_nextDomScopep;
 
-        OrderMoveVertex::List& currReadyList = currDomScopep->readyVertices();
+        OrderMoveVertex::List& currReadyList = currDomScope.readyVertices();
         UASSERT(!currReadyList.empty(), "DomScope on ready list, but has no ready vertices");
         // This is the vertex we are returning now
         OrderMoveVertex& mVtx = currReadyList.front();
@@ -241,7 +225,10 @@ public:
         currReadyList.pop_front();
 
         // Nonsesne, but what we used to do
-        if (currReadyList.empty()) currDomScopep->unlinkFrom(m_readyDomScopeps);
+        if (currReadyList.empty()) {
+            currDomScope.isOnList(false);
+            m_readyDomScopeps.erase(currDomScope);
+        }
 
         // Remove dependency on vertex we are returning. This might add vertices to currReadyList.
         for (V3GraphEdge *edgep = mVtx.outBeginp(), *nextp; edgep; edgep = nextp) {
@@ -259,9 +246,9 @@ public:
         // under the same domain.
         if (currReadyList.empty()) {
             m_nextDomScopep = nullptr;
-            for (OrderMoveDomScope* dsp = m_readyDomScopeps.begin(); dsp; dsp = dsp->nextp()) {
-                if (dsp->domainp() == currDomScopep->domainp()) {
-                    m_nextDomScopep = dsp;
+            for (OrderMoveDomScope& domScope : m_readyDomScopeps) {
+                if (domScope.domainp() == currDomScope.domainp()) {
+                    m_nextDomScopep = &domScope;
                     break;
                 }
             }

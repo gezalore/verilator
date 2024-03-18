@@ -2440,7 +2440,7 @@ AstExecGraph* V3Order::createParallel(const OrderGraph& orderGraph, const std::s
             OrderMoveVertex& vtx = vertexList.front();
             // The serializer uses the list node in the vertex, so must remove it  here
             vertexList.pop_front();
-            if (vtxp->inEmpty()) serializer.addSeed(&vtx);
+            if (vtx.inEmpty()) serializer.addSeed(&vtx);
         }
 
         // Emit all logic within the MTask as they become ready
