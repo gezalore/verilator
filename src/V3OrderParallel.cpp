@@ -44,6 +44,7 @@
 
 VL_DEFINE_DEBUG_FUNCTIONS;
 
+class LogicMTask;
 class MTaskEdge;
 class MergeCandidate;
 class SiblingMC;
@@ -172,220 +173,6 @@ struct EdgeKey final {
 
 using EdgeHeap = PairingHeap<EdgeKey>;
 
-//=============================================================================
-// LogicMTask
-
-class LogicMTask final : public V3GraphVertex {
-    VL_RTTI_IMPL(LogicMTask, V3GraphVertex)
-    template <GraphWay::en T_Way>
-    friend class PropagateCp;
-
-public:
-    // TYPES
-    struct CmpLogicMTask final {
-        bool operator()(const LogicMTask* ap, const LogicMTask* bp) const {
-            return ap->id() < bp->id();
-        }
-    };
-
-private:
-    // MEMBERS
-
-    // List of OrderMoveVertex's assigned to this mtask. LogicMTask does not
-    // own the OrderMoveVertex objects, we merely keep them in a list here.
-    OrderMoveVertex::List m_mVertices;
-
-    // Cost estimate for this LogicMTask, derived from V3InstrCount.
-    // In abstract time units.
-    uint32_t m_cost = 0;
-
-    // Cost of critical paths going FORWARD from graph-start to the start
-    // of this vertex, and also going REVERSE from the end of the graph to
-    // the end of the vertex. Same units as m_cost.
-    std::array<uint32_t, GraphWay::NUM_WAYS> m_critPathCost;
-
-    const uint32_t m_id;  // Unique LogicMTask ID number
-    static uint32_t s_nextId;  // Next ID number to use
-
-    // Count "generations" which are just operations that scan through the
-    // graph. We'll mark each node with the last generation that scanned
-    // it. We can use this to avoid recursing through the same node twice
-    // while searching for a path.
-    uint64_t m_generation = 0;
-
-    // Store a set of forward relatives so we can quickly check if we have a given child
-    std::unordered_set<LogicMTask*> m_edgeSet;
-    // Store the outgoing and incoming edges in a heap sorted by the critical path length
-    std::array<EdgeHeap, GraphWay::NUM_WAYS> m_edgeHeap;
-
-    // MTasks for which a SiblingMC exists with 'this' as the higher ID MTask (m_ap in SiblingMC)
-    std::set<LogicMTask*> m_siblings;
-    // List of SiblingMCs for which this is the higher ID MTask (m_ap in SiblingMC)
-    V3List<SiblingMC*> m_aSiblingMCs;
-    // List of SiblingMCs for which this is the lower ID MTask (m_bp in SiblingMC)
-    V3List<SiblingMC*> m_bSiblingMCs;
-
-public:
-    // CONSTRUCTORS
-    LogicMTask(V3Graph* graphp, OrderMoveVertex* mVtxp)
-        : V3GraphVertex{graphp}
-        , m_id{s_nextId++} {
-        UASSERT(s_nextId < 0xFFFFFFFFUL, "Too many mTaskGraphp");
-        for (uint32_t& item : m_critPathCost) item = 0;
-        if (mVtxp) {
-            m_mVertices.push_back(*mVtxp);
-            if (const OrderLogicVertex* const olvp = mVtxp->logicp()) {
-                m_cost += V3InstrCount::count(olvp->nodep(), true);
-            }
-        }
-    }
-
-    // METHODS
-    std::set<LogicMTask*>& siblings() { return m_siblings; };
-    V3List<SiblingMC*>& aSiblingMCs() { return m_aSiblingMCs; };
-    V3List<SiblingMC*>& bSiblingMCs() { return m_bSiblingMCs; };
-
-    OrderMoveVertex::List& vertexList() { return m_mVertices; }
-    const OrderMoveVertex::List& vertexList() const { return m_mVertices; }
-    void moveAllVerticesFrom(LogicMTask* otherp) {
-        m_mVertices.splice(m_mVertices.end(), otherp->vertexList());
-        m_cost += otherp->m_cost;
-    }
-    static uint64_t incGeneration() {
-        static uint64_t s_generation = 0;
-        ++s_generation;
-        return s_generation;
-    }
-
-    // Use this instead of pointer-compares to compare LogicMTasks. Avoids
-    // nondeterministic output.  Also name mTaskGraphp based on this number in
-    // the final C++ output.
-    uint32_t id() const { return m_id; }
-    // Abstract cost of every logic mtask
-    uint32_t cost() const VL_MT_SAFE { return m_cost; }
-    void setCost(uint32_t cost) { m_cost = cost; }  // For tests only
-    uint32_t stepCost() const { return stepCost(m_cost); }
-    static uint32_t stepCost(uint32_t cost) {
-#if PART_STEPPED_COST
-        // Round cost up to the nearest 5%. Use this when computing all
-        // critical paths. The idea is that critical path changes don't
-        // need to propagate when they don't exceed the next step, saving a
-        // lot of recursion.
-        if (cost == 0) return 0;
-
-        double logcost = log(cost);
-        // log(1.05) is about 0.05
-        // So, round logcost up to the next 0.05 boundary
-        logcost *= 20.0;
-        logcost = ceil(logcost);
-        logcost = logcost / 20.0;
-
-        const uint32_t stepCost = static_cast<uint32_t>(exp(logcost));
-        UDEBUGONLY(UASSERT_STATIC(stepCost >= cost, "stepped cost error exceeded"););
-        UDEBUGONLY(UASSERT_STATIC(stepCost <= ((cost * 11 / 10)), "stepped cost error exceeded"););
-        return stepCost;
-#else
-        return cost;
-#endif
-    }
-
-    template <GraphWay::en T_Way>
-    void addRelativeEdge(MTaskEdge* edgep);
-    template <GraphWay::en T_Way>
-    void stealRelativeEdge(MTaskEdge* edgep);
-    template <GraphWay::en T_Way>
-    void removeRelativeEdge(MTaskEdge* edgep);
-
-    void addRelativeMTask(LogicMTask* relativep) {
-        // Add the relative to connecting edge map
-        const bool exits = !m_edgeSet.emplace(relativep).second;
-        UDEBUGONLY(UASSERT(!exits, "Adding existing relative"););
-    }
-    void removeRelativeMTask(LogicMTask* relativep) {
-        const size_t removed = m_edgeSet.erase(relativep);
-        UDEBUGONLY(UASSERT(removed, "Relative should have been in set"););
-    }
-    bool hasRelativeMTask(LogicMTask* relativep) const { return m_edgeSet.count(relativep); }
-
-    void checkRelativesCp(GraphWay way) const;
-
-    string name() const override VL_MT_STABLE {
-        // Display forward and reverse critical path costs. This gives a quick
-        // read on whether graph partitioning looks reasonable or bad.
-        std::ostringstream out;
-        out << "mt" << m_id << "." << this << " [b" << m_critPathCost[GraphWay::FORWARD] << " a"
-            << m_critPathCost[GraphWay::REVERSE] << " c" << cost();
-        return out.str();
-    }
-
-    void setCritPathCost(GraphWay way, uint32_t cost) { m_critPathCost[way] = cost; }
-    uint32_t critPathCost(GraphWay way) const { return m_critPathCost[way]; }
-    uint32_t critPathCostWithout(GraphWay way, const V3GraphEdge* withoutp) const;
-
-private:
-    static bool pathExistsFromInternal(LogicMTask* fromp, LogicMTask* top,
-                                       const V3GraphEdge* excludedEdgep, uint64_t generation) {
-        // Q) Why does this take LogicMTask instead of generic V3GraphVertex?
-        // A) We'll use the critical paths known to LogicMTask to prune the
-        //    recursion for speed. Also store 'generation' in
-        //    LogicMTask::m_generation so we can prune the search and avoid
-        //    recursing through the same node more than once in a single
-        //    search.
-
-        if (fromp->m_generation == generation) {
-            // Already looked at this node in the current search.
-            // Since we're back again, we must not have found a path on the
-            // first go.
-            return false;
-        }
-        fromp->m_generation = generation;
-
-        // Base case: we found a path.
-        if (fromp == top) return true;
-
-        // Base case: fromp is too late, cannot possibly be a prereq for top.
-        if (fromp->critPathCost(GraphWay::REVERSE)
-            < (top->critPathCost(GraphWay::REVERSE) + top->stepCost())) {
-            return false;
-        }
-        if ((fromp->critPathCost(GraphWay::FORWARD) + fromp->stepCost())
-            > top->critPathCost(GraphWay::FORWARD)) {
-            return false;
-        }
-
-        // Recursively look for a path
-        for (const V3GraphEdge* followp = fromp->outBeginp(); followp;
-             followp = followp->outNextp()) {
-            if (followp == excludedEdgep) continue;
-            LogicMTask* const nextp = static_cast<LogicMTask*>(followp->top());
-            if (pathExistsFromInternal(nextp, top, nullptr, generation)) return true;
-        }
-        return false;
-    }
-
-    // True if there's a path from 'fromp' to 'top' excluding
-    // 'excludedEdgep', false otherwise.
-    //
-    // 'excludedEdgep' may be nullptr in which case no edge is excluded.  If
-    // 'excludedEdgep' is non-nullptr it must connect fromp and top.
-    //
-    // TODO: consider changing this API to the 'isTransitiveEdge' API
-    // used by GraphPathChecker
-public:
-    static bool pathExistsFrom(LogicMTask* fromp, LogicMTask* top,
-                               const V3GraphEdge* excludedEdgep) {
-        return pathExistsFromInternal(fromp, top, excludedEdgep, incGeneration());
-    }
-
-    static void dumpCpFilePrefixed(const V3Graph& graph, const string& nameComment);
-
-private:
-    VL_UNCOPYABLE(LogicMTask);
-};
-
-// Start at 1, so that 0 indicates no mtask.
-uint32_t LogicMTask::s_nextId = 1;
-
 //######################################################################
 // MTask utility classes
 
@@ -451,40 +238,24 @@ class SiblingMC final : public MergeCandidate {
     LogicMTask* const m_ap;
     LogicMTask* const m_bp;
 
-    V3ListEnt<SiblingMC*> m_aEnt;  // List entry for m_ap->aSiblingMCs()
-    V3ListEnt<SiblingMC*> m_bEnt;  // List entry for m_bp->bSiblingMCs()
+    V3List2Links<SiblingMC> m_aLinks;  // List entry for m_ap->aSiblingMCs()
+    V3List2Links<SiblingMC> m_bLinks;  // List entry for m_bp->bSiblingMCs()
 
 public:
+    using AList = V3List2<SiblingMC, &SiblingMC::m_aLinks>;
+    using BList = V3List2<SiblingMC, &SiblingMC::m_bLinks>;
+
     // CONSTRUCTORS
-    SiblingMC() = delete;
-    SiblingMC(LogicMTask* ap, LogicMTask* bp)
-        : MergeCandidate{/* isSiblingMC: */ true}
-        , m_ap{ap}
-        , m_bp{bp} {
-        // Storage management depends on this
-        UASSERT(ap->id() > bp->id(), "Should be ordered");
-        UDEBUGONLY(UASSERT(ap->siblings().count(bp), "Should be in sibling map"););
-        m_aEnt.pushBack(m_ap->aSiblingMCs(), this);
-        m_bEnt.pushBack(m_bp->bSiblingMCs(), this);
-    }
+    SiblingMC(LogicMTask* ap, LogicMTask* bp);
     ~SiblingMC() = default;
 
     // METHODS
-    SiblingMC* aNextp() const { return m_aEnt.nextp(); }
-    SiblingMC* bNextp() const { return m_bEnt.nextp(); }
-    void unlinkA() {
-        VL_ATTR_UNUSED const size_t removed = m_ap->siblings().erase(m_bp);
-        UDEBUGONLY(UASSERT(removed == 1, "Should have been in sibling set"););
-        m_aEnt.unlink(m_ap->aSiblingMCs(), this);
-    }
-    void unlinkB() { m_bEnt.unlink(m_bp->bSiblingMCs(), this); }
+    void unlinkA();
+    void unlinkB();
 
     LogicMTask* ap() const { return m_ap; }
     LogicMTask* bp() const { return m_bp; }
-    bool mergeWouldCreateCycle() const {
-        return (LogicMTask::pathExistsFrom(m_ap, m_bp, nullptr)
-                || LogicMTask::pathExistsFrom(m_bp, m_ap, nullptr));
-    }
+    bool mergeWouldCreateCycle() const;
 };
 
 static_assert(!std::is_polymorphic<SiblingMC>::value, "Should not have a vtable");
@@ -503,33 +274,18 @@ class MTaskEdge final : public V3GraphEdge, public MergeCandidate {
 
 public:
     // CONSTRUCTORS
-    MTaskEdge(V3Graph* graphp, LogicMTask* fromp, LogicMTask* top, int weight)
-        : V3GraphEdge{graphp, fromp, top, weight}
-        , MergeCandidate{/* isSiblingMC: */ false} {
-        fromp->addRelativeMTask(top);
-        fromp->addRelativeEdge<GraphWay::FORWARD>(this);
-        top->addRelativeEdge<GraphWay::REVERSE>(this);
-    }
+    MTaskEdge(V3Graph* graphp, LogicMTask* fromp, LogicMTask* top, int weight);
     // METHODS
     LogicMTask* furtherMTaskp(GraphWay way) const {
-        return static_cast<LogicMTask*>(this->furtherp(way));
+        return reinterpret_cast<LogicMTask*>(this->furtherp(way));
     }
-    LogicMTask* fromMTaskp() const { return static_cast<LogicMTask*>(fromp()); }
-    LogicMTask* toMTaskp() const { return static_cast<LogicMTask*>(top()); }
-    bool mergeWouldCreateCycle() const {
-        return LogicMTask::pathExistsFrom(fromMTaskp(), toMTaskp(), this);
-    }
+    LogicMTask* fromMTaskp() const { return reinterpret_cast<LogicMTask*>(fromp()); }
+    LogicMTask* toMTaskp() const { return reinterpret_cast<LogicMTask*>(top()); }
+    bool mergeWouldCreateCycle() const;
     // Following initial assignment of critical paths, clear this MTaskEdge
     // out of the edge-map for each node and reinsert at a new location
     // with updated critical path.
-    void resetCriticalPaths() {
-        LogicMTask* const fromp = fromMTaskp();
-        LogicMTask* const top = toMTaskp();
-        fromp->removeRelativeEdge<GraphWay::FORWARD>(this);
-        top->removeRelativeEdge<GraphWay::REVERSE>(this);
-        fromp->addRelativeEdge<GraphWay::FORWARD>(this);
-        top->addRelativeEdge<GraphWay::REVERSE>(this);
-    }
+    void resetCriticalPaths();
 
     uint32_t cachedCp(GraphWay way) const { return m_edgeHeapNode[way].key().m_score; }
 
@@ -543,108 +299,308 @@ private:
     VL_UNCOPYABLE(MTaskEdge);
 };
 
-template <GraphWay::en T_Way>
-void LogicMTask::addRelativeEdge(MTaskEdge* edgep) {
-    constexpr GraphWay way{T_Way};
-    constexpr GraphWay inv = way.invert();
-    // Add to the edge heap
-    LogicMTask* const relativep = edgep->furtherMTaskp(way);
-    // Value is !way cp to this edge
-    const uint32_t cp = relativep->stepCost() + relativep->critPathCost(inv);
+//=============================================================================
+// LogicMTask
+
+class LogicMTask final : public V3GraphVertex {
+    VL_RTTI_IMPL(LogicMTask, V3GraphVertex)
+    template <GraphWay::en T_Way>
+    friend class PropagateCp;
+
+public:
+    // TYPES
+    struct CmpLogicMTask final {
+        bool operator()(const LogicMTask* ap, const LogicMTask* bp) const {
+            return ap->id() < bp->id();
+        }
+    };
+
+private:
+    // MEMBERS
+
+    // List of OrderMoveVertex's assigned to this mtask. LogicMTask does not
+    // own the OrderMoveVertex objects, we merely keep them in a list here.
+    OrderMoveVertex::List m_mVertices;
+
+    // Cost estimate for this LogicMTask, derived from V3InstrCount.
+    // In abstract time units.
+    uint32_t m_cost = 0;
+
+    // Cost of critical paths going FORWARD from graph-start to the start
+    // of this vertex, and also going REVERSE from the end of the graph to
+    // the end of the vertex. Same units as m_cost.
+    std::array<uint32_t, GraphWay::NUM_WAYS> m_critPathCost;
+
+    const uint32_t m_id;  // Unique LogicMTask ID number
+    static uint32_t s_nextId;  // Next ID number to use
+
+    // Count "generations" which are just operations that scan through the
+    // graph. We'll mark each node with the last generation that scanned
+    // it. We can use this to avoid recursing through the same node twice
+    // while searching for a path.
+    uint64_t m_generation = 0;
+
+    // Store a set of forward relatives so we can quickly check if we have a given child
+    std::unordered_set<LogicMTask*> m_edgeSet;
+    // Store the outgoing and incoming edges in a heap sorted by the critical path length
+    std::array<EdgeHeap, GraphWay::NUM_WAYS> m_edgeHeap;
+
+    // MTasks for which a SiblingMC exists with 'this' as the higher ID MTask (m_ap in SiblingMC)
+    std::set<LogicMTask*> m_siblings;
+    // List of SiblingMCs for which this is the higher ID MTask (m_ap in SiblingMC)
+    SiblingMC::AList m_aSiblingMCs;
+    // List of SiblingMCs for which this is the lower ID MTask (m_bp in SiblingMC)
+    SiblingMC::BList m_bSiblingMCs;
+
+public:
+    // CONSTRUCTORS
+    LogicMTask(V3Graph* graphp, OrderMoveVertex* mVtxp)
+        : V3GraphVertex{graphp}
+        , m_id{s_nextId++} {
+        UASSERT(s_nextId < 0xFFFFFFFFUL, "Too many mTaskGraphp");
+        for (uint32_t& item : m_critPathCost) item = 0;
+        if (mVtxp) {
+            m_mVertices.push_back(*mVtxp);
+            if (const OrderLogicVertex* const olvp = mVtxp->logicp()) {
+                m_cost += V3InstrCount::count(olvp->nodep(), true);
+            }
+        }
+    }
+
+    // METHODS
+    std::set<LogicMTask*>& siblings() { return m_siblings; };
+    SiblingMC::AList& aSiblingMCs() { return m_aSiblingMCs; };
+    SiblingMC::BList& bSiblingMCs() { return m_bSiblingMCs; };
+
+    OrderMoveVertex::List& vertexList() { return m_mVertices; }
+    const OrderMoveVertex::List& vertexList() const { return m_mVertices; }
+    void moveAllVerticesFrom(LogicMTask* otherp) {
+        m_mVertices.splice(m_mVertices.end(), otherp->vertexList());
+        m_cost += otherp->m_cost;
+    }
+    static uint64_t incGeneration() {
+        static uint64_t s_generation = 0;
+        ++s_generation;
+        return s_generation;
+    }
+
+    // Use this instead of pointer-compares to compare LogicMTasks. Avoids
+    // nondeterministic output.  Also name mTaskGraphp based on this number in
+    // the final C++ output.
+    uint32_t id() const { return m_id; }
+    // Abstract cost of every logic mtask
+    uint32_t cost() const VL_MT_SAFE { return m_cost; }
+    void setCost(uint32_t cost) { m_cost = cost; }  // For tests only
+    uint32_t stepCost() const { return stepCost(m_cost); }
+    static uint32_t stepCost(uint32_t cost) {
+#if PART_STEPPED_COST
+        // Round cost up to the nearest 5%. Use this when computing all
+        // critical paths. The idea is that critical path changes don't
+        // need to propagate when they don't exceed the next step, saving a
+        // lot of recursion.
+        if (cost == 0) return 0;
+
+        double logcost = log(cost);
+        // log(1.05) is about 0.05
+        // So, round logcost up to the next 0.05 boundary
+        logcost *= 20.0;
+        logcost = ceil(logcost);
+        logcost = logcost / 20.0;
+
+        const uint32_t stepCost = static_cast<uint32_t>(exp(logcost));
+        UDEBUGONLY(UASSERT_STATIC(stepCost >= cost, "stepped cost error exceeded"););
+        UDEBUGONLY(UASSERT_STATIC(stepCost <= ((cost * 11 / 10)), "stepped cost error exceeded"););
+        return stepCost;
+#else
+        return cost;
+#endif
+    }
+
+    template <GraphWay::en T_Way>
+    void addRelativeEdge(MTaskEdge* edgep) {
+        constexpr GraphWay way{T_Way};
+        constexpr GraphWay inv = way.invert();
+        // Add to the edge heap
+        LogicMTask* const relativep = edgep->furtherMTaskp(way);
+        // Value is !way cp to this edge
+        const uint32_t cp = relativep->stepCost() + relativep->critPathCost(inv);
+        //
+        m_edgeHeap[way].insert(&edgep->m_edgeHeapNode[way], {relativep->id(), cp});
+    }
+    template <GraphWay::en T_Way>
+    void stealRelativeEdge(MTaskEdge* edgep) {
+        constexpr GraphWay way{T_Way};
+        // Make heap node insertable, ruining the heap it is currently in.
+        edgep->m_edgeHeapNode[way].yank();
+        // Add the edge as new
+        addRelativeEdge<T_Way>(edgep);
+    }
+    template <GraphWay::en T_Way>
+    void removeRelativeEdge(MTaskEdge* edgep) {
+        constexpr GraphWay way{T_Way};
+        // Remove from the edge heap
+        m_edgeHeap[way].remove(&edgep->m_edgeHeapNode[way]);
+    }
+
+    void addRelativeMTask(LogicMTask* relativep) {
+        // Add the relative to connecting edge map
+        const bool exits = !m_edgeSet.emplace(relativep).second;
+        UDEBUGONLY(UASSERT(!exits, "Adding existing relative"););
+    }
+    void removeRelativeMTask(LogicMTask* relativep) {
+        const size_t removed = m_edgeSet.erase(relativep);
+        UDEBUGONLY(UASSERT(removed, "Relative should have been in set"););
+    }
+    bool hasRelativeMTask(LogicMTask* relativep) const { return m_edgeSet.count(relativep); }
+
+    void checkRelativesCp(GraphWay way) const {
+        for (V3GraphEdge* edgep = beginp(way); edgep; edgep = edgep->nextp(way)) {
+            const LogicMTask* const relativep
+                = static_cast<const LogicMTask*>(edgep->furtherp(way));
+            const uint32_t cachedCp = static_cast<MTaskEdge*>(edgep)->cachedCp(way);
+            const uint32_t cp = relativep->critPathCost(way.invert()) + relativep->stepCost();
+            partCheckCachedScoreVsActual(cachedCp, cp);
+        }
+    }
+
+    string name() const override VL_MT_STABLE {
+        // Display forward and reverse critical path costs. This gives a quick
+        // read on whether graph partitioning looks reasonable or bad.
+        std::ostringstream out;
+        out << "mt" << m_id << "." << this << " [b" << m_critPathCost[GraphWay::FORWARD] << " a"
+            << m_critPathCost[GraphWay::REVERSE] << " c" << cost();
+        return out.str();
+    }
+
+    void setCritPathCost(GraphWay way, uint32_t cost) { m_critPathCost[way] = cost; }
+    uint32_t critPathCost(GraphWay way) const { return m_critPathCost[way]; }
+    uint32_t critPathCostWithout(GraphWay way, const V3GraphEdge* withoutp) const {
+        // Compute the critical path cost wayward to this node, without considering edge
+        // 'withoutp'. We need to look at two edges at most, the critical path if that is not via
+        // 'withoutp', or the second-worst path, if the critical path is via 'withoutp'.
+        UDEBUGONLY(UASSERT(withoutp->furtherp(way) == this,
+                           "In critPathCostWithout(), edge 'withoutp' must further to 'this'"););
+        const GraphWay inv = way.invert();
+        const EdgeHeap& edgeHeap = m_edgeHeap[inv];
+        const EdgeHeap::Node* const maxp = edgeHeap.max();
+        if (!maxp) return 0;
+        if (MTaskEdge::toMTaskEdge(inv, maxp) != withoutp) return maxp->key().m_score;
+        const EdgeHeap::Node* const secp = edgeHeap.secondMax();
+        if (!secp) return 0;
+        return secp->key().m_score;
+    }
+
+private:
+    static bool pathExistsFromInternal(LogicMTask* fromp, LogicMTask* top,
+                                       const V3GraphEdge* excludedEdgep, uint64_t generation) {
+        // Q) Why does this take LogicMTask instead of generic V3GraphVertex?
+        // A) We'll use the critical paths known to LogicMTask to prune the
+        //    recursion for speed. Also store 'generation' in
+        //    LogicMTask::m_generation so we can prune the search and avoid
+        //    recursing through the same node more than once in a single
+        //    search.
+
+        if (fromp->m_generation == generation) {
+            // Already looked at this node in the current search.
+            // Since we're back again, we must not have found a path on the
+            // first go.
+            return false;
+        }
+        fromp->m_generation = generation;
+
+        // Base case: we found a path.
+        if (fromp == top) return true;
+
+        // Base case: fromp is too late, cannot possibly be a prereq for top.
+        if (fromp->critPathCost(GraphWay::REVERSE)
+            < (top->critPathCost(GraphWay::REVERSE) + top->stepCost())) {
+            return false;
+        }
+        if ((fromp->critPathCost(GraphWay::FORWARD) + fromp->stepCost())
+            > top->critPathCost(GraphWay::FORWARD)) {
+            return false;
+        }
+
+        // Recursively look for a path
+        for (const V3GraphEdge* followp = fromp->outBeginp(); followp;
+             followp = followp->outNextp()) {
+            if (followp == excludedEdgep) continue;
+            LogicMTask* const nextp = static_cast<LogicMTask*>(followp->top());
+            if (pathExistsFromInternal(nextp, top, nullptr, generation)) return true;
+        }
+        return false;
+    }
+
+    // True if there's a path from 'fromp' to 'top' excluding
+    // 'excludedEdgep', false otherwise.
     //
-    m_edgeHeap[way].insert(&edgep->m_edgeHeapNode[way], {relativep->id(), cp});
-}
-
-template <GraphWay::en T_Way>
-void LogicMTask::stealRelativeEdge(MTaskEdge* edgep) {
-    constexpr GraphWay way{T_Way};
-    // Make heap node insertable, ruining the heap it is currently in.
-    edgep->m_edgeHeapNode[way].yank();
-    // Add the edge as new
-    addRelativeEdge<T_Way>(edgep);
-}
-
-template <GraphWay::en T_Way>
-void LogicMTask::removeRelativeEdge(MTaskEdge* edgep) {
-    constexpr GraphWay way{T_Way};
-    // Remove from the edge heap
-    m_edgeHeap[way].remove(&edgep->m_edgeHeapNode[way]);
-}
-
-void LogicMTask::checkRelativesCp(GraphWay way) const {
-    for (V3GraphEdge* edgep = beginp(way); edgep; edgep = edgep->nextp(way)) {
-        const LogicMTask* const relativep = static_cast<const LogicMTask*>(edgep->furtherp(way));
-        const uint32_t cachedCp = static_cast<MTaskEdge*>(edgep)->cachedCp(way);
-        const uint32_t cp = relativep->critPathCost(way.invert()) + relativep->stepCost();
-        partCheckCachedScoreVsActual(cachedCp, cp);
+    // 'excludedEdgep' may be nullptr in which case no edge is excluded.  If
+    // 'excludedEdgep' is non-nullptr it must connect fromp and top.
+    //
+    // TODO: consider changing this API to the 'isTransitiveEdge' API
+    // used by GraphPathChecker
+public:
+    static bool pathExistsFrom(LogicMTask* fromp, LogicMTask* top,
+                               const V3GraphEdge* excludedEdgep) {
+        return pathExistsFromInternal(fromp, top, excludedEdgep, incGeneration());
     }
-}
 
-uint32_t LogicMTask::critPathCostWithout(GraphWay way, const V3GraphEdge* withoutp) const {
-    // Compute the critical path cost wayward to this node, without considering edge 'withoutp'.
-    // We need to look at two edges at most, the critical path if that is not via 'withoutp',
-    // or the second-worst path, if the critical path is via 'withoutp'.
-    UDEBUGONLY(UASSERT(withoutp->furtherp(way) == this,
-                       "In critPathCostWithout(), edge 'withoutp' must further to 'this'"););
-    const GraphWay inv = way.invert();
-    const EdgeHeap& edgeHeap = m_edgeHeap[inv];
-    const EdgeHeap::Node* const maxp = edgeHeap.max();
-    if (!maxp) return 0;
-    if (MTaskEdge::toMTaskEdge(inv, maxp) != withoutp) return maxp->key().m_score;
-    const EdgeHeap::Node* const secp = edgeHeap.secondMax();
-    if (!secp) return 0;
-    return secp->key().m_score;
-}
+    static void dumpCpFilePrefixed(const V3Graph& graph, const string& nameComment) {
+        const string filename = v3Global.debugFilename(nameComment) + ".txt";
+        UINFO(1, "Writing " << filename << endl);
+        const std::unique_ptr<std::ofstream> ofp{V3File::new_ofstream(filename)};
+        std::ostream* const osp = &(*ofp);  // &* needed to deref unique_ptr
+        if (osp->fail()) v3fatalStatic("Can't write " << filename);
 
-void LogicMTask::dumpCpFilePrefixed(const V3Graph& graph, const string& nameComment) {
-    const string filename = v3Global.debugFilename(nameComment) + ".txt";
-    UINFO(1, "Writing " << filename << endl);
-    const std::unique_ptr<std::ofstream> ofp{V3File::new_ofstream(filename)};
-    std::ostream* const osp = &(*ofp);  // &* needed to deref unique_ptr
-    if (osp->fail()) v3fatalStatic("Can't write " << filename);
-
-    // Find start vertex with longest CP
-    LogicMTask* startp = nullptr;
-    for (V3GraphVertex* vxp = graph.verticesBeginp(); vxp; vxp = vxp->verticesNextp()) {
-        LogicMTask* const mtaskp = static_cast<LogicMTask*>(vxp);
-        if (!startp) {
-            startp = mtaskp;
-            continue;
+        // Find start vertex with longest CP
+        LogicMTask* startp = nullptr;
+        for (V3GraphVertex* vxp = graph.verticesBeginp(); vxp; vxp = vxp->verticesNextp()) {
+            LogicMTask* const mtaskp = static_cast<LogicMTask*>(vxp);
+            if (!startp) {
+                startp = mtaskp;
+                continue;
+            }
+            if (mtaskp->cost() + mtaskp->critPathCost(GraphWay::REVERSE)
+                > startp->cost() + startp->critPathCost(GraphWay::REVERSE)) {
+                startp = mtaskp;
+            }
         }
-        if (mtaskp->cost() + mtaskp->critPathCost(GraphWay::REVERSE)
-            > startp->cost() + startp->critPathCost(GraphWay::REVERSE)) {
-            startp = mtaskp;
+
+        // Follow the entire critical path
+        std::vector<const LogicMTask*> path;
+        uint32_t totalCost = 0;
+        for (LogicMTask* nextp = startp; nextp;) {
+            path.push_back(nextp);
+            totalCost += nextp->cost();
+
+            if (EdgeHeap::Node* const maxp = nextp->m_edgeHeap[GraphWay::FORWARD].max()) {
+                nextp = MTaskEdge::toMTaskEdge(GraphWay::FORWARD, maxp)->toMTaskp();
+            } else {
+                nextp = nullptr;
+            }
+        }
+
+        *osp << "totalCost = " << totalCost
+             << " (should match the computed critical path cost (CP) for the graph)\n";
+
+        // Dump
+        for (const LogicMTask* mtaskp : path) {
+            *osp << "begin mtask with cost " << mtaskp->cost() << '\n';
+            for (const OrderMoveVertex& mVtx : mtaskp->vertexList()) {
+                const OrderLogicVertex* const logicp = mVtx.logicp();
+                if (!logicp) continue;
+                // Show nodes with hierarchical costs
+                V3InstrCount::count(logicp->nodep(), false, osp);
+            }
         }
     }
 
-    // Follow the entire critical path
-    std::vector<const LogicMTask*> path;
-    uint32_t totalCost = 0;
-    for (LogicMTask* nextp = startp; nextp;) {
-        path.push_back(nextp);
-        totalCost += nextp->cost();
+private:
+    VL_UNCOPYABLE(LogicMTask);
+};
 
-        if (EdgeHeap::Node* const maxp = nextp->m_edgeHeap[GraphWay::FORWARD].max()) {
-            nextp = MTaskEdge::toMTaskEdge(GraphWay::FORWARD, maxp)->toMTaskp();
-        } else {
-            nextp = nullptr;
-        }
-    }
-
-    *osp << "totalCost = " << totalCost
-         << " (should match the computed critical path cost (CP) for the graph)\n";
-
-    // Dump
-    for (const LogicMTask* mtaskp : path) {
-        *osp << "begin mtask with cost " << mtaskp->cost() << '\n';
-        for (const OrderMoveVertex& mVtx : mtaskp->vertexList()) {
-            const OrderLogicVertex* const logicp = mVtx.logicp();
-            if (!logicp) continue;
-            // Show nodes with hierarchical costs
-            V3InstrCount::count(logicp->nodep(), false, osp);
-        }
-    }
-}
+// Start at 1, so that 0 indicates no mtask.
+uint32_t LogicMTask::s_nextId = 1;
 
 // Instead of dynamic cast
 SiblingMC* MergeCandidate::toSiblingMC() {
@@ -694,6 +650,53 @@ void MergeCandidate::rescore() {
         // about why.
         m_key.m_score = 1 + edgeScore(static_cast<const MTaskEdge*>(this));
     }
+}
+
+SiblingMC::SiblingMC(LogicMTask* ap, LogicMTask* bp)
+    : MergeCandidate{/* isSiblingMC: */ true}
+    , m_ap{ap}
+    , m_bp{bp} {
+    // Storage management depends on this
+    UASSERT(ap->id() > bp->id(), "Should be ordered");
+    UDEBUGONLY(UASSERT(ap->siblings().count(bp), "Should be in sibling map"););
+    m_ap->aSiblingMCs().push_back(*this);
+    m_bp->bSiblingMCs().push_back(*this);
+}
+
+void SiblingMC::unlinkA() {
+    VL_ATTR_UNUSED const size_t removed = m_ap->siblings().erase(m_bp);
+    UDEBUGONLY(UASSERT(removed == 1, "Should have been in sibling set"););
+    m_ap->aSiblingMCs().erase(*this);
+}
+
+void SiblingMC::unlinkB() { m_bp->bSiblingMCs().erase(*this); }
+
+bool SiblingMC::mergeWouldCreateCycle() const {
+    return (LogicMTask::pathExistsFrom(m_ap, m_bp, nullptr)
+            || LogicMTask::pathExistsFrom(m_bp, m_ap, nullptr));
+}
+
+MTaskEdge::MTaskEdge(V3Graph* graphp, LogicMTask* fromp, LogicMTask* top, int weight)
+    : V3GraphEdge{graphp, fromp, top, weight}
+    , MergeCandidate{/* isSiblingMC: */ false} {
+    fromp->addRelativeMTask(top);
+    fromp->addRelativeEdge<GraphWay::FORWARD>(this);
+    top->addRelativeEdge<GraphWay::REVERSE>(this);
+}
+
+bool MTaskEdge::mergeWouldCreateCycle() const {
+    return LogicMTask::pathExistsFrom(fromMTaskp(), toMTaskp(), this);
+}
+// Following initial assignment of critical paths, clear this MTaskEdge
+// out of the edge-map for each node and reinsert at a new location
+// with updated critical path.
+void MTaskEdge::resetCriticalPaths() {
+    LogicMTask* const fromp = fromMTaskp();
+    LogicMTask* const top = toMTaskp();
+    fromp->removeRelativeEdge<GraphWay::FORWARD>(this);
+    top->removeRelativeEdge<GraphWay::REVERSE>(this);
+    fromp->addRelativeEdge<GraphWay::FORWARD>(this);
+    top->addRelativeEdge<GraphWay::REVERSE>(this);
 }
 
 //######################################################################
@@ -1338,19 +1341,19 @@ private:
     }
 
     void removeSiblingMCsWith(LogicMTask* mtaskp) {
-        for (SiblingMC *smcp = mtaskp->aSiblingMCs().begin(), *nextp;  // lintok-begin-on-ref
-             smcp; smcp = nextp) {
-            nextp = smcp->aNextp();
-            m_sb.remove(smcp);
-            smcp->unlinkB();
-            delete smcp;
+        while (!mtaskp->aSiblingMCs().empty()) {
+            SiblingMC& smc = mtaskp->aSiblingMCs().front();
+            mtaskp->aSiblingMCs().pop_front();
+            m_sb.remove(&smc);
+            smc.unlinkB();
+            delete &smc;
         }
-        for (SiblingMC *smcp = mtaskp->bSiblingMCs().begin(), *nextp;  // lintok-begin-on-ref
-             smcp; smcp = nextp) {
-            nextp = smcp->bNextp();
-            m_sb.remove(smcp);
-            smcp->unlinkA();
-            delete smcp;
+        while (!mtaskp->bSiblingMCs().empty()) {
+            SiblingMC& smc = mtaskp->bSiblingMCs().front();
+            mtaskp->bSiblingMCs().pop_front();
+            m_sb.remove(&smc);
+            smc.unlinkA();
+            delete &smc;
         }
     }
 
@@ -1364,8 +1367,6 @@ private:
         // Clear the sibling map of the recipient. The donor will be deleted anyway, so we can
         // leave that in a corrupt for efficiency.
         recipientp->siblings().clear();
-        recipientp->aSiblingMCs().reset();
-        recipientp->bSiblingMCs().reset();
     }
 
     void contract(MergeCandidate* mergeCanp) {
@@ -1516,11 +1517,10 @@ private:
             // It's fine if we already have this SiblingMC, we may have
             // created it earlier. Just confirm that we have associated data.
             bool found = false;
-            for (const SiblingMC* smcp = ap->aSiblingMCs().begin();  // lintok-begin-on-ref
-                 smcp; smcp = smcp->aNextp()) {
-                UASSERT_OBJ(smcp->ap() == ap, ap, "Inconsistent SiblingMC");
-                UASSERT_OBJ(m_sb.contains(smcp), ap, "Must be on the scoreboard");
-                if (smcp->bp() == bp) found = true;
+            for (const SiblingMC& smc : ap->aSiblingMCs()) {
+                UASSERT_OBJ(smc.ap() == ap, ap, "Inconsistent SiblingMC");
+                UASSERT_OBJ(m_sb.contains(&smc), ap, "Must be on the scoreboard");
+                if (smc.bp() == bp) found = true;
             }
             UASSERT_OBJ(found, ap, "Sibling not found");
         }

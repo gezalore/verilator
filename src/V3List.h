@@ -213,11 +213,13 @@ class V3List2 final {
 
     public:
         // Dereference
+        VL_ATTR_ALWINLINE
         IteratorElement& operator*() const {
             UDEBUGONLY(UASSERT(m_currp, "Dereferencing end of list iterator"););
             return *static_cast<IteratorElement*>(m_currp);
         }
         // Pre increment
+        VL_ATTR_ALWINLINE
         SelfType& operator++() {
             UDEBUGONLY(UASSERT(m_currp, "Pre-incrementing end of list iterator"););
             m_currp = toLinks(*m_currp).m_nextp;
@@ -225,16 +227,20 @@ class V3List2 final {
             return *this;
         }
         // Post increment
+        VL_ATTR_ALWINLINE
         SelfType operator++(int) {
             UDEBUGONLY(UASSERT(m_currp, "Post-incrementing end of list iterator"););
             T_Base* const elementp = m_currp;
-            m_currp = toLinks(*elementp).m_nextp;
+            m_currp = toLinks(*m_currp).m_nextp;
             if (VL_LIKELY(m_currp)) VL_PREFETCH_RW(m_currp);
             return SelfType{elementp};
         }
+        VL_ATTR_ALWINLINE
         bool operator==(const SelfType& other) const { return m_currp == other.m_currp; }
+        VL_ATTR_ALWINLINE
         bool operator!=(const SelfType& other) const { return m_currp != other.m_currp; }
         // Convert to const iterator
+        VL_ATTR_ALWINLINE
         operator ItertatorImpl<const IteratorElement>() const {
             return ItertatorImpl<const IteratorElement>{m_currp};
         }
