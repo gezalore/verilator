@@ -39,11 +39,15 @@ class GraphAcycVertex final : public V3GraphVertex {
     V3GraphVertex* const m_origVertexp;  // Pointer to first vertex this represents
 protected:
     friend class GraphAcyc;
-    V3ListEnt<GraphAcycVertex*> m_work;  // List of vertices with optimization work left
+    V3List2Links<GraphAcycVertex> m_links;  // List links to store instances of this class
+    // LoiList of vertices with optimization work left
     uint32_t m_storedRank = 0;  // Rank held until commit to edge placement
     bool m_onWorkList = false;  // True if already on list of work to do
     bool m_deleted = false;  // True if deleted
 public:
+    // List type to store instances of this class
+    using List = V3List2<GraphAcycVertex, &GraphAcycVertex::m_links>;
+
     GraphAcycVertex(V3Graph* graphp, V3GraphVertex* origVertexp)
         : V3GraphVertex{graphp}
         , m_origVertexp{origVertexp} {}
@@ -103,7 +107,7 @@ class GraphAcyc final {
     // MEMBERS
     V3Graph* const m_origGraphp;  // Original graph
     V3Graph m_breakGraph;  // Graph with only breakable edges represented
-    V3List<GraphAcycVertex*> m_work;  // List of vertices with optimization work left
+    GraphAcycVertex::List m_work;  // List of vertices with optimization work left
     std::vector<OrigEdgeList*> m_origEdgeDelp;  // List of deletions to do when done
     const V3EdgeFuncP
         m_origEdgeFuncp;  // Function that says we follow this edge (in original graph)
@@ -172,14 +176,14 @@ class GraphAcyc final {
         // Add vertex to list of nodes needing further optimization trials
         if (!avertexp->m_onWorkList) {
             avertexp->m_onWorkList = true;
-            avertexp->m_work.pushBack(m_work, avertexp);
+            m_work.push_back(*avertexp);
         }
     }
-    GraphAcycVertex* workBeginp() { return m_work.begin(); }
+    GraphAcycVertex* workBeginp() { return &m_work.front(); }
     void workPop() {
         GraphAcycVertex* const avertexp = workBeginp();
         avertexp->m_onWorkList = false;
-        avertexp->m_work.unlink(m_work, avertexp);
+        m_work.erase(*avertexp);
     }
 
 public:
