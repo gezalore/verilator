@@ -335,8 +335,8 @@ public:
 static void v3GateWarnSyncAsync(GateGraph& graph) {
     // AstVar::user2            -> bool: Warned about SYNCASYNCNET
     const VNUser2InUse user2InUse;
-    for (V3GraphVertex* itp = graph.verticesBeginp(); itp; itp = itp->verticesNextp()) {
-        if (const GateVarVertex* const vvertexp = itp->cast<GateVarVertex>()) {
+    for (V3GraphVertex& vtx : graph.vertices()) {
+        if (const GateVarVertex* const vvertexp = vtx.cast<GateVarVertex>()) {
             const AstVarScope* const vscp = vvertexp->varScp();
             const AstNode* const sp = vvertexp->rstSyncNodep();
             const AstNode* const ap = vvertexp->rstAsyncNodep();
@@ -438,10 +438,10 @@ class GateClkDecomp final {
             ++m_seenClkVectors;
         }
 
-        for (V3GraphEdge *edgep = vVtxp->outBeginp(), *nextp; edgep; edgep = nextp) {
-            // Need to find the next edge before visiting in case the edge is deleted
-            nextp = edgep->outNextp();
-            visit(edgep->top()->as<GateLogicVertex>(), offset, vscp);
+        auto& outEdges = vVtxp->outEdges();
+        for (auto it = outEdges.begin(); it != outEdges.end();) {
+            // Need step iterator before visiting in case the edge is deleted
+            visit((*it++).top()->as<GateLogicVertex>(), offset, vscp);
         }
 
         vscp->user2(false);
@@ -485,8 +485,10 @@ class GateClkDecomp final {
                             "Should only make it here with clkOffset == 0");
                 rhsp->replaceWith(
                     new AstVarRef{rhsp->fileline(), m_clkVtxp->varScp(), VAccess::READ});
-                while (V3GraphEdge* const edgep = lVtxp->inBeginp()) {
-                    VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
+                while (!lVtxp->inEmpty()) {
+                    V3GraphEdge& edge = lVtxp->inEdges().front();
+                    lVtxp->inEdges().pop_front();
+                    edge.unlinkDelete();
                 }
                 m_graph.addEdge(m_clkVtxp, lVtxp, 1);
                 ++m_decomposedClkVectors;
@@ -495,14 +497,14 @@ class GateClkDecomp final {
             return;
         }
 
-        visit(lVtxp->outBeginp()->top()->as<GateVarVertex>(), clkOffset);
+        visit(lVtxp->outEdges().front().top()->as<GateVarVertex>(), clkOffset);
     }
 
     explicit GateClkDecomp(GateGraph& graph)
         : m_graph{graph} {
         UINFO(9, "Starting clock decomposition" << endl);
-        for (V3GraphVertex* itp = graph.verticesBeginp(); itp; itp = itp->verticesNextp()) {
-            GateVarVertex* const vVtxp = itp->cast<GateVarVertex>();
+        for (V3GraphVertex& vtx : graph.vertices()) {
+            GateVarVertex* const vVtxp = vtx.cast<GateVarVertex>();
             if (!vVtxp) continue;
 
             const AstVarScope* const vscp = vVtxp->varScp();
@@ -739,17 +741,18 @@ class GateInline final {
         substitutions.clear();
     }
 
-    static GateVarVertex* ffToVarVtx(V3GraphVertex* vtxp) {
-        while (vtxp && !vtxp->is<GateVarVertex>()) vtxp = vtxp->verticesNextp();
-        return static_cast<GateVarVertex*>(vtxp);
-    }
-
     void optimizeSignals(bool allowMultiIn) {
         // Consider "inlining" variables
-        GateVarVertex* nextp = ffToVarVtx(m_graph.verticesBeginp());
-        while (GateVarVertex* const vVtxp = nextp) {
+        auto& vertices = m_graph.vertices();
+        const auto ffToVarVtx = [&](V3GraphVertex::List::iterator it) {
+            while (it != vertices.end() && !(*it).is<GateVarVertex>()) ++it;
+            return it;
+        };
+        V3GraphVertex::List::iterator vIt = ffToVarVtx(vertices.begin());
+        while (vIt != vertices.end()) {
+            GateVarVertex* const vVtxp = (*vIt).as<GateVarVertex>();
             // vVtxp and it's driving logic might be deleted, so grab next up front
-            nextp = ffToVarVtx(vVtxp->verticesNextp());
+            vIt = ffToVarVtx(++vIt);
 
             // Nothing to inline if no driver, or multiple drivers ...
             if (!vVtxp->inSize1()) continue;
@@ -758,7 +761,7 @@ class GateInline final {
             if (!vVtxp->reducible()) continue;
 
             // Grab the driving logic
-            GateLogicVertex* const lVtxp = vVtxp->inBeginp()->fromp()->as<GateLogicVertex>();
+            GateLogicVertex* const lVtxp = vVtxp->inEdges().front().fromp()->as<GateLogicVertex>();
             if (!lVtxp->reducible()) continue;
             AstNode* const logicp = lVtxp->nodep();
 
@@ -778,10 +781,10 @@ class GateInline final {
                 } else {
                     // Do it if not used, or used only once, ignoring slow code
                     int n = 0;
-                    for (V3GraphEdge* ep = vVtxp->outBeginp(); ep; ep = ep->outNextp()) {
-                        const GateLogicVertex* const dstVtxp = ep->top()->as<GateLogicVertex>();
+                    for (V3GraphEdge& edge : vVtxp->outEdges()) {
+                        const GateLogicVertex* const dstVtxp = edge.top()->as<GateLogicVertex>();
                         // Ignore slow code, or if the destination is not used
-                        if (!dstVtxp->slow() && dstVtxp->outBeginp()) n += ep->weight();
+                        if (!dstVtxp->slow() && !dstVtxp->outEmpty()) n += edge.weight();
                         if (n > 1) break;
                     }
                     if (n > 1) continue;
@@ -802,18 +805,17 @@ class GateInline final {
             const std::unordered_set<AstVarScope*> readVscps{readVscpsVec.begin(),
                                                              readVscpsVec.end()};
 
-            for (V3GraphEdge *edgep = vVtxp->outBeginp(), *nextp; edgep; edgep = nextp) {
-                // Edge might be deleted, so grab next
-                nextp = edgep->outNextp();
+            auto& outEdges = vVtxp->outEdges();
+            for (auto eIt = outEdges.begin(); eIt != outEdges.end();) {
+                V3GraphEdge& edge = *eIt++;
 
-                GateLogicVertex* const dstVtxp = edgep->top()->as<GateLogicVertex>();
+                GateLogicVertex* const dstVtxp = edge.top()->as<GateLogicVertex>();
 
                 // If the consumer logic writes one of the variables that the substitution
                 // is reading, then we would get a cycles, so we cannot do that.
                 bool canInline = true;
-                for (V3GraphEdge* dedgep = dstVtxp->outBeginp(); dedgep;
-                     dedgep = dedgep->outNextp()) {
-                    const GateVarVertex* const consVVertexp = dedgep->top()->as<GateVarVertex>();
+                for (V3GraphEdge& dedge : dstVtxp->outEdges()) {
+                    const GateVarVertex* const consVVertexp = dedge.top()->as<GateVarVertex>();
                     if (readVscps.count(consVVertexp->varScp())) {
                         canInline = false;
                         break;
@@ -836,8 +838,8 @@ class GateInline final {
                 }
 
                 // Remove the edge
-                VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
                 ++m_statRefs;
+                edge.unlinkDelete();
             }
 
             // If removed all usage
@@ -1078,8 +1080,8 @@ class GateDedupe final {
         if (!vVtxp->inSize1()) return;
 
         AstNodeVarRef* dupRefp = nullptr;
-        for (V3GraphEdge* edgep = vVtxp->inBeginp(); edgep; edgep = edgep->inNextp()) {
-            dupRefp = visit(edgep->fromp()->as<GateLogicVertex>(), vVtxp);
+        for (V3GraphEdge& edge : vVtxp->inEdges()) {
+            dupRefp = visit(edge.fromp()->as<GateLogicVertex>(), vVtxp);
         }
         if (!dupRefp) return;
 
@@ -1087,7 +1089,7 @@ class GateDedupe final {
                     "GateLogicVertex* visit should have returned nullptr "
                     "if consumer var vertex is not dedupable.");
 
-        GateLogicVertex* const lVtxp = vVtxp->inBeginp()->fromp()->as<GateLogicVertex>();
+        GateLogicVertex* const lVtxp = vVtxp->inEdges().front().fromp()->as<GateLogicVertex>();
         const GateOkVisitor okVisitor{lVtxp->nodep(), false, true};
         if (!okVisitor.isSimple()) return;
 
@@ -1096,9 +1098,10 @@ class GateDedupe final {
         UINFO(4, "replacing " << vVtxp << " with " << dupVVtxp << endl);
 
         // Replace all of this varvertex's consumers with dupRefp
-        for (V3GraphEdge *edgep = vVtxp->outBeginp(), *nextp; edgep; edgep = nextp) {
-            nextp = edgep->outNextp();
-            const GateLogicVertex* const consumerVtxp = edgep->top()->as<GateLogicVertex>();
+        auto& outEdges = vVtxp->outEdges();
+        for (auto it = outEdges.begin(); it != outEdges.end();) {
+            V3GraphEdge& edge = *it++;
+            const GateLogicVertex* const consumerVtxp = edge.top()->as<GateLogicVertex>();
             AstNode* const consumerp = consumerVtxp->nodep();
             UINFO(9, "elim src vtx" << lVtxp << " node " << lVtxp->nodep() << endl);
             UINFO(9, "elim cons vtx" << consumerVtxp << " node " << consumerp << endl);
@@ -1125,12 +1128,14 @@ class GateDedupe final {
                     VL_DO_DANGLING(refp->deleteTree(), refp);
                 });
             }
-            edgep->relinkFromp(dupVVtxp);
+            edge.relinkFromp(dupVVtxp);
         }
 
         // Remove inputs links
-        while (V3GraphEdge* const edgep = vVtxp->inBeginp()) {
-            VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
+        while (!vVtxp->inEmpty()) {
+            V3GraphEdge& edge = vVtxp->inEdges().front();
+            vVtxp->inEdges().pop_front();
+            edge.unlinkDelete();
         }
 
         // Propagate attributes
@@ -1140,9 +1145,7 @@ class GateDedupe final {
     // Given iterated logic, starting at consumerVtxp, returns a varref that
     // has the same logic input, or nullptr if none
     AstNodeVarRef* visit(GateLogicVertex* lVtxp, const GateVarVertex* consumerVtxp) {
-        for (V3GraphEdge* edgep = lVtxp->inBeginp(); edgep; edgep = edgep->inNextp()) {
-            visit(edgep->fromp()->as<GateVarVertex>());
-        }
+        for (V3GraphEdge& edge : lVtxp->inEdges()) visit(edge.fromp()->as<GateVarVertex>());
 
         if (lVtxp->dedupable() && consumerVtxp->dedupable()) {
             // TODO: Doing a simple pointer comparison of activep won't work
@@ -1157,15 +1160,15 @@ class GateDedupe final {
     explicit GateDedupe(GateGraph& graph) {
         // Traverse starting from each of the clocks
         UINFO(9, "Gate dedupe() clocks:\n");
-        for (V3GraphVertex* itp = graph.verticesBeginp(); itp; itp = itp->verticesNextp()) {
-            if (GateVarVertex* const vVtxp = itp->cast<GateVarVertex>()) {
+        for (V3GraphVertex& vtx : graph.vertices()) {
+            if (GateVarVertex* const vVtxp = vtx.cast<GateVarVertex>()) {
                 if (vVtxp->isClock()) visit(vVtxp);
             }
         }
         // Traverse starting from each of the outputs
         UINFO(9, "Gate dedupe() outputs:\n");
-        for (V3GraphVertex* itp = graph.verticesBeginp(); itp; itp = itp->verticesNextp()) {
-            if (GateVarVertex* const vVtxp = itp->cast<GateVarVertex>()) {
+        for (V3GraphVertex& vtx : graph.vertices()) {
+            if (GateVarVertex* const vVtxp = vtx.cast<GateVarVertex>()) {
                 if (vVtxp->isTop() && vVtxp->varScp()->varp()->isWritable()) visit(vVtxp);
             }
         }
@@ -1208,10 +1211,11 @@ class GateMergeAssignments final {
         GateLogicVertex* prevLVtxp = nullptr;
         AstNodeAssign* prevAssignp = nullptr;
 
-        for (V3GraphEdge *edgep = vVtxp->inBeginp(), *nextp; edgep; edgep = nextp) {
-            nextp = edgep->inNextp();  // fThe edge could be deleted
+        auto& inEdges = vVtxp->inEdges();
+        for (auto it = inEdges.begin(); it != inEdges.end();) {
+            V3GraphEdge& edge = *it++;
 
-            GateLogicVertex* const lVtxp = edgep->fromp()->as<GateLogicVertex>();
+            GateLogicVertex* const lVtxp = edge.fromp()->as<GateLogicVertex>();
             if (!lVtxp->outSize1()) continue;
 
             AstNodeAssign* const assignp = VN_CAST(lVtxp->nodep(), NodeAssign);
@@ -1250,16 +1254,17 @@ class GateMergeAssignments final {
                 // Don't need to delete assignp, will be handled
 
                 // Update the graph
-                while (V3GraphEdge* const iedgep = lVtxp->inBeginp()) {
-                    GateVarVertex* const fromVtxp = iedgep->fromp()->as<GateVarVertex>();
+                while (!lVtxp->inEmpty()) {
+                    V3GraphEdge& iedge = lVtxp->inEdges().front();
+                    lVtxp->inEdges().pop_front();
+                    GateVarVertex* const fromVtxp = iedge.fromp()->as<GateVarVertex>();
                     m_graph.addEdge(fromVtxp, prevLVtxp, 1);
-                    VL_DO_DANGLING(iedgep->unlinkDelete(), iedgep);
+                    iedge.unlinkDelete();
                 }
 
                 // Delete the out-edges of lVtxp (there is only one, we checked earlier)
-                VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
-
                 ++m_statAssignMerged;
+                edge.unlinkDelete();
             } else {
                 prevLVtxp = lVtxp;
                 prevAssignp = assignp;
@@ -1270,8 +1275,8 @@ class GateMergeAssignments final {
     explicit GateMergeAssignments(GateGraph& graph)
         : m_graph{graph} {
         UINFO(6, "mergeAssigns\n");
-        for (V3GraphVertex* itp = graph.verticesBeginp(); itp; itp = itp->verticesNextp()) {
-            if (GateVarVertex* const vVtxp = itp->cast<GateVarVertex>()) process(vVtxp);
+        for (V3GraphVertex& vtx : graph.vertices()) {
+            if (GateVarVertex* const vVtxp = vtx.cast<GateVarVertex>()) process(vVtxp);
         }
     }
 
@@ -1297,8 +1302,8 @@ class GateUnused final {
         vtxp->user(true);
         vtxp->setConsumed("propagated");
         // Walk sources and mark them too
-        for (V3GraphEdge* edgep = vtxp->inBeginp(); edgep; edgep = edgep->inNextp()) {
-            GateEitherVertex* const fromVtxp = static_cast<GateEitherVertex*>(edgep->fromp());
+        for (V3GraphEdge& edge : vtxp->inEdges()) {
+            GateEitherVertex* const fromVtxp = static_cast<GateEitherVertex*>(edge.fromp());
             markRecurse(fromVtxp);
         }
     }
@@ -1306,9 +1311,9 @@ class GateUnused final {
     // Mark all vertices that feed a consumed vertex
     void mark() {
         m_graph.userClearVertices();
-        for (V3GraphVertex* vtxp = m_graph.verticesBeginp(); vtxp; vtxp = vtxp->verticesNextp()) {
-            GateEitherVertex* const eVtxp = static_cast<GateEitherVertex*>(vtxp);
-            if (eVtxp->consumed()) markRecurse(eVtxp);
+        for (V3GraphVertex& vtx : m_graph.vertices()) {
+            GateEitherVertex& eVtx = static_cast<GateEitherVertex&>(vtx);
+            if (eVtx.consumed()) markRecurse(&eVtx);
         }
     }
 
@@ -1326,9 +1331,10 @@ class GateUnused final {
 
     // Remove unused logic
     void remove() {
-        for (V3GraphVertex *vtxp = m_graph.verticesBeginp(), *nextp; vtxp; vtxp = nextp) {
-            nextp = vtxp->verticesNextp();
-            if (GateLogicVertex* const lVtxp = vtxp->cast<GateLogicVertex>()) {
+        auto& vertices = m_graph.vertices();
+        for (auto it = vertices.begin(); it != vertices.end();) {
+            V3GraphVertex& vtx = *it++;
+            if (GateLogicVertex* const lVtxp = vtx.cast<GateLogicVertex>()) {
                 if (!lVtxp->consumed() && lVtxp->activep()) {  // activep is nullptr under cfunc
                     AstNode* const nodep = lVtxp->nodep();
                     warnUnused(nodep);
