@@ -181,10 +181,9 @@ class OrderMoveGraphSerializer final {
         } else {  // This is a bit nonsense at this point, but equivalent to the old version
             // Remove dependency on vertex we are returning. This might add vertices to
             // currReadyList.
-            for (V3GraphEdge *edgep = vtxp->outBeginp(), *nextp; edgep; edgep = nextp) {
-                nextp = edgep->outNextp();
+            for (V3GraphEdge& edge : vtxp->outEdges()) {
                 // The dependent variable
-                OrderMoveVertex* const dVtxp = edgep->top()->as<OrderMoveVertex>();
+                OrderMoveVertex* const dVtxp = edge.top()->as<OrderMoveVertex>();
                 // Update number of dependencies
                 const uint32_t nDeps = dVtxp->user() - 1;
                 dVtxp->user(nDeps);
@@ -198,11 +197,10 @@ public:
     // CONSTRUCTOR
     OrderMoveGraphSerializer(OrderMoveGraph& moveGraph) {
         // Set V3GraphVertex::user() to the number of incoming edges (upstream dependencies)
-        for (V3GraphVertex *vtxp = moveGraph.verticesBeginp(), *nextp; vtxp; vtxp = nextp) {
-            nextp = vtxp->verticesNextp();
+        for (V3GraphVertex& vtx : moveGraph.vertices()) {
             uint32_t nDeps = 0;
-            for (V3GraphEdge* edgep = vtxp->inBeginp(); edgep; edgep = edgep->inNextp()) ++nDeps;
-            vtxp->user(nDeps);
+            for (const V3GraphEdge& _ : vtx.inEdges()) ++nDeps;
+            vtx.user(nDeps);
         }
     }
     ~OrderMoveGraphSerializer() = default;
@@ -231,10 +229,9 @@ public:
         }
 
         // Remove dependency on vertex we are returning. This might add vertices to currReadyList.
-        for (V3GraphEdge *edgep = mVtx.outBeginp(), *nextp; edgep; edgep = nextp) {
-            nextp = edgep->outNextp();
+        for (V3GraphEdge& edge : mVtx.outEdges()) {
             // The dependent variable
-            OrderMoveVertex* const dVtxp = edgep->top()->as<OrderMoveVertex>();
+            OrderMoveVertex* const dVtxp = edge.top()->as<OrderMoveVertex>();
             // Update number of dependencies
             const uint32_t nDeps = dVtxp->user() - 1;
             dVtxp->user(nDeps);

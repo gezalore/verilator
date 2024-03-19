@@ -45,9 +45,8 @@ std::vector<AstActive*> V3Order::createSerial(const OrderGraph& graph, const std
     OrderMoveGraphSerializer serializer{*moveGraphp};
 
     // Add initially ready vertices (those with no dependencies) to the serializer as seeds
-    for (V3GraphVertex *vtxp = moveGraphp->verticesBeginp(), *nextp; vtxp; vtxp = nextp) {
-        nextp = vtxp->verticesNextp();
-        if (vtxp->inEmpty()) serializer.addSeed(vtxp->as<OrderMoveVertex>());
+    for (V3GraphVertex& vtx : moveGraphp->vertices()) {
+        if (vtx.inEmpty()) serializer.addSeed(vtx.as<OrderMoveVertex>());
     }
 
     // Emit all logic as they become ready
@@ -68,11 +67,10 @@ std::vector<AstActive*> V3Order::createSerial(const OrderGraph& graph, const std
     }
 
     // Delete the remaining variable vertices
-    for (V3GraphVertex *vtxp = moveGraphp->verticesBeginp(), *nextp; vtxp; vtxp = nextp) {
-        nextp = vtxp->verticesNextp();
-        if (!vtxp->as<OrderMoveVertex>()->logicp()) {
-            VL_DO_DANGLING(vtxp->unlinkDelete(moveGraphp.get()), vtxp);
-        }
+    auto& vertices = moveGraphp->vertices();
+    for (auto it = vertices.begin(); it != vertices.end();) {
+        V3GraphVertex& vtx = *it++;
+        if (!vtx.as<OrderMoveVertex>()->logicp()) vtx.unlinkDelete(moveGraphp.get());
     }
 
     UASSERT(moveGraphp->empty(), "Waiting vertices remain, but none are ready");
