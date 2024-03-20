@@ -172,11 +172,11 @@ class OrderMoveGraphSerializer final {
         if (vtxp->logicp()) {
             // Add this vertex to the ready list of its DomScope
             OrderMoveDomScope& domScope = vtxp->domScope();
-            domScope.readyVertices().push_back(*vtxp);
+            domScope.readyVertices().linkBack(vtxp);
             // Add the DomScope to the global ready list if not there yet
             if (!domScope.isOnList()) {
                 domScope.isOnList(true);
-                m_readyDomScopeps.push_back(domScope);
+                m_readyDomScopeps.linkBack(&domScope);
             }
         } else {  // This is a bit nonsense at this point, but equivalent to the old version
             // Remove dependency on vertex we are returning. This might add vertices to
@@ -224,7 +224,7 @@ public:
         // Nonsesne, but what we used to do
         if (currReadyList.empty()) {
             currDomScope.isOnList(false);
-            m_readyDomScopeps.erase(currDomScope);
+            m_readyDomScopeps.unlink(&currDomScope);
         }
 
         // Remove dependency on vertex we are returning. This might add vertices to currReadyList.

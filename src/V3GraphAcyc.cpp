@@ -175,14 +175,14 @@ class GraphAcyc final {
         // Add vertex to list of nodes needing further optimization trials
         if (!avertexp->m_onWorkList) {
             avertexp->m_onWorkList = true;
-            m_work.push_back(*avertexp);
+            m_work.linkBack(avertexp);
         }
     }
     GraphAcycVertex* workBeginp() { return m_work.frontp(); }
     void workPop() {
         GraphAcycVertex* const avertexp = workBeginp();
         avertexp->m_onWorkList = false;
-        m_work.erase(*avertexp);
+        m_work.unlink(avertexp);
     }
 
 public:

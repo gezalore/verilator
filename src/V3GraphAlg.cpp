@@ -431,8 +431,8 @@ void V3Graph::sortVertices() {
     std::stable_sort(vertices.begin(), vertices.end(), GraphSortVertexCmp());
     // Re-insert in sorted order
     for (V3GraphVertex* const ip : vertices) {
-        m_vertices.erase(*ip);
-        m_vertices.push_back(*ip);
+        m_vertices.unlink(ip);
+        m_vertices.linkBack(ip);
     }
 }
 

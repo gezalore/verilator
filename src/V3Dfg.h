@@ -877,11 +877,11 @@ void DfgGraph::addVertex(DfgVertex& vtx) {
     // Note: changes here need to be replicated in DfgGraph::addGraph
     ++m_size;
     if (DfgConst* const cVtxp = vtx.cast<DfgConst>()) {
-        m_constVertices.push_back(*cVtxp);
+        m_constVertices.linkBack(cVtxp);
     } else if (DfgVertexVar* const vVtxp = vtx.cast<DfgVertexVar>()) {
-        m_varVertices.push_back(*vVtxp);
+        m_varVertices.linkBack(vVtxp);
     } else {
-        m_opVertices.push_back(vtx);
+        m_opVertices.linkBack(&vtx);
     }
     vtx.m_userCnt = 0;
     vtx.m_graphp = this;
@@ -891,11 +891,11 @@ void DfgGraph::removeVertex(DfgVertex& vtx) {
     // Note: changes here need to be replicated in DfgGraph::addGraph
     --m_size;
     if (DfgConst* const cVtxp = vtx.cast<DfgConst>()) {
-        m_constVertices.erase(*cVtxp);
+        m_constVertices.unlink(cVtxp);
     } else if (DfgVertexVar* const vVtxp = vtx.cast<DfgVertexVar>()) {
-        m_varVertices.erase(*vVtxp);
+        m_varVertices.unlink(vVtxp);
     } else {
-        m_opVertices.erase(vtx);
+        m_opVertices.unlink(&vtx);
     }
     vtx.m_userCnt = 0;
     vtx.m_graphp = nullptr;

@@ -362,7 +362,7 @@ public:
         UASSERT(s_nextId < 0xFFFFFFFFUL, "Too many mTaskGraphp");
         for (uint32_t& item : m_critPathCost) item = 0;
         if (mVtxp) {
-            m_mVertices.push_back(*mVtxp);
+            m_mVertices.linkBack(mVtxp);
             if (const OrderLogicVertex* const olvp = mVtxp->logicp()) {
                 m_cost += V3InstrCount::count(olvp->nodep(), true);
             }
@@ -664,17 +664,17 @@ SiblingMC::SiblingMC(LogicMTask* ap, LogicMTask* bp)
     // Storage management depends on this
     UASSERT(ap->id() > bp->id(), "Should be ordered");
     UDEBUGONLY(UASSERT(ap->siblings().count(bp), "Should be in sibling map"););
-    m_ap->aSiblingMCs().push_back(*this);
-    m_bp->bSiblingMCs().push_back(*this);
+    m_ap->aSiblingMCs().linkBack(this);
+    m_bp->bSiblingMCs().linkBack(this);
 }
 
 void SiblingMC::unlinkA() {
     VL_ATTR_UNUSED const size_t removed = m_ap->siblings().erase(m_bp);
     UDEBUGONLY(UASSERT(removed == 1, "Should have been in sibling set"););
-    m_ap->aSiblingMCs().erase(*this);
+    m_ap->aSiblingMCs().unlink(this);
 }
 
-void SiblingMC::unlinkB() { m_bp->bSiblingMCs().erase(*this); }
+void SiblingMC::unlinkB() { m_bp->bSiblingMCs().unlink(this); }
 
 bool SiblingMC::mergeWouldCreateCycle() const {
     return (LogicMTask::pathExistsFrom(m_ap, m_bp, nullptr)
@@ -2372,7 +2372,7 @@ AstExecGraph* V3Order::createParallel(OrderGraph& orderGraph, const std::string&
         OrderMoveVertex* const mVtxp = vtx.as<OrderMoveVertex>();
         LogicMTask* const mtaskp = static_cast<LogicMTask*>(mVtxp->userp());
         // Add to list in MTask, in MoveGraph order. This should not be necessary, but see #4993.
-        mtaskp->vertexList().push_back(*mVtxp);
+        mtaskp->vertexList().linkBack(mVtxp);
         // Remove edges crossing between MTasks
         auto& outEdges = mVtxp->outEdges();
         for (auto it = outEdges.begin(); it != outEdges.end();) {
@@ -2401,8 +2401,8 @@ AstExecGraph* V3Order::createParallel(OrderGraph& orderGraph, const std::string&
         // Add initially ready vertices within this MTask to the serializer as seeds,
         // and unlink them from the vertex list in the MTask as we go. (The serializer
         // uses the list links in the vertex, so must unlink it here.)
-        while (OrderMoveVertex* const vtxp = mTaskp->vertexList().unlinkFront()) {
-            if (vtxp->inEmpty()) serializer.addSeed(vtxp);
+        while (OrderMoveVertex* const mVtxp = mTaskp->vertexList().unlinkFront()) {
+            if (mVtxp->inEmpty()) serializer.addSeed(mVtxp);
         }
 
         // Emit all logic within the MTask as they become ready

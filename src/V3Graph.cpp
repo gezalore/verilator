@@ -41,7 +41,7 @@ V3GraphVertex::V3GraphVertex(V3Graph* graphp, const V3GraphVertex& old)
     , m_color{old.m_color}
     , m_rank{old.m_rank} {
     m_userp = nullptr;
-    graphp->vertices().push_back(*this);
+    graphp->vertices().linkBack(this);
 }
 
 V3GraphVertex::V3GraphVertex(V3Graph* graphp)
@@ -49,7 +49,7 @@ V3GraphVertex::V3GraphVertex(V3Graph* graphp)
     , m_color{0}
     , m_rank{0} {
     m_userp = nullptr;
-    graphp->vertices().push_back(*this);
+    graphp->vertices().linkBack(this);
 }
 
 void V3GraphVertex::unlinkEdges(V3Graph*) {
@@ -61,7 +61,7 @@ void V3GraphVertex::unlinkDelete(V3Graph* graphp) {
     // Delete edges
     unlinkEdges(graphp);
     // Unlink from vertex list
-    graphp->m_vertices.erase(*this);
+    graphp->m_vertices.unlink(this);
     // Delete
     delete this;  // this=nullptr;
 }
@@ -147,20 +147,20 @@ void V3GraphEdge::init(V3Graph* /*graphp*/, V3GraphVertex* fromp, V3GraphVertex*
     m_cutable = cutable;
     m_userp = nullptr;
     // Link vertices to this edge
-    m_fromp->outEdges().push_back(*this);
-    m_top->inEdges().push_back(*this);
+    m_fromp->outEdges().linkBack(this);
+    m_top->inEdges().linkBack(this);
 }
 
 void V3GraphEdge::relinkFromp(V3GraphVertex* newFromp) {
-    m_fromp->outEdges().erase(*this);
+    m_fromp->outEdges().unlink(this);
     m_fromp = newFromp;
-    m_fromp->outEdges().push_back(*this);
+    m_fromp->outEdges().linkBack(this);
 }
 
 void V3GraphEdge::relinkTop(V3GraphVertex* newTop) {
-    m_top->inEdges().erase(*this);
+    m_top->inEdges().unlink(this);
     m_top = newTop;
-    m_top->inEdges().push_back(*this);
+    m_top->inEdges().linkBack(this);
 }
 
 std::string V3GraphEdge::name() const { return m_fromp->name() + "->" + m_top->name(); }

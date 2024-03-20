@@ -342,9 +342,9 @@ inline const auto& V3GraphVertex::edges<GraphWay::REVERSE>() const {
 
 void V3GraphEdge::unlinkDelete() {
     // Unlink from side
-    m_fromp->outEdges().erase(*this);
+    m_fromp->outEdges().unlink(this);
     // Unlink to side
-    m_top->inEdges().erase(*this);
+    m_top->inEdges().unlink(this);
     // Delete
     delete this;
 }
