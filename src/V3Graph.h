@@ -93,8 +93,8 @@ protected:
     friend class GraphAcyc;
     friend class GraphAcycEdge;
 
-    V3List2Links<V3GraphEdge> m_oLinks;  // List links to store instances of this class (out edges)
-    V3List2Links<V3GraphEdge> m_iLinks;  // List links to store instances of this class (in edges)
+    V3ListLinks<V3GraphEdge> m_oLinks;  // List links to store instances of this class (out edges)
+    V3ListLinks<V3GraphEdge> m_iLinks;  // List links to store instances of this class (in edges)
     //
     V3GraphVertex* m_fromp;  // Vertices pointing to this edge
     V3GraphVertex* m_top;  // Vertices this edge points to
@@ -117,8 +117,8 @@ protected:
 
 public:
     // List types to store instances of this class
-    using OList = V3List2<V3GraphEdge, &V3GraphEdge::m_oLinks>;
-    using IList = V3List2<V3GraphEdge, &V3GraphEdge::m_iLinks>;
+    using OList = V3List<V3GraphEdge, &V3GraphEdge::m_oLinks>;
+    using IList = V3List<V3GraphEdge, &V3GraphEdge::m_iLinks>;
 
     //! Add DAG from one node to the specified node
     V3GraphEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top, int weight,
@@ -203,7 +203,7 @@ protected:
     friend class V3GraphEdge;
     friend class GraphAcyc;
     friend class GraphAlgRank;
-    V3List2Links<V3GraphVertex> m_links;  // List links to store instances of this class
+    V3ListLinks<V3GraphVertex> m_links;  // List links to store instances of this class
     V3GraphEdge::OList m_outs;  // List of outbound edges
     V3GraphEdge::IList m_ins;  // List of inbound edges
     double m_fanout;  // Order fanout
@@ -222,7 +222,7 @@ protected:
 
 public:
     // List types to store instances of this class
-    using List = V3List2<V3GraphVertex, &V3GraphVertex::m_links>;
+    using List = V3List<V3GraphVertex, &V3GraphVertex::m_links>;
 
     explicit V3GraphVertex(V3Graph* graphp) VL_MT_DISABLED;
     //! Clone copy constructor. Doesn't copy edges or user/userp.

@@ -238,13 +238,13 @@ class SiblingMC final : public MergeCandidate {
     LogicMTask* const m_ap;
     LogicMTask* const m_bp;
 
-    V3List2Links<SiblingMC> m_aLinks;  // List links to store instances of this class
-    V3List2Links<SiblingMC> m_bLinks;  // List links to store instances of this class
+    V3ListLinks<SiblingMC> m_aLinks;  // List links to store instances of this class
+    V3ListLinks<SiblingMC> m_bLinks;  // List links to store instances of this class
 
 public:
     // List type to store instances of this class
-    using AList = V3List2<SiblingMC, &SiblingMC::m_aLinks>;
-    using BList = V3List2<SiblingMC, &SiblingMC::m_bLinks>;
+    using AList = V3List<SiblingMC, &SiblingMC::m_aLinks>;
+    using BList = V3List<SiblingMC, &SiblingMC::m_bLinks>;
 
     // CONSTRUCTORS
     SiblingMC(LogicMTask* ap, LogicMTask* bp);

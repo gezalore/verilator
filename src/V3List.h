@@ -26,40 +26,41 @@
 #include <utility>
 
 //============================================================================
-// The list links, to be instantiated as a member in list element base class
-// 'T_Base'. They are considered mutable, even if the list element is 'const',
-// as they are only used for storing the elements in a V3List.
+// The list links (just 2 pointers), to be instantiated as a member in the
+// list element base class 'T_Base'. They are considered mutable, even if the
+// list element is 'const', as they are only used for storing the elements in
+// a V3List. That is, you can store const elements in a V3List.
 template <typename T_Base>
-class V3List2Links final {
-    // The List itself, but nothing else can access the link pointers
-    template <typename B, V3List2Links<B> B::*, typename>
-    friend class V3List2;
+class V3ListLinks final {
+    // The V3List itself, but nothing else can access the link pointers
+    template <typename B, V3ListLinks<B> B::*, typename>
+    friend class V3List;
 
     T_Base* m_nextp = nullptr;  // Next element in list
     T_Base* m_prevp = nullptr;  // Previous element in list
 
 public:
-    V3List2Links() = default;
-    ~V3List2Links() {
+    V3ListLinks() = default;
+    ~V3ListLinks() {
 #ifdef VL_DEBUG
         m_nextp = reinterpret_cast<T_Base*>(1);
         m_prevp = reinterpret_cast<T_Base*>(1);
 #endif
     }
-    VL_UNCOPYABLE(V3List2Links);
-    VL_UNMOVABLE(V3List2Links);
+    VL_UNCOPYABLE(V3ListLinks);
+    VL_UNMOVABLE(V3ListLinks);
 };
 
 //============================================================================
-// Generic endogenous (or intrusive) doubly linked list,
-// with links stored inside the elements. The template parameters are:
-// - 'T_Base' is the base type of elements that contains the V3List2Links
+// Generic endogenous (or intrusive) doubly linked list, with links stored
+// inside the elements. The template parameters are:
+// - 'T_Base' is the base type of elements that contains the V3ListLinks
 //   instance as a data member.
 // - 'LinksPointer' is a member pointer to the links within 'T_Base'
 // - 'T_Element' is the actual type of elements, which must be the same,
 //    or a subtype of 'T_Base'.
-template <typename T_Base, V3List2Links<T_Base> T_Base::*LinksPointer, typename T_Element = T_Base>
-class V3List2 final {
+template <typename T_Base, V3ListLinks<T_Base> T_Base::*LinksPointer, typename T_Element = T_Base>
+class V3List final {
     static_assert(std::is_base_of<T_Base, T_Element>::value,
                   "'T_Element' must be a subtype of 'T_Base");
     T_Base* m_headp = nullptr;
@@ -67,7 +68,7 @@ class V3List2 final {
 
     // Given the T_Element, return the Links. The links are always mutable, even in const elements.
     VL_ATTR_ALWINLINE
-    static V3List2Links<T_Base>& toLinks(const T_Base& element) {
+    static V3ListLinks<T_Base>& toLinks(const T_Base& element) {
         return const_cast<T_Base&>(element).*LinksPointer;
     }
 
@@ -80,8 +81,8 @@ class V3List2 final {
                       "'ItertatorImpl' must be used with element type only");
 
         // The List itself, but nothing else can construct iterators
-        template <typename B, V3List2Links<B> B::*P, typename>
-        friend class V3List2;
+        template <typename B, V3ListLinks<B> B::*P, typename>
+        friend class V3List;
 
         using SelfType = ItertatorImpl<IteratorElement>;
 
@@ -130,19 +131,19 @@ class V3List2 final {
     };
 
 public:
-    using List = V3List2<T_Base, LinksPointer, T_Element>;
+    using List = V3List<T_Base, LinksPointer, T_Element>;
     using iterator = ItertatorImpl<T_Element>;
     using const_iterator = ItertatorImpl<const T_Element>;
 
-    V3List2() = default;
-    ~V3List2() {
+    V3List() = default;
+    ~V3List() {
 #ifdef VL_DEBUG
         m_headp = reinterpret_cast<T_Element*>(1);
         m_tailp = reinterpret_cast<T_Element*>(1);
 #endif
     }
-    VL_UNCOPYABLE(V3List2);
-    VL_UNMOVABLE(V3List2);
+    VL_UNCOPYABLE(V3List);
+    VL_UNMOVABLE(V3List);
 
     bool empty() const {
         UDEBUGONLY(UASSERT(!m_headp == !m_tailp, "Inconsistent list"););

@@ -41,7 +41,7 @@ class OrderMoveVertex final : public V3GraphVertex {
     // The corresponding logic vertex, or nullptr if this MoveVertex stands for a variable vertex.
     OrderLogicVertex* const m_logicp;
     OrderMoveDomScope& m_domScope;  // DomScope this vertex is under
-    V3List2Links<OrderMoveVertex> m_links;  // List links to store instances of this class
+    V3ListLinks<OrderMoveVertex> m_links;  // List links to store instances of this class
 
     // METHODS
     std::string dotColor() const override { return logicp() ? logicp()->dotColor() : "yellow"; }
@@ -62,7 +62,7 @@ class OrderMoveVertex final : public V3GraphVertex {
 
 public:
     // List type to store instances of this class
-    using List = V3List2<OrderMoveVertex, &OrderMoveVertex::m_links>;
+    using List = V3List<OrderMoveVertex, &OrderMoveVertex::m_links>;
 
     // CONSTRUCTORS
     OrderMoveVertex(OrderMoveGraph& graph, OrderLogicVertex* lVtxp,
@@ -91,7 +91,7 @@ public:
 class OrderMoveDomScope final {
     // STATE
     OrderMoveVertex::List m_readyVertices;  // Ready vertices in this domain/scope
-    V3List2Links<OrderMoveDomScope> m_links;  // List links to store instances of this class
+    V3ListLinks<OrderMoveDomScope> m_links;  // List links to store instances of this class
     bool m_isOnList = false;  // True if DomScope is already on a list through m_listEnt
     const AstSenTree* const m_domainp;  // Domain the vertices belong to
     const AstScope* const m_scopep;  // Scope the vertices belong to
@@ -128,7 +128,7 @@ class OrderMoveDomScope final {
 
 public:
     // List type to store instances of this class
-    using List = V3List2<OrderMoveDomScope, &OrderMoveDomScope::m_links>;
+    using List = V3List<OrderMoveDomScope, &OrderMoveDomScope::m_links>;
 
     // STATIC MEMBERS
     static OrderMoveDomScope& getOrCreate(const AstSenTree* domainp, const AstScope* scopep) {

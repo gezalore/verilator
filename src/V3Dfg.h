@@ -132,7 +132,7 @@ class DfgVertex VL_NOT_FINAL {
     using UserDataStorage = void*;  // Storage allocated for user data
 
     // STATE
-    V3List2Links<DfgVertex> m_links;  // V3List links
+    V3ListLinks<DfgVertex> m_links;  // V3List links
 
 protected:
     DfgEdge* m_sinksp = nullptr;  // List of sinks of this vertex
@@ -151,7 +151,7 @@ public:
 
     // List type that can store Vertex (which must be a DfgVertex) instances via m_links
     template <typename Vertex>
-    using List = V3List2<DfgVertex, &DfgVertex::m_links, Vertex>;
+    using List = V3List<DfgVertex, &DfgVertex::m_links, Vertex>;
 
     // METHODS
 private:

@@ -39,14 +39,14 @@ class GraphAcycVertex final : public V3GraphVertex {
     V3GraphVertex* const m_origVertexp;  // Pointer to first vertex this represents
 protected:
     friend class GraphAcyc;
-    V3List2Links<GraphAcycVertex> m_links;  // List links to store instances of this class
+    V3ListLinks<GraphAcycVertex> m_links;  // List links to store instances of this class
     // LoiList of vertices with optimization work left
     uint32_t m_storedRank = 0;  // Rank held until commit to edge placement
     bool m_onWorkList = false;  // True if already on list of work to do
     bool m_deleted = false;  // True if deleted
 public:
     // List type to store instances of this class
-    using List = V3List2<GraphAcycVertex, &GraphAcycVertex::m_links>;
+    using List = V3List<GraphAcycVertex, &GraphAcycVertex::m_links>;
 
     GraphAcycVertex(V3Graph* graphp, V3GraphVertex* origVertexp)
         : V3GraphVertex{graphp}
