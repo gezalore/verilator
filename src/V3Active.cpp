@@ -106,8 +106,8 @@ protected:
             break;
         case LatchDetectGraphVertex::VT_BRANCH:  // (AND of both sibling)
                                                  // A BRANCH vertex always has exactly 2 siblings
-            LatchDetectGraphVertex* const ifp = castVertexp(vertexp->outEdges().front().top());
-            LatchDetectGraphVertex* const elsp = castVertexp(vertexp->outEdges().back().top());
+            LatchDetectGraphVertex* const ifp = castVertexp(vertexp->outEdges().frontp()->top());
+            LatchDetectGraphVertex* const elsp = castVertexp(vertexp->outEdges().backp()->top());
             result = latchCheckInternal(ifp) && latchCheckInternal(elsp);
             break;
         }

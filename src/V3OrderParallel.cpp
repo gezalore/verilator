@@ -1838,9 +1838,9 @@ class FixDataHazards final {
                 // Otherwise there should be only one OrderMoveVertex in each MTask at this stage
                 const OrderMoveVertex::List& vertexList = mtaskp->vertexList();
                 UASSERT_OBJ(vertexList.hasSingleElement(), mtaskp, "Multiple OrderMoveVertex");
-                const OrderMoveVertex& mVtx = vertexList.front();
+                const OrderMoveVertex* const mVtxp = vertexList.frontp();
                 // Set up mapping back to the MTask from the OrderLogicVertex
-                if (OrderLogicVertex* const lvtxp = mVtx.logicp()) lvtxp->userp(mtaskp);
+                if (OrderLogicVertex* const lvtxp = mVtxp->logicp()) lvtxp->userp(mtaskp);
             }
         }
 
@@ -2176,8 +2176,8 @@ class Partitioner final {
             OrderMoveVertex::List& vertexList = mtask.vertexList();
             // At this point, there should only be one OrderMoveVertex per LogicMTask
             UASSERT_OBJ(vertexList.hasSingleElement(), &mtask, "Multiple OrderMoveVertex");
-            OrderMoveVertex& mVtx = vertexList.front();
-            UASSERT_OBJ(mVtx.userp(), &mtask, "Bypassed OrderMoveVertex should not have MTask");
+            OrderMoveVertex* const mVtxp = vertexList.frontp();
+            UASSERT_OBJ(mVtxp->userp(), &mtask, "Bypassed OrderMoveVertex should not have MTask");
 
             // Function to add a edge to a dependent from 'mtaskp'
             const auto addEdge = [this, &mtask](LogicMTask* otherp) {
@@ -2187,7 +2187,7 @@ class Partitioner final {
             };
 
             // Iterate downstream direct dependents
-            for (V3GraphEdge& dEdge : mVtx.outEdges()) {
+            for (V3GraphEdge& dEdge : mVtxp->outEdges()) {
                 V3GraphVertex* const top = dEdge.top();
                 if (LogicMTask* const otherp = static_cast<LogicMTask*>(top->userp())) {
                     // The opposite end of the edge is not a bypassed vertex, add as direct
@@ -2199,7 +2199,7 @@ class Partitioner final {
                         LogicMTask* const transp = static_cast<LogicMTask*>(tEdge.top()->userp());
                         // The Move graph is bipartite (logic <-> var), and logic is never
                         // bypassed, hence 'transp' must be non nullptr.
-                        UASSERT_OBJ(transp, &mVtx, "This cannot be a bypassed vertex");
+                        UASSERT_OBJ(transp, mVtxp, "This cannot be a bypassed vertex");
                         addEdge(transp);
                     }
                 }

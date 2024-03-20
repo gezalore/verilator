@@ -476,12 +476,12 @@ class ExtractCyclicComponents final {
         // earlier merging of components ensured crossing in fact only happen at variable
         // boundaries). Note that fixing up the edges can create clones of variables. Clones do
         // not need fixing up, so we do not need to iterate them.
-        DfgVertex& last = m_dfg.varVertices().back();
+        DfgVertex* const lastp = m_dfg.varVertices().backp();
         for (DfgVertexVar& vtx : m_dfg.varVertices()) {
             // Fix up the edges crossing components
             fixEdges(vtx);
             // Don't iterate clones added during this loop
-            if (&vtx == &last) break;
+            if (&vtx == lastp) break;
         }
 
         // Pack sources of variables to remove the now undriven inputs

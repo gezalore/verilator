@@ -72,10 +72,10 @@ class V3List final {
         return const_cast<T_Base&>(element).*LinksPointer;
     }
 
-    // Bare-bones iterator class for List. This is just enough to support range based for loops and
-    // basic usage. Feel free to extend as required.
+    // Iterator class template for V3List. This is just enough to support range based for loops
+    // and basic usage. Feel free to extend as required.
     template <typename IteratorElement>
-    class ItertatorImpl final {
+    class SimpleItertatorImpl final {
         static_assert(std::is_same<IteratorElement, T_Element>::value
                           || std::is_same<IteratorElement, const T_Element>::value,
                       "'ItertatorImpl' must be used with element type only");
@@ -84,15 +84,15 @@ class V3List final {
         template <typename B, V3ListLinks<B> B::*P, typename>
         friend class V3List;
 
-        using SelfType = ItertatorImpl<IteratorElement>;
+        using SelfType = SimpleItertatorImpl<IteratorElement>;
 
         T_Base* m_currp;  // Currently iterated element, or 'nullptr' for 'end()'
 
-        ItertatorImpl(T_Base* elementp)
+        SimpleItertatorImpl(T_Base* elementp)
             : m_currp{elementp} {
             VL_PREFETCH_RW(elementp);
         }
-        ItertatorImpl(std::nullptr_t)
+        SimpleItertatorImpl(std::nullptr_t)
             : m_currp{nullptr} {}
 
     public:
@@ -125,15 +125,15 @@ class V3List final {
         bool operator!=(const SelfType& other) const { return m_currp != other.m_currp; }
         // Convert to const iterator
         VL_ATTR_ALWINLINE
-        operator ItertatorImpl<const IteratorElement>() const {
-            return ItertatorImpl<const IteratorElement>{m_currp};
+        operator SimpleItertatorImpl<const IteratorElement>() const {
+            return SimpleItertatorImpl<const IteratorElement>{m_currp};
         }
     };
 
 public:
-    using List = V3List<T_Base, LinksPointer, T_Element>;
-    using iterator = ItertatorImpl<T_Element>;
-    using const_iterator = ItertatorImpl<const T_Element>;
+    using SelfType = V3List<T_Base, LinksPointer, T_Element>;
+    using iterator = SimpleItertatorImpl<T_Element>;
+    using const_iterator = SimpleItertatorImpl<const T_Element>;
 
     V3List() = default;
     ~V3List() {
@@ -162,23 +162,25 @@ public:
 
     T_Element* frontp() { return static_cast<T_Element*>(m_headp); }
     const T_Element* frontp() const { return static_cast<T_Element*>(m_headp); }
+    T_Element* backp() { return static_cast<T_Element*>(m_lastp); }
+    const T_Element* backp() const { return static_cast<T_Element*>(m_lastp); }
 
-    T_Element& front() {
-        UASSERT(!empty(), "'front' called on empty list");
-        return *static_cast<T_Element*>(m_headp);
-    }
-    const T_Element& front() const {
-        UASSERT(!empty(), "'front' called on empty list");
-        return *static_cast<T_Element*>(m_headp);
-    }
-    T_Element& back() {
-        UASSERT(!empty(), "'back' called on empty list");
-        return *static_cast<T_Element*>(m_lastp);
-    }
-    const T_Element& back() const {
-        UASSERT(!empty(), "'back' called on empty list");
-        return *static_cast<T_Element*>(m_lastp);
-    }
+    //    T_Element& front() {
+    //        UASSERT(!empty(), "'front' called on empty list");
+    //        return *static_cast<T_Element*>(m_headp);
+    //    }
+    //    const T_Element& front() const {
+    //        UASSERT(!empty(), "'front' called on empty list");
+    //        return *static_cast<T_Element*>(m_headp);
+    //    }
+    //    T_Element& back() {
+    //        UASSERT(!empty(), "'back' called on empty list");
+    //        return *static_cast<T_Element*>(m_lastp);
+    //    }
+    //    const T_Element& back() const {
+    //        UASSERT(!empty(), "'back' called on empty list");
+    //        return *static_cast<T_Element*>(m_lastp);
+    //    }
 
     iterator begin() { return iterator{m_headp}; }
     const_iterator begin() const { return const_iterator{m_headp}; }
@@ -239,12 +241,12 @@ public:
         links.m_nextp = nullptr;
     }
 
-    void swap(List& other) {
+    void swap(SelfType& other) {
         std::swap(m_headp, other.m_headp);
         std::swap(m_lastp, other.m_lastp);
     }
 
-    void splice(const_iterator pos, List& other) {
+    void splice(const_iterator pos, SelfType& other) {
         if (empty()) {
             swap(other);
         } else if (other.empty()) {

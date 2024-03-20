@@ -131,11 +131,11 @@ class GraphAcyc final {
     bool origFollowEdge(V3GraphEdge* edgep) {
         return (edgep->weight() && (m_origEdgeFuncp)(edgep));
     }
-    void edgeFromEdge(V3GraphEdge& oldedge, V3GraphVertex* fromp, V3GraphVertex* top) {
+    void edgeFromEdge(V3GraphEdge* oldedgep, V3GraphVertex* fromp, V3GraphVertex* top) {
         // Make new breakGraph edge, with old edge as a template
-        GraphAcycEdge* const newEdgep
-            = new GraphAcycEdge{&m_breakGraph, fromp, top, oldedge.weight(), oldedge.cutable()};
-        newEdgep->userp(oldedge.userp());  // Keep pointer to OrigEdgeList
+        GraphAcycEdge* const newEdgep = new GraphAcycEdge{&m_breakGraph, fromp, top,
+                                                          oldedgep->weight(), oldedgep->cutable()};
+        newEdgep->userp(oldedgep->userp());  // Keep pointer to OrigEdgeList
     }
     void addOrigEdgep(V3GraphEdge* toEdgep, V3GraphEdge* addEdgep) {
         // Add addEdge (or it's list) to list of edges that break edge represents
@@ -297,10 +297,10 @@ void GraphAcyc::simplifyOne(GraphAcycVertex* avertexp) {
     // If a node has one input and one output, we can remove it and change the edges
     if (avertexp->isDelete()) return;
     if (avertexp->inSize1() && avertexp->outSize1()) {
-        V3GraphEdge& inEdge = avertexp->inEdges().front();
-        V3GraphEdge& outEdge = avertexp->outEdges().front();
-        V3GraphVertex* inVertexp = inEdge.fromp();
-        V3GraphVertex* outVertexp = outEdge.top();
+        V3GraphEdge* const inEdgep = avertexp->inEdges().frontp();
+        V3GraphEdge* const outEdgep = avertexp->outEdges().frontp();
+        V3GraphVertex* inVertexp = inEdgep->fromp();
+        V3GraphVertex* outVertexp = outEdgep->top();
         // The in and out may be the same node; we'll make a loop
         // The in OR out may be THIS node; we can't delete it then.
         if (inVertexp != avertexp && outVertexp != avertexp) {
@@ -311,17 +311,18 @@ void GraphAcyc::simplifyOne(GraphAcycVertex* avertexp) {
             // We can forget about the origEdge list for the "non-selected" set of edges,
             // as we need to break only one set or the other set of edges, not both.
             // (This is why we must give preference to the cutable set.)
-            V3GraphEdge& templateEdge
-                = ((inEdge.cutable() && (!outEdge.cutable() || inEdge.weight() < outEdge.weight()))
-                       ? inEdge
-                       : outEdge);
+            V3GraphEdge* const templateEdgep
+                = ((inEdgep->cutable()
+                    && (!outEdgep->cutable() || inEdgep->weight() < outEdgep->weight()))
+                       ? inEdgep
+                       : outEdgep);
             // cppcheck-suppress leakReturnValNotUsed
-            edgeFromEdge(templateEdge, inVertexp, outVertexp);
+            edgeFromEdge(templateEdgep, inVertexp, outVertexp);
+            // Remove old edge
+            VL_DO_DANGLING(inEdgep->unlinkDelete(), inEdgep);
+            VL_DO_DANGLING(outEdgep->unlinkDelete(), outEdgep);
             workPush(inVertexp);
             workPush(outVertexp);
-            // Remove old edge
-            inEdge.unlinkDelete();
-            outEdge.unlinkDelete();
         }
     }
 }
@@ -331,9 +332,9 @@ void GraphAcyc::simplifyOut(GraphAcycVertex* avertexp) {
     // to the next node in the list
     if (avertexp->isDelete()) return;
     if (avertexp->outSize1()) {
-        V3GraphEdge& outEdge = avertexp->outEdges().front();
-        if (!outEdge.cutable()) {
-            V3GraphVertex* outVertexp = outEdge.top();
+        V3GraphEdge* const outEdgep = avertexp->outEdges().frontp();
+        if (!outEdgep->cutable()) {
+            V3GraphVertex* outVertexp = outEdgep->top();
             UINFO(9, "  SimplifyOutRemove " << avertexp << endl);
             avertexp->setDelete();  // Mark so we won't delete it twice
             auto& inEdges = avertexp->inEdges();
@@ -353,13 +354,13 @@ void GraphAcyc::simplifyOut(GraphAcycVertex* avertexp) {
                 }
                 // Make a new edge connecting the two vertices directly
                 // cppcheck-suppress leakReturnValNotUsed
-                edgeFromEdge(inEdge, inVertexp, outVertexp);
+                edgeFromEdge(&inEdge, inVertexp, outVertexp);
                 workPush(inVertexp);
                 // Remove old edge
                 inEdge.unlinkDelete();
             }
+            VL_DO_DANGLING(outEdgep->unlinkDelete(), outEdgep);
             workPush(outVertexp);
-            outEdge.unlinkDelete();
         }
     }
 }

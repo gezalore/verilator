@@ -495,7 +495,7 @@ class GateClkDecomp final {
             return;
         }
 
-        visit(lVtxp->outEdges().front().top()->as<GateVarVertex>(), clkOffset);
+        visit(lVtxp->outEdges().frontp()->top()->as<GateVarVertex>(), clkOffset);
     }
 
     explicit GateClkDecomp(GateGraph& graph)
@@ -759,7 +759,8 @@ class GateInline final {
             if (!vVtxp->reducible()) continue;
 
             // Grab the driving logic
-            GateLogicVertex* const lVtxp = vVtxp->inEdges().front().fromp()->as<GateLogicVertex>();
+            GateLogicVertex* const lVtxp
+                = vVtxp->inEdges().frontp()->fromp()->as<GateLogicVertex>();
             if (!lVtxp->reducible()) continue;
             AstNode* const logicp = lVtxp->nodep();
 
@@ -1087,7 +1088,7 @@ class GateDedupe final {
                     "GateLogicVertex* visit should have returned nullptr "
                     "if consumer var vertex is not dedupable.");
 
-        GateLogicVertex* const lVtxp = vVtxp->inEdges().front().fromp()->as<GateLogicVertex>();
+        GateLogicVertex* const lVtxp = vVtxp->inEdges().frontp()->fromp()->as<GateLogicVertex>();
         const GateOkVisitor okVisitor{lVtxp->nodep(), false, true};
         if (!okVisitor.isSimple()) return;
 
