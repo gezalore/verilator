@@ -170,7 +170,7 @@ public:
     virtual string dotColor() const { return cutable() ? "yellowGreen" : "red"; }
     virtual string dotStyle() const { return cutable() ? "dashed" : ""; }
     virtual int sortCmp(const V3GraphEdge* rhsp) const VL_MT_DISABLED;
-    void unlinkDelete() VL_MT_DISABLED;
+    inline void unlinkDelete();
     void relinkFromp(V3GraphVertex* newFromp) VL_MT_DISABLED;
     void relinkTop(V3GraphVertex* newTop) VL_MT_DISABLED;
     // ACCESSORS
@@ -338,6 +338,15 @@ inline const auto& V3GraphVertex::edges<GraphWay::FORWARD>() const {
 template <>
 inline const auto& V3GraphVertex::edges<GraphWay::REVERSE>() const {
     return m_ins;
+}
+
+void V3GraphEdge::unlinkDelete() {
+    // Unlink from side
+    m_fromp->outEdges().erase(*this);
+    // Unlink to side
+    m_top->inEdges().erase(*this);
+    // Delete
+    delete this;
 }
 
 //============================================================================

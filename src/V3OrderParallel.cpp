@@ -1026,73 +1026,69 @@ static void partRedirectEdgesFrom(V3Graph& graph, LogicMTask* recipientp, LogicM
     // non-transitive edges only ever increase.
 
     // Process outgoing edges
-    while (!donorp->outEmpty()) {
-        MTaskEdge& edge = static_cast<MTaskEdge&>(donorp->outEdges().front());
-        donorp->outEdges().pop_front();
-        LogicMTask* const relativep = edge.toMTaskp();
+    while (MTaskEdge* const edgep = static_cast<MTaskEdge*>(donorp->outEdges().frontp())) {
+        LogicMTask* const relativep = edgep->toMTaskp();
 
-        relativep->removeRelativeEdge<GraphWay::REVERSE>(&edge);
+        relativep->removeRelativeEdge<GraphWay::REVERSE>(edgep);
 
         if (recipientp->hasRelativeMTask(relativep)) {
             // An edge already exists between recipient and relative of donor.
             // Mark it in need of a rescore
             if (sbp) {
-                if (sbp->contains(&edge)) sbp->remove(&edge);
+                if (sbp->contains(edgep)) sbp->remove(edgep);
                 MTaskEdge* const existMTaskEdgep = static_cast<MTaskEdge*>(
                     recipientp->findConnectingEdgep<GraphWay::FORWARD>(relativep));
                 UDEBUGONLY(UASSERT(existMTaskEdgep, "findConnectingEdge didn't find edge"););
                 if (sbp->contains(existMTaskEdgep)) sbp->hintScoreChanged(existMTaskEdgep);
             }
-            edge.unlinkDelete();
+            VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
         } else {
             // No existing edge between recipient and relative of donor.
             // Redirect the edge from donor<->relative to recipient<->relative.
-            edge.relinkFromp(recipientp);
+            edgep->relinkFromp(recipientp);
             recipientp->addRelativeMTask(relativep);
-            recipientp->stealRelativeEdge<GraphWay::FORWARD>(&edge);
-            relativep->addRelativeEdge<GraphWay::REVERSE>(&edge);
+            recipientp->stealRelativeEdge<GraphWay::FORWARD>(edgep);
+            relativep->addRelativeEdge<GraphWay::REVERSE>(edgep);
             if (sbp) {
-                if (!sbp->contains(&edge)) {
-                    sbp->add(&edge);
+                if (!sbp->contains(edgep)) {
+                    sbp->add(edgep);
                 } else {
-                    sbp->hintScoreChanged(&edge);
+                    sbp->hintScoreChanged(edgep);
                 }
             }
         }
     }
 
     // Process incoming edges
-    while (!donorp->inEmpty()) {
-        MTaskEdge& edge = static_cast<MTaskEdge&>(donorp->inEdges().front());
-        donorp->inEdges().pop_front();
-        LogicMTask* const relativep = edge.fromMTaskp();
+    while (MTaskEdge* const edgep = static_cast<MTaskEdge*>(donorp->inEdges().frontp())) {
+        LogicMTask* const relativep = edgep->fromMTaskp();
 
         relativep->removeRelativeMTask(donorp);
-        relativep->removeRelativeEdge<GraphWay::FORWARD>(&edge);
+        relativep->removeRelativeEdge<GraphWay::FORWARD>(edgep);
 
         if (relativep->hasRelativeMTask(recipientp)) {
             // An edge already exists between recipient and relative of donor.
             // Mark it in need of a rescore
             if (sbp) {
-                if (sbp->contains(&edge)) sbp->remove(&edge);
+                if (sbp->contains(edgep)) sbp->remove(edgep);
                 MTaskEdge* const existMTaskEdgep = static_cast<MTaskEdge*>(
                     recipientp->findConnectingEdgep<GraphWay::REVERSE>(relativep));
                 UDEBUGONLY(UASSERT(existMTaskEdgep, "findConnectingEdge didn't find edge"););
                 if (sbp->contains(existMTaskEdgep)) sbp->hintScoreChanged(existMTaskEdgep);
             }
-            edge.unlinkDelete();
+            VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
         } else {
             // No existing edge between recipient and relative of donor.
             // Redirect the edge from donor<->relative to recipient<->relative.
-            edge.relinkTop(recipientp);
+            edgep->relinkTop(recipientp);
             relativep->addRelativeMTask(recipientp);
-            relativep->addRelativeEdge<GraphWay::FORWARD>(&edge);
-            recipientp->stealRelativeEdge<GraphWay::REVERSE>(&edge);
+            relativep->addRelativeEdge<GraphWay::FORWARD>(edgep);
+            recipientp->stealRelativeEdge<GraphWay::REVERSE>(edgep);
             if (sbp) {
-                if (!sbp->contains(&edge)) {
-                    sbp->add(&edge);
+                if (!sbp->contains(edgep)) {
+                    sbp->add(edgep);
                 } else {
-                    sbp->hintScoreChanged(&edge);
+                    sbp->hintScoreChanged(edgep);
                 }
             }
         }
@@ -1334,19 +1330,15 @@ private:
     }
 
     void removeSiblingMCsWith(LogicMTask* mtaskp) {
-        while (!mtaskp->aSiblingMCs().empty()) {
-            SiblingMC& smc = mtaskp->aSiblingMCs().front();
-            mtaskp->aSiblingMCs().pop_front();
-            m_sb.remove(&smc);
-            smc.unlinkB();
-            delete &smc;
+        while (SiblingMC* const smcp = mtaskp->aSiblingMCs().unlinkFront()) {
+            m_sb.remove(smcp);
+            smcp->unlinkB();
+            VL_DO_DANGLING(delete smcp, smcp);
         }
-        while (!mtaskp->bSiblingMCs().empty()) {
-            SiblingMC& smc = mtaskp->bSiblingMCs().front();
-            mtaskp->bSiblingMCs().pop_front();
-            m_sb.remove(&smc);
-            smc.unlinkA();
-            delete &smc;
+        while (SiblingMC* const smcp = mtaskp->bSiblingMCs().unlinkFront()) {
+            m_sb.remove(smcp);
+            smcp->unlinkA();
+            VL_DO_DANGLING(delete smcp, smcp);
         }
     }
 
@@ -2324,11 +2316,7 @@ class Partitioner final {
                 continue;
             }
             // Annotate the underlying OrderMoveVertex vertices and unlink them
-            while (!vertexList.empty()) {
-                OrderMoveVertex& mVtx = vertexList.front();
-                vertexList.pop_front();
-                mVtx.userp(mtaskp);
-            }
+            while (OrderMoveVertex* const mVtxp = vertexList.unlinkFront()) mVtxp->userp(mtaskp);
         }
         m_mTaskGraphp->removeRedundantEdgesSum(&V3GraphEdge::followAlwaysTrue);
     }
@@ -2411,13 +2399,10 @@ AstExecGraph* V3Order::createParallel(OrderGraph& orderGraph, const std::string&
         LogicMTask* const mTaskp = const_cast<LogicMTask*>(cMTaskp);
 
         // Add initially ready vertices within this MTask to the serializer as seeds,
-        // and unlink them from the vertex list in the MTask as we go.
-        OrderMoveVertex::List& vertexList = mTaskp->vertexList();
-        while (!vertexList.empty()) {
-            OrderMoveVertex& vtx = vertexList.front();
-            // The serializer uses the list node in the vertex, so must remove it  here
-            vertexList.pop_front();
-            if (vtx.inEmpty()) serializer.addSeed(&vtx);
+        // and unlink them from the vertex list in the MTask as we go. (The serializer
+        // uses the list links in the vertex, so must unlink it here.)
+        while (OrderMoveVertex* const vtxp = mTaskp->vertexList().unlinkFront()) {
+            if (vtxp->inEmpty()) serializer.addSeed(vtxp);
         }
 
         // Emit all logic within the MTask as they become ready

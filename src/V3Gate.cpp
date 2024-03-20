@@ -485,10 +485,8 @@ class GateClkDecomp final {
                             "Should only make it here with clkOffset == 0");
                 rhsp->replaceWith(
                     new AstVarRef{rhsp->fileline(), m_clkVtxp->varScp(), VAccess::READ});
-                while (!lVtxp->inEmpty()) {
-                    V3GraphEdge& edge = lVtxp->inEdges().front();
-                    lVtxp->inEdges().pop_front();
-                    edge.unlinkDelete();
+                while (V3GraphEdge* const edgep = lVtxp->inEdges().frontp()) {
+                    VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
                 }
                 m_graph.addEdge(m_clkVtxp, lVtxp, 1);
                 ++m_decomposedClkVectors;
@@ -1132,10 +1130,8 @@ class GateDedupe final {
         }
 
         // Remove inputs links
-        while (!vVtxp->inEmpty()) {
-            V3GraphEdge& edge = vVtxp->inEdges().front();
-            vVtxp->inEdges().pop_front();
-            edge.unlinkDelete();
+        while (V3GraphEdge* const edgep = vVtxp->inEdges().frontp()) {
+            VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
         }
 
         // Propagate attributes

@@ -169,7 +169,7 @@ public:
         for (const auto& vrp : m_outputs) {
             LatchDetectGraphVertex* const vertp = castVertexp(vrp->varp()->user1p());
             vertp->user(true);  // Identify the output vertex we are checking paths _to_
-            if (!latchCheckInternal(castVertexp(&vertices().front()))) latch_detected = true;
+            if (!latchCheckInternal(castVertexp(vertices().frontp()))) latch_detected = true;
             if (latch_detected && !latch_expected) {
                 nodep->v3warn(
                     LATCH,

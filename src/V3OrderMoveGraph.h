@@ -210,17 +210,16 @@ public:
     void addSeed(OrderMoveVertex* vtxp) { ready(vtxp); }
 
     OrderMoveVertex* getNext() {
-        if (!m_nextDomScopep) m_nextDomScopep = &m_readyDomScopeps.front();
+        if (!m_nextDomScopep) m_nextDomScopep = m_readyDomScopeps.frontp();
         // If nothing is ready, we are done
         if (!m_nextDomScopep) return nullptr;
         OrderMoveDomScope& currDomScope = *m_nextDomScopep;
 
         OrderMoveVertex::List& currReadyList = currDomScope.readyVertices();
         UASSERT(!currReadyList.empty(), "DomScope on ready list, but has no ready vertices");
-        // This is the vertex we are returning now
-        OrderMoveVertex& mVtx = currReadyList.front();
-        // Remove vertex from ready list under the DomScope
-        currReadyList.pop_front();
+
+        // Remove vertex from ready list under the DomScope. This is the vertex we are returning.
+        OrderMoveVertex* mVtxp = currReadyList.unlinkFront();
 
         // Nonsesne, but what we used to do
         if (currReadyList.empty()) {
@@ -229,7 +228,7 @@ public:
         }
 
         // Remove dependency on vertex we are returning. This might add vertices to currReadyList.
-        for (V3GraphEdge& edge : mVtx.outEdges()) {
+        for (V3GraphEdge& edge : mVtxp->outEdges()) {
             // The dependent variable
             OrderMoveVertex* const dVtxp = edge.top()->as<OrderMoveVertex>();
             // Update number of dependencies
@@ -252,7 +251,7 @@ public:
         }
 
         // Finally yield the selected vertex
-        return &mVtx;
+        return mVtxp;
     }
 };
 

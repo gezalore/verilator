@@ -163,15 +163,6 @@ void V3GraphEdge::relinkTop(V3GraphVertex* newTop) {
     m_top->inEdges().push_back(*this);
 }
 
-void V3GraphEdge::unlinkDelete() {
-    // Unlink from side
-    m_fromp->outEdges().erase(*this);
-    // Unlink to side
-    m_top->inEdges().erase(*this);
-    // Delete
-    delete this;
-}
-
 std::string V3GraphEdge::name() const { return m_fromp->name() + "->" + m_top->name(); }
 
 int V3GraphEdge::sortCmp(const V3GraphEdge* rhsp) const {
@@ -192,18 +183,10 @@ void V3Graph::clear() {
     // Empty it of all points, as if making a new object
     // Delete the old edges
     for (V3GraphVertex& vertex : vertices()) {
-        while (!vertex.outEmpty()) {
-            V3GraphEdge& edge = vertex.outEdges().front();
-            vertex.outEdges().pop_front();
-            delete &edge;
-        }
+        while (V3GraphEdge* const edgep = vertex.outEdges().unlinkFront()) delete edgep;
     }
     // Delete the old vertices
-    while (!vertices().empty()) {
-        V3GraphVertex& vertex = vertices().front();
-        vertices().pop_front();
-        delete &vertex;
-    }
+    while (V3GraphVertex* const vertexp = vertices().unlinkFront()) delete vertexp;
 }
 
 void V3Graph::userClearVertices() {

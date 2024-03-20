@@ -200,7 +200,7 @@ public:
         };
 
         // To start, choose an arbitrary vertex and visit it.
-        visit(&vertices().front());
+        visit(vertices().frontp());
 
         // Repeatedly find the least costly edge in the pending set.
         // If it connects to an unvisited node, visit that node and update
@@ -407,7 +407,7 @@ public:
         if (::dumpGraphLevel() >= 6) dumpDotFilePrefixed("findEulerTour");
         std::unordered_set<unsigned /*edgeID*/> markedEdges;
         // Pick a start node
-        Vertex* const start_vertexp = castVertexp(&vertices().front());
+        Vertex* const start_vertexp = castVertexp(vertices().frontp());
         findEulerTourRecurse(&markedEdges, start_vertexp, sortedOutp);
     }
 

@@ -64,7 +64,7 @@ class V3List final {
     static_assert(std::is_base_of<T_Base, T_Element>::value,
                   "'T_Element' must be a subtype of 'T_Base");
     T_Base* m_headp = nullptr;
-    T_Base* m_tailp = nullptr;
+    T_Base* m_lastp = nullptr;
 
     // Given the T_Element, return the Links. The links are always mutable, even in const elements.
     VL_ATTR_ALWINLINE
@@ -139,25 +139,25 @@ public:
     ~V3List() {
 #ifdef VL_DEBUG
         m_headp = reinterpret_cast<T_Element*>(1);
-        m_tailp = reinterpret_cast<T_Element*>(1);
+        m_lastp = reinterpret_cast<T_Element*>(1);
 #endif
     }
     VL_UNCOPYABLE(V3List);
     VL_UNMOVABLE(V3List);
 
     bool empty() const {
-        UDEBUGONLY(UASSERT(!m_headp == !m_tailp, "Inconsistent list"););
+        UDEBUGONLY(UASSERT(!m_headp == !m_lastp, "Inconsistent list"););
         return !m_headp;
     }
 
     bool hasSingleElement() const {
-        UDEBUGONLY(UASSERT(!m_headp == !m_tailp, "Inconsistent list"););
-        return m_headp && m_headp == m_tailp;
+        UDEBUGONLY(UASSERT(!m_headp == !m_lastp, "Inconsistent list"););
+        return m_headp && m_headp == m_lastp;
     }
 
     bool hasMultipleElements() const {
-        UDEBUGONLY(UASSERT(!m_headp == !m_tailp, "Inconsistent list"););
-        return m_headp && m_headp != m_tailp;
+        UDEBUGONLY(UASSERT(!m_headp == !m_lastp, "Inconsistent list"););
+        return m_headp && m_headp != m_lastp;
     }
 
     T_Element* frontp() { return static_cast<T_Element*>(m_headp); }
@@ -173,11 +173,11 @@ public:
     }
     T_Element& back() {
         UASSERT(!empty(), "'back' called on empty list");
-        return *static_cast<T_Element*>(m_tailp);
+        return *static_cast<T_Element*>(m_lastp);
     }
     const T_Element& back() const {
         UASSERT(!empty(), "'back' called on empty list");
-        return *static_cast<T_Element*>(m_tailp);
+        return *static_cast<T_Element*>(m_lastp);
     }
 
     iterator begin() { return iterator{m_headp}; }
@@ -188,20 +188,23 @@ public:
     void push_back(const T_Element& element) {
         auto& links = toLinks(element);
         links.m_nextp = nullptr;
-        links.m_prevp = m_tailp;
-        if (m_tailp) toLinks(*m_tailp).m_nextp = &const_cast<T_Element&>(element);
-        m_tailp = &const_cast<T_Element&>(element);
-        if (!m_headp) m_headp = m_tailp;
+        links.m_prevp = m_lastp;
+        if (m_lastp) toLinks(*m_lastp).m_nextp = &const_cast<T_Element&>(element);
+        m_lastp = &const_cast<T_Element&>(element);
+        if (!m_headp) m_headp = m_lastp;
     }
 
-    void pop_back() {
-        UASSERT(!empty(), "'pop_back' called on empty list");
-        m_tailp = toLinks(*m_tailp).m_prevp;
-        if (m_tailp) {
-            toLinks(*m_tailp).m_nextp = nullptr;
-        } else {
-            m_headp = nullptr;
+    T_Element* unlinkBack() {
+        T_Element* const lastp = m_lastp;
+        if (lastp) {
+            m_lastp = toLinks(*m_lastp).m_prevp;
+            if (m_lastp) {
+                toLinks(*m_lastp).m_nextp = nullptr;
+            } else {
+                m_headp = nullptr;
+            }
         }
+        return lastp;
     }
 
     void push_front(const T_Element& element) {
@@ -210,7 +213,7 @@ public:
         links.m_prevp = nullptr;
         if (m_headp) toLinks(*m_headp).m_prevp = &const_cast<T_Element&>(element);
         m_headp = &const_cast<T_Element&>(element);
-        if (!m_tailp) m_tailp = m_headp;
+        if (!m_lastp) m_lastp = m_headp;
     }
 
     T_Element* unlinkFront() {
@@ -220,7 +223,7 @@ public:
             if (m_headp) {
                 toLinks(*m_headp).m_prevp = nullptr;
             } else {
-                m_tailp = nullptr;
+                m_lastp = nullptr;
             }
         }
         return headp;
@@ -231,14 +234,14 @@ public:
         if (links.m_nextp) toLinks(*links.m_nextp).m_prevp = links.m_prevp;
         if (links.m_prevp) toLinks(*links.m_prevp).m_nextp = links.m_nextp;
         if (m_headp == &element) m_headp = links.m_nextp;
-        if (m_tailp == &element) m_tailp = links.m_prevp;
+        if (m_lastp == &element) m_lastp = links.m_prevp;
         links.m_prevp = nullptr;
         links.m_nextp = nullptr;
     }
 
     void swap(List& other) {
         std::swap(m_headp, other.m_headp);
-        std::swap(m_tailp, other.m_tailp);
+        std::swap(m_lastp, other.m_lastp);
     }
 
     void splice(const_iterator pos, List& other) {
@@ -248,11 +251,11 @@ public:
             return;
         } else {
             UASSERT(pos == end(), "Sorry, only splicing at the end is implemented at the moment");
-            toLinks(*m_tailp).m_nextp = other.m_headp;
-            toLinks(*other.m_headp).m_prevp = m_tailp;
-            m_tailp = other.m_tailp;
+            toLinks(*m_lastp).m_nextp = other.m_headp;
+            toLinks(*other.m_headp).m_prevp = m_lastp;
+            m_lastp = other.m_lastp;
             other.m_headp = nullptr;
-            other.m_tailp = nullptr;
+            other.m_lastp = nullptr;
         }
     }
 };

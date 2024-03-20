@@ -178,7 +178,7 @@ class GraphAcyc final {
             m_work.push_back(*avertexp);
         }
     }
-    GraphAcycVertex* workBeginp() { return &m_work.front(); }
+    GraphAcycVertex* workBeginp() { return m_work.frontp(); }
     void workPop() {
         GraphAcycVertex* const avertexp = workBeginp();
         avertexp->m_onWorkList = false;
@@ -282,17 +282,13 @@ void GraphAcyc::simplifyNone(GraphAcycVertex* avertexp) {
         UINFO(9, "  SimplifyNoneRemove " << avertexp << endl);
         avertexp->setDelete();  // Mark so we won't delete it twice
         // Remove edges
-        while (!avertexp->outEmpty()) {
-            V3GraphEdge& edge = avertexp->outEdges().front();
-            avertexp->outEdges().pop_front();
-            workPush(edge.top());
-            edge.unlinkDelete();
+        while (V3GraphEdge* const edgep = avertexp->outEdges().frontp()) {
+            workPush(edgep->top());
+            VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
         }
-        while (!avertexp->inEmpty()) {
-            V3GraphEdge& edge = avertexp->inEdges().front();
-            avertexp->inEdges().pop_front();
-            workPush(edge.fromp());
-            edge.unlinkDelete();
+        while (V3GraphEdge* const edgep = avertexp->inEdges().frontp()) {
+            workPush(edgep->fromp());
+            VL_DO_DANGLING(edgep->unlinkDelete(), edgep);
         }
     }
 }
