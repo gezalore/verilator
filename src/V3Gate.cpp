@@ -1254,12 +1254,10 @@ class GateMergeAssignments final {
                 // Don't need to delete assignp, will be handled
 
                 // Update the graph
-                while (!lVtxp->inEmpty()) {
-                    V3GraphEdge& iedge = lVtxp->inEdges().front();
-                    lVtxp->inEdges().pop_front();
-                    GateVarVertex* const fromVtxp = iedge.fromp()->as<GateVarVertex>();
+                while (V3GraphEdge* const iedgep = lVtxp->inEdges().frontp()) {
+                    GateVarVertex* const fromVtxp = iedgep->fromp()->as<GateVarVertex>();
                     m_graph.addEdge(fromVtxp, prevLVtxp, 1);
-                    iedge.unlinkDelete();
+                    VL_DO_DANGLING(iedgep->unlinkDelete(), iedgep);
                 }
 
                 // Delete the out-edges of lVtxp (there is only one, we checked earlier)

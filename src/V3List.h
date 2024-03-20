@@ -149,10 +149,36 @@ public:
         UDEBUGONLY(UASSERT(!m_headp == !m_tailp, "Inconsistent list"););
         return !m_headp;
     }
-    T_Element& front() { return *static_cast<T_Element*>(m_headp); }
-    const T_Element& front() const { return *static_cast<T_Element*>(m_headp); }
-    T_Element& back() { return *static_cast<T_Element*>(m_tailp); }
-    const T_Element& back() const { return *static_cast<T_Element*>(m_tailp); }
+
+    bool hasSingleElement() const {
+        UDEBUGONLY(UASSERT(!m_headp == !m_tailp, "Inconsistent list"););
+        return m_headp && m_headp == m_tailp;
+    }
+
+    bool hasMultipleElements() const {
+        UDEBUGONLY(UASSERT(!m_headp == !m_tailp, "Inconsistent list"););
+        return m_headp && m_headp != m_tailp;
+    }
+
+    T_Element* frontp() { return static_cast<T_Element*>(m_headp); }
+    const T_Element* frontp() const { return static_cast<T_Element*>(m_headp); }
+
+    T_Element& front() {
+        UASSERT(!empty(), "'front' called on empty list");
+        return *static_cast<T_Element*>(m_headp);
+    }
+    const T_Element& front() const {
+        UASSERT(!empty(), "'front' called on empty list");
+        return *static_cast<T_Element*>(m_headp);
+    }
+    T_Element& back() {
+        UASSERT(!empty(), "'back' called on empty list");
+        return *static_cast<T_Element*>(m_tailp);
+    }
+    const T_Element& back() const {
+        UASSERT(!empty(), "'back' called on empty list");
+        return *static_cast<T_Element*>(m_tailp);
+    }
 
     iterator begin() { return iterator{m_headp}; }
     const_iterator begin() const { return const_iterator{m_headp}; }
@@ -187,14 +213,17 @@ public:
         if (!m_tailp) m_tailp = m_headp;
     }
 
-    void pop_front() {
-        UASSERT(!empty(), "'pop_front' called on empty list");
-        m_headp = static_cast<T_Element*>(toLinks(*m_headp).m_nextp);
-        if (m_headp) {
-            toLinks(*m_headp).m_prevp = nullptr;
-        } else {
-            m_tailp = nullptr;
+    T_Element* unlinkFront() {
+        T_Element* const headp = m_headp;
+        if (headp) {
+            m_headp = static_cast<T_Element*>(toLinks(*m_headp).m_nextp);
+            if (m_headp) {
+                toLinks(*m_headp).m_prevp = nullptr;
+            } else {
+                m_tailp = nullptr;
+            }
         }
+        return headp;
     }
 
     void erase(const T_Element& element) {
