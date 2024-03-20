@@ -82,7 +82,7 @@ public:
 class OrderMoveGraph final : public V3Graph {
 public:
     // Build an OrderMoveGraph from an OrderGraph
-    static std::unique_ptr<OrderMoveGraph> build(const OrderGraph&, const V3Order::TrigToSenMap&);
+    static std::unique_ptr<OrderMoveGraph> build(OrderGraph&, const V3Order::TrigToSenMap&);
 };
 
 // Information stored for each unique (domain, scope) pair. Mainly a list of ready vertices under

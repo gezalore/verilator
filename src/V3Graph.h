@@ -321,22 +321,22 @@ public:
 std::ostream& operator<<(std::ostream& os, V3GraphVertex* vertexp) VL_MT_DISABLED;
 
 template <>
-auto& V3GraphVertex::edges<GraphWay::FORWARD>() {
+inline auto& V3GraphVertex::edges<GraphWay::FORWARD>() {
     return m_outs;
 }
 
 template <>
-auto& V3GraphVertex::edges<GraphWay::REVERSE>() {
+inline auto& V3GraphVertex::edges<GraphWay::REVERSE>() {
     return m_ins;
 }
 
 template <>
-const auto& V3GraphVertex::edges<GraphWay::FORWARD>() const {
+inline const auto& V3GraphVertex::edges<GraphWay::FORWARD>() const {
     return m_outs;
 }
 
 template <>
-const auto& V3GraphVertex::edges<GraphWay::REVERSE>() const {
+inline const auto& V3GraphVertex::edges<GraphWay::REVERSE>() const {
     return m_ins;
 }
 
@@ -474,8 +474,8 @@ public:
         }
     };
 
-    ParallelismReport parallelismReport(
-        std::function<uint64_t(const V3GraphVertex*)> vertexCost) const VL_MT_DISABLED;
+    ParallelismReport
+    parallelismReport(std::function<uint64_t(const V3GraphVertex*)> vertexCost) VL_MT_DISABLED;
 
     // CALLBACKS
     virtual void loopsMessageCb(V3GraphVertex* vertexp) VL_MT_DISABLED;

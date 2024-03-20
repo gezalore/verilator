@@ -31,7 +31,7 @@ VL_DEFINE_DEBUG_FUNCTIONS;
 //######################################################################
 // OrderSerial class
 
-std::vector<AstActive*> V3Order::createSerial(const OrderGraph& graph, const std::string& tag,
+std::vector<AstActive*> V3Order::createSerial(OrderGraph& graph, const std::string& tag,
                                               const TrigToSenMap& trigToSen, bool slow) {
 
     UINFO(2, "  Constructing serial code for '" + tag + "'");

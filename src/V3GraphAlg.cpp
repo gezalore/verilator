@@ -508,12 +508,12 @@ double V3Graph::orderDFSIterate(V3GraphVertex* vertexp) {
 
 class GraphAlgParallelismReport final {
     // MEMBERS
-    const V3Graph& m_graph;  // The graph
+    V3Graph& m_graph;  // The graph
     const std::function<uint64_t(const V3GraphVertex*)> m_vertexCost;  // vertex cost function
     V3Graph::ParallelismReport m_report;  // The result report
 
     // CONSTRUCTORS
-    explicit GraphAlgParallelismReport(const V3Graph& graph,
+    explicit GraphAlgParallelismReport(V3Graph& graph,
                                        std::function<uint64_t(const V3GraphVertex*)> vertexCost)
         : m_graph{graph}
         , m_vertexCost{vertexCost} {
@@ -548,12 +548,12 @@ class GraphAlgParallelismReport final {
 
 public:
     static V3Graph::ParallelismReport
-    apply(const V3Graph& graph, std::function<uint32_t(const V3GraphVertex*)> vertexCost) {
+    apply(V3Graph& graph, std::function<uint32_t(const V3GraphVertex*)> vertexCost) {
         return GraphAlgParallelismReport(graph, vertexCost).m_report;
     }
 };
 
 V3Graph::ParallelismReport
-V3Graph::parallelismReport(std::function<uint64_t(const V3GraphVertex*)> vertexCost) const {
+V3Graph::parallelismReport(std::function<uint64_t(const V3GraphVertex*)> vertexCost) {
     return GraphAlgParallelismReport::apply(*this, vertexCost);
 }

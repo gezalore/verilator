@@ -2016,7 +2016,7 @@ public:
 // Partitioner implementation
 
 // Print debug stats about graphp whose nodes must be LogicMTask's.
-static void debugMTaskGraphStats(const V3Graph& graph, const string& stage) {
+static void debugMTaskGraphStats(V3Graph& graph, const string& stage) {
     if (!debug() && !dumpLevel() && !dumpGraphLevel()) return;
 
     UINFO(4, "\n");
@@ -2025,7 +2025,6 @@ static void debugMTaskGraphStats(const V3Graph& graph, const string& stage) {
     uint32_t totalCost = 0;
     std::array<uint32_t, 32> mtaskCostHist;
     mtaskCostHist.fill(0);
-
     for (const V3GraphVertex& mtask : graph.vertices()) {
         ++mtaskCount;
         uint32_t mtaskCost = mtask.as<const LogicMTask>()->cost();
@@ -2354,7 +2353,7 @@ struct MTaskVxIdLessThan final {
     }
 };
 
-AstExecGraph* V3Order::createParallel(const OrderGraph& orderGraph, const std::string& tag,
+AstExecGraph* V3Order::createParallel(OrderGraph& orderGraph, const std::string& tag,
                                       const TrigToSenMap& trigToSen, bool slow) {
     UINFO(2, "  Constructing parallel code for '" + tag + "'");
 
