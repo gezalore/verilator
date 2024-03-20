@@ -300,11 +300,11 @@ public:
     template <GraphWay::en T_Way>
     inline const auto& edges() const;
     bool inEmpty() const { return m_ins.empty(); }
-    bool inSize1() const VL_MT_DISABLED;
+    bool inSize1() const { return m_ins.hasSingleElement(); }
     V3GraphEdge::OList& outEdges() { return m_outs; }
     const V3GraphEdge::OList& outEdges() const { return m_outs; }
     bool outEmpty() const { return m_outs.empty(); }
-    bool outSize1() const VL_MT_DISABLED;
+    bool outSize1() const { return m_outs.hasSingleElement(); }
     // METHODS
     /// Error reporting
     void v3errorEnd(std::ostringstream& str) const VL_RELEASE(V3Error::s().m_mutex) VL_MT_DISABLED;

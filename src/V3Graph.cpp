@@ -53,16 +53,8 @@ V3GraphVertex::V3GraphVertex(V3Graph* graphp)
 }
 
 void V3GraphVertex::unlinkEdges(V3Graph*) {
-    while (!m_outs.empty()) {
-        V3GraphEdge& edge = m_outs.front();
-        m_outs.pop_front();
-        edge.unlinkDelete();
-    }
-    while (!m_ins.empty()) {
-        V3GraphEdge& edge = m_ins.front();
-        m_ins.pop_front();
-        edge.unlinkDelete();
-    }
+    while (V3GraphEdge* const ep = m_outs.frontp()) VL_DO_DANGLING(ep->unlinkDelete(), ep);
+    while (V3GraphEdge* const ep = m_ins.frontp()) VL_DO_DANGLING(ep->unlinkDelete(), ep);
 }
 
 void V3GraphVertex::unlinkDelete(V3Graph* graphp) {
@@ -85,13 +77,6 @@ void V3GraphVertex::rerouteEdges(V3Graph* graphp) {
     }
     // Remove old edges
     unlinkEdges(graphp);
-}
-
-bool V3GraphVertex::inSize1() const {
-    return !inEmpty() && &inEdges().front() == &inEdges().back();
-}
-bool V3GraphVertex::outSize1() const {
-    return !outEmpty() && &outEdges().front() == &outEdges().back();
 }
 
 template <GraphWay::en T_Way>

@@ -1524,7 +1524,7 @@ private:
         constexpr GraphWay way{T_Way};
         // Need at least 2 edges
         auto& edges = mtaskp->edges<way>();
-        if (edges.empty() || &edges.front() == &edges.back()) return;
+        if (!edges.hasMultipleElements()) return;
 
         std::array<LogicMTask*, PART_SIBLING_EDGE_LIMIT> neighbors;
 
@@ -1619,10 +1619,7 @@ private:
                            chain_len * 2, nullptr, nullptr, /* slowAsserts: */ false);
 
         // All vertices should merge into one
-        UASSERT_SELFTEST(bool,
-                         !mTaskGraph.vertices().empty()
-                             && &mTaskGraph.vertices().front() == &mTaskGraph.vertices().back(),
-                         true);
+        UASSERT_SELFTEST(bool, mTaskGraph.vertices().hasSingleElement(), true);
 
         const uint64_t endUsecs = V3Os::timeUsecs();
         const uint64_t elapsedUsecs = endUsecs - startUsecs;
@@ -1848,8 +1845,8 @@ class FixDataHazards final {
                 if (mtaskp->vertexList().empty()) continue;
                 // Otherwise there should be only one OrderMoveVertex in each MTask at this stage
                 const OrderMoveVertex::List& vertexList = mtaskp->vertexList();
+                UASSERT_OBJ(vertexList.hasSingleElement(), mtaskp, "Multiple OrderMoveVertex");
                 const OrderMoveVertex& mVtx = vertexList.front();
-                UASSERT_OBJ(&mVtx == &vertexList.back(), mtaskp, "Multiple OrderMoveVertex");
                 // Set up mapping back to the MTask from the OrderLogicVertex
                 if (OrderLogicVertex* const lvtxp = mVtx.logicp()) lvtxp->userp(mtaskp);
             }
@@ -2185,9 +2182,9 @@ class Partitioner final {
             if (VL_UNLIKELY((&mtask == m_entryMTaskp) || (&mtask == m_exitMTaskp))) continue;
 
             OrderMoveVertex::List& vertexList = mtask.vertexList();
-            OrderMoveVertex& mVtx = vertexList.front();
             // At this point, there should only be one OrderMoveVertex per LogicMTask
-            UASSERT_OBJ(&mVtx == &vertexList.back(), &mtask, "Multiple OrderMoveVertex");
+            UASSERT_OBJ(vertexList.hasSingleElement(), &mtask, "Multiple OrderMoveVertex");
+            OrderMoveVertex& mVtx = vertexList.front();
             UASSERT_OBJ(mVtx.userp(), &mtask, "Bypassed OrderMoveVertex should not have MTask");
 
             // Function to add a edge to a dependent from 'mtaskp'
