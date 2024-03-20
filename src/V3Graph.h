@@ -165,11 +165,11 @@ public:
         return is<T>() ? static_cast<const T*>(this) : nullptr;
     }
 
-    virtual string name() const;
+    virtual string name() const VL_MT_DISABLED;
     virtual string dotLabel() const { return ""; }
     virtual string dotColor() const { return cutable() ? "yellowGreen" : "red"; }
     virtual string dotStyle() const { return cutable() ? "dashed" : ""; }
-    virtual int sortCmp(const V3GraphEdge* rhsp) const;
+    virtual int sortCmp(const V3GraphEdge* rhsp) const VL_MT_DISABLED;
     void unlinkDelete() VL_MT_DISABLED;
     void relinkFromp(V3GraphVertex* newFromp) VL_MT_DISABLED;
     void relinkTop(V3GraphVertex* newTop) VL_MT_DISABLED;

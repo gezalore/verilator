@@ -101,10 +101,12 @@ V3GraphEdge* V3GraphVertex::findConnectingEdgep(V3GraphVertex* waywardp) {
     // unlikely to blow up even on fairly nasty graphs.
     constexpr GraphWay way{T_Way};
     constexpr GraphWay inv = way.invert();
-    auto aIt = this->edges<way>().begin();
-    auto aEnd = this->edges<way>().end();
-    auto bIt = waywardp->edges<inv>().begin();
-    auto bEnd = waywardp->edges<inv>().end();
+    auto& aEdges = this->edges<way>();
+    auto aIt = aEdges.begin();
+    auto aEnd = aEdges.end();
+    auto& bEdges = waywardp->edges<inv>();
+    auto bIt = bEdges.begin();
+    auto bEnd = bEdges.end();
     while (aIt != aEnd && bIt != bEnd) {
         V3GraphEdge& aedge = *aIt++;
         if (aedge.furtherp<way>() == waywardp) return &aedge;
