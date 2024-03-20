@@ -101,19 +101,14 @@ class V3List final {
 
         VL_ATTR_ALWINLINE
         SimpleItertatorImpl(T_Base* elementp)
-            : m_currp{elementp} {
-            UDEBUGONLY(UASSERT(m_currp, "Should nut construct empty iterator with element"););
-            prefetch(toLinks(m_currp).m_nextp, m_currp);
-        }
-        VL_ATTR_ALWINLINE
-        SimpleItertatorImpl(std::nullptr_t)
-            : m_currp{nullptr} {}
+            : m_currp{elementp} {}
 
     public:
         // Dereference
         VL_ATTR_ALWINLINE
         IteratorElement& operator*() const {
             UDEBUGONLY(UASSERT(m_currp, "Dereferencing end of list iterator"););
+            prefetch(toLinks(m_currp).m_nextp, m_currp);
             return *static_cast<IteratorElement*>(m_currp);
         }
         // Pre increment
@@ -121,7 +116,6 @@ class V3List final {
         IteratorType& operator++() {
             UDEBUGONLY(UASSERT(m_currp, "Pre-incrementing end of list iterator"););
             m_currp = toLinks(m_currp).m_nextp;
-            prefetch(toLinks(m_currp).m_nextp, m_currp);
             return *this;
         }
         // Post increment
@@ -130,7 +124,6 @@ class V3List final {
             UDEBUGONLY(UASSERT(m_currp, "Post-incrementing end of list iterator"););
             T_Base* const elementp = m_currp;
             m_currp = toLinks(m_currp).m_nextp;
-            prefetch(m_currp, elementp);
             return IteratorType{elementp};
         }
         VL_ATTR_ALWINLINE
@@ -147,6 +140,10 @@ class V3List final {
     // Proxy class for creating unlinkable iterators, so we can use
     // 'for (T_Element* const ptr : list.unlinkable()) list.unlink(ptr);'
     class Unlinkable final {
+        // The List itself, but nothing else can construct Unlinkable
+        template <typename B, V3ListLinks<B> B::*P, typename>
+        friend class V3List;
+
         ListType& m_list;  // The proxied list
 
         Unlinkable(ListType& list)
@@ -160,6 +157,9 @@ class V3List final {
                               || std::is_same<IteratorElement, const T_Element>::value,
                           "'UnlinkableItertatorImpl' must be used with element type only");
 
+            // The Unlinkable proxy, but nothing else can construct unlinkable iterators
+            friend class Unlinkable;
+
             using IteratorType = UnlinkableItertatorImpl<IteratorElement>;
 
             T_Base* m_currp;  // Currently iterated element, or 'nullptr' for 'end()' iterator
@@ -168,19 +168,18 @@ class V3List final {
             VL_ATTR_ALWINLINE
             UnlinkableItertatorImpl(T_Base* elementp)
                 : m_currp{elementp}
-                , m_nextp{toLinks(m_currp).m_nextp} {
-                UDEBUGONLY(UASSERT(m_currp, "Should nut construct empty iterator with element"););
-                prefetch(m_nextp, m_currp);
-            }
+                , m_nextp{toLinks(m_currp).m_nextp} {}
             VL_ATTR_ALWINLINE
             UnlinkableItertatorImpl(std::nullptr_t)
-                : m_currp{nullptr} {}
+                : m_currp{nullptr}
+                , m_nextp{nullptr} {}
 
         public:
             // Dereference - Note this returns a pointer.
             VL_ATTR_ALWINLINE
             IteratorElement* operator*() const {
                 UDEBUGONLY(UASSERT(m_currp, "Dereferencing end of list iterator"););
+                prefetch(m_nextp, m_currp);
                 return static_cast<IteratorElement*>(m_currp);
             }
             // Pre increment - Keeps hold of current next pointer.
@@ -189,7 +188,6 @@ class V3List final {
                 UDEBUGONLY(UASSERT(m_currp, "Pre-incrementing end of list iterator"););
                 m_currp = m_nextp;
                 m_nextp = toLinks(m_nextp).m_nextp;
-                prefetch(m_nextp, m_currp);
                 return *this;
             }
             VL_ATTR_ALWINLINE
@@ -199,8 +197,12 @@ class V3List final {
     public:
         using iterator = UnlinkableItertatorImpl<T_Element>;
         using const_iterator = UnlinkableItertatorImpl<const T_Element>;
-        iterator begin() { return iterator{m_list.m_headp}; }
-        const_iterator begin() const { return const_iterator{m_list.m_headp}; }
+        iterator begin() {  //
+            return m_list.m_headp ? iterator{m_list.m_headp} : end();
+        }
+        const_iterator begin() const {
+            return m_list.m_headp ? const_iterator{m_list.m_headp} : end();
+        }
         iterator end() { return iterator{nullptr}; }
         const_iterator end() const { return const_iterator{nullptr}; }
     };
@@ -234,15 +236,15 @@ public:
     // Standard iterators. The iterator is only invalidated if the element it points to is
     // unlinked. Other list operations do not invalidate the itartor. If you want to be able to
     // unlink the currently iterated element, use 'unlinkable()' below.
-    iterator begin() { return m_headp ? iterator{m_headp} : end(); }
-    const_iterator begin() const { return m_headp ? const_iterator{m_headp} : end(); }
+    iterator begin() { return iterator{m_headp}; }
+    const_iterator begin() const { return const_iterator{m_headp}; }
     iterator end() { return iterator{nullptr}; }
     const_iterator end() const { return const_iterator{nullptr}; }
 
     // Handle to create unlinkable iterators, which allows unlinking the currently iterated
     // element without invalidating the iterator. However, every other operation that mutates
     // the list invalidates the unlinkable iterator!
-    Unlinkable unlinkable() const { return Unlinkable{this}; }
+    Unlinkable unlinkable() { return Unlinkable{*this}; }
 
     // Link (insert) existing element at front
     void linkFront(const T_Element* elementp) {
