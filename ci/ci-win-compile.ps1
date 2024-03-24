@@ -11,5 +11,5 @@ if (-Not (Test-Path $PWD/../.ccache/win_bison.exe)) {
 mkdir build
 cd build
 cmake .. --install-prefix $PWD/../install
-cmake --build . --config Release -j 3
-cmake --install . --prefix $PWD/../install
+cmake --build . --config Debug -j 3
+cmake --install . --config Debug --prefix $PWD/../install

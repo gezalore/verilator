@@ -518,8 +518,8 @@ if (WIN32)
         target_compile_options(${verilator} PRIVATE -Wa,-mbig-obj)
         target_link_options(${verilator} PRIVATE -Wl,--stack,10000000 -mconsole -lcomctl32 -DWIN_32_LEAN_AND_MEAN)
     else()
-        target_compile_options(${verilator} PRIVATE /bigobj)
-        target_link_options(${verilator} PRIVATE /STACK:10000000)
+        target_compile_options(${verilator} PRIVATE /bigobj /Wall /Od)
+        target_link_options(${verilator} PRIVATE /STACK:10000000 )
     endif()
 
     target_compile_definitions(${verilator} PRIVATE

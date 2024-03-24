@@ -203,6 +203,8 @@ protected:
     friend class V3GraphEdge;
     friend class GraphAcyc;
     friend class GraphAlgRank;
+
+public:
     V3ListLinks<V3GraphVertex> m_links;  // List links to store instances of this class
     V3GraphEdge::OList m_outs;  // List of outbound edges
     V3GraphEdge::IList m_ins;  // List of inbound edges

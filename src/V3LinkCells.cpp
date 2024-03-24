@@ -162,9 +162,20 @@ class LinkCellsVisitor final : public VNVisitor {
         readModNames();
         iterateChildren(nodep);
         // Find levels in graph
+        UINFO(0, "XXXXXXXXXXXXXXX" << std::endl);
+        for (V3GraphVertex* vtxp = m_graph.vertices().frontp(); vtxp;) {
+            std::cout << "Vertex: " << reinterpret_cast<void*>(vtxp)
+                      << " nextp : " << reinterpret_cast<void*>(vtxp->m_links.nextp())
+                      << std::endl;
+            vtxp = vtxp->m_links.nextp();
+        }
+        UINFO(0, "~~~" << std::endl);
+
         m_graph.removeRedundantEdgesMax(&V3GraphEdge::followAlwaysTrue);
+        UINFO(0, "YYYYYYYYYYYY" << std::endl);
         if (dumpGraphLevel()) m_graph.dumpDotFilePrefixed("linkcells");
         m_graph.rank();
+        UINFO(0, "EEEEEEEEEEEEE??????????????????????" << std::endl);
         for (V3GraphVertex& vtx : m_graph.vertices()) {
             if (const LinkCellsVertex* const vvertexp = vtx.cast<LinkCellsVertex>()) {
                 // +1 so we leave level 1  for the new wrapper we'll make in a moment
@@ -172,6 +183,7 @@ class LinkCellsVisitor final : public VNVisitor {
                 modp->level(vvertexp->rank() + 1);
             }
         }
+        UINFO(0, "!!!!!!!!!!!!!!!EEEEEEEEEEEEE??????????????????????" << std::endl);
         if (v3Global.opt.topModule() != "" && !m_topVertexp) {
             v3error("Specified --top-module '" << v3Global.opt.topModule()
                                                << "' was not found in design.");

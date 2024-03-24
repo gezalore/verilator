@@ -35,5 +35,5 @@ target_compile_features(example PUBLIC cxx_std_14)
 # Add the Verilated circuit to the target
 verilate(example COVERAGE TRACE
   INCLUDE_DIRS "../make_tracing_c"
-  VERILATOR_ARGS -f ../make_tracing_c/input.vc -x-assign fast
+  VERILATOR_ARGS -f ../make_tracing_c/input.vc -x-assign fast --debug --debugi 9
   SOURCES ../make_tracing_c/top.v)

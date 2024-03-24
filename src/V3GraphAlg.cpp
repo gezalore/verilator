@@ -42,7 +42,11 @@ class GraphRemoveRedundant final : GraphAlg<> {
     const bool m_sumWeights;  ///< Sum, rather then maximize weights
 private:
     void main() {
-        for (V3GraphVertex& vertex : m_graphp->vertices()) vertexIterate(&vertex);
+        int i = 0;
+        for (V3GraphVertex& vertex : m_graphp->vertices()) {
+            std::cout << "RRE " << i++ << std::endl;
+            vertexIterate(&vertex);
+        }
     }
     void vertexIterate(V3GraphVertex* vertexp) {
         // Clear marks

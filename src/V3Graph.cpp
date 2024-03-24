@@ -41,15 +41,22 @@ V3GraphVertex::V3GraphVertex(V3Graph* graphp, const V3GraphVertex& old)
     , m_color{old.m_color}
     , m_rank{old.m_rank} {
     m_userp = nullptr;
+    std::cout << "V3ListLinks cons 1 " << reinterpret_cast<void*>(this) << std::endl;
+
+    UINFO(0, "A" << std::endl);
     graphp->vertices().linkBack(this);
+    UINFO(0, "B" << std::endl);
 }
 
 V3GraphVertex::V3GraphVertex(V3Graph* graphp)
     : m_fanout{0}
     , m_color{0}
     , m_rank{0} {
+    std::cout << "V3ListLinks cons 1 " << reinterpret_cast<void*>(this) << std::endl;
+    UINFO(0, "C" << std::endl);
     m_userp = nullptr;
     graphp->vertices().linkBack(this);
+    UINFO(0, "D" << std::endl);
 }
 
 void V3GraphVertex::unlinkEdges(V3Graph*) {
@@ -147,8 +154,11 @@ void V3GraphEdge::init(V3Graph* /*graphp*/, V3GraphVertex* fromp, V3GraphVertex*
     m_cutable = cutable;
     m_userp = nullptr;
     // Link vertices to this edge
+    UINFO(0, "E" << std::endl);
     m_fromp->outEdges().linkBack(this);
+    UINFO(0, "F" << std::endl);
     m_top->inEdges().linkBack(this);
+    UINFO(0, "G" << std::endl);
 }
 
 void V3GraphEdge::relinkFromp(V3GraphVertex* newFromp) {
