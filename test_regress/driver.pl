@@ -956,6 +956,9 @@ sub compile_vlt_cmd {
         @{$param{v_other_filenames}},
         $param{stdout_filename} ? "> " . $param{stdout_filename} : ""
     );
+    if (my $prefix = disable_aslr()) {
+        unshift @vlt_cmd, $prefix;
+    }
     return @vlt_cmd;
 }
 
@@ -1445,8 +1448,13 @@ sub execute {
         } elsif ($opt_rrsim) {
             $debugger = "rr record ";
         }
+        my $noaslr = "";
+        if (my $prefix = disable_aslr()) {
+            $noaslr = "$prefix ";
+        }
         $self->_run(logfile=>"$self->{obj_dir}/vlt_sim.log",
                     cmd=>[($run_env
+                           .$noaslr
                            .$debugger
                            .$param{executable}
                            .($opt_gdbsim ? " -ex 'run " : "")),
@@ -1604,6 +1612,18 @@ sub cmake_version {
     }
     $cmake_version = "$1.$2";
     return version->declare($cmake_version);
+}
+
+our $_disable_aslr = undef;
+sub disable_aslr {
+  if (!defined($_disable_aslr)) {
+    chomp(my $arch = `uname -m`);
+    $_disable_aslr = "setarch $arch -R";
+    system("${_disable_aslr} true");
+    my $status = $?;
+    $_disable_aslr = "" if $status != 0;
+  }
+  return $_disable_aslr;
 }
 
 sub trace_filename {
