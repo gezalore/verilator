@@ -2423,6 +2423,7 @@ AstExecGraph* V3Order::createParallel(OrderGraph& orderGraph, const std::string&
         while (OrderMoveVertex* const mVtxp = mTaskp->vertexList().unlinkFront()) {
             if (mVtxp->inEmpty()) serializer.addSeed(mVtxp);
         }
+        serializer.doit();
 
         // Emit all logic within the MTask as they become ready
         OrderMoveDomScope* prevDomScopep = nullptr;

@@ -168,33 +168,68 @@ public:
 class OrderMoveGraphSerializer final {
     // STATE
     OrderMoveDomScope::List m_readyDomScopeps;  // List of DomScopes which have ready vertices
-    OrderMoveDomScope* m_nextDomScopep = nullptr;  // Next DomScope to yield from
+    std::vector<OrderMoveVertex*> m_vtxps;
+    size_t m_nextVtxIndex = 0;
 
     // METHODS
+    void order(const std::vector<OrderMoveVertex*>& rootps,
+               const std::unordered_set<OrderMoveVertex*>& component) {
+        enum state : int {  //
+            UNSEEN = 0,
+            ENQUEUED,
+            VISITED,
+            COMPLETED
+        };
+
+        std::vector<OrderMoveVertex*> stack{rootps.rbegin(), rootps.rend()};
+        std::vector<OrderMoveVertex*> postOrder;
+
+        std::unordered_map<OrderMoveVertex*, int> mark;
+        for (OrderMoveVertex* const vtxp : stack) { mark[vtxp] = ENQUEUED; }
+
+        while (!stack.empty()) {
+            OrderMoveVertex* const vtxp = stack.back();
+
+            if (mark[vtxp] == COMPLETED) {
+                stack.pop_back();
+                continue;
+            }
+
+            if (mark[vtxp] == VISITED) {
+                mark[vtxp] = COMPLETED;
+                stack.pop_back();
+                postOrder.push_back(vtxp);
+                continue;
+            }
+
+            UASSERT_OBJ(mark[vtxp] == ENQUEUED, vtxp, "Already visited and is on stack");
+            mark[vtxp] = VISITED;
+
+            for (auto it = vtxp->outEdges().rbegin(); it != vtxp->outEdges().rend(); ++it) {
+                // The dependent variable
+                OrderMoveVertex* const dVtxp = (*it).top()->as<OrderMoveVertex>();
+                if (!component.count(dVtxp)) continue;
+                if (mark[dVtxp] == COMPLETED) continue;
+                UASSERT_OBJ(mark[dVtxp] == ENQUEUED || mark[dVtxp] == UNSEEN, dVtxp,
+                            "Already visited and is on stack");
+
+                mark[dVtxp] = ENQUEUED;
+                stack.push_back(dVtxp);
+            }
+        }
+
+        m_vtxps.insert(m_vtxps.end(), postOrder.rbegin(), postOrder.rend());
+    }
 
     void ready(OrderMoveVertex* vtxp) {
         UASSERT_OBJ(!vtxp->user(), vtxp, "'ready' called on vertex with pending dependencies");
-        if (vtxp->logicp()) {
-            // Add this vertex to the ready list of its DomScope
-            OrderMoveDomScope& domScope = vtxp->domScope();
-            domScope.readyVertices().linkBack(vtxp);
-            // Add the DomScope to the global ready list if not there yet
-            if (!domScope.isOnList()) {
-                domScope.isOnList(true);
-                m_readyDomScopeps.linkBack(&domScope);
-            }
-        } else {  // This is a bit nonsense at this point, but equivalent to the old version
-            // Remove dependency on vertex we are returning. This might add vertices to
-            // currReadyList.
-            for (V3GraphEdge& edge : vtxp->outEdges()) {
-                // The dependent variable
-                OrderMoveVertex* const dVtxp = edge.top()->as<OrderMoveVertex>();
-                // Update number of dependencies
-                const uint32_t nDeps = dVtxp->user() - 1;
-                dVtxp->user(nDeps);
-                // If no more dependencies, mark it ready
-                if (!nDeps) ready(dVtxp);
-            }
+        // Add this vertex to the ready list of its DomScope
+        OrderMoveDomScope& domScope = vtxp->domScope();
+        domScope.readyVertices().linkBack(vtxp);
+        // Add the DomScope to the global ready list if not there yet
+        if (!domScope.isOnList()) {
+            domScope.isOnList(true);
+            m_readyDomScopeps.linkBack(&domScope);
         }
     }
 
@@ -213,49 +248,65 @@ public:
     // Add a seed vertex to the ready lists
     void addSeed(OrderMoveVertex* vtxp) { ready(vtxp); }
 
-    OrderMoveVertex* getNext() {
-        if (!m_nextDomScopep) m_nextDomScopep = m_readyDomScopeps.frontp();
+    void doit() {
+        m_nextVtxIndex = 0;
+        m_vtxps.clear();
+
+        //UASSERT(!m_readyDomScopeps.empty(), "??? empty ???");
+        OrderMoveDomScope* nextDomScopep = m_readyDomScopeps.frontp();
         // If nothing is ready, we are done
-        if (!m_nextDomScopep) return nullptr;
-        OrderMoveDomScope& currDomScope = *m_nextDomScopep;
+        while (nextDomScopep) {
+            OrderMoveDomScope& currDomScope = *nextDomScopep;
+            OrderMoveVertex::List& currReadyList = currDomScope.readyVertices();
+            UASSERT(!currReadyList.empty(), "DomScope on ready list, but has no ready vertices");
 
-        OrderMoveVertex::List& currReadyList = currDomScope.readyVertices();
-        UASSERT(!currReadyList.empty(), "DomScope on ready list, but has no ready vertices");
+            std::vector<OrderMoveVertex*> rootps;
+            for (OrderMoveVertex& vtx : currReadyList) rootps.emplace_back(&vtx);
 
-        // Remove vertex from ready list under the DomScope. This is the vertex we are returning.
-        OrderMoveVertex* mVtxp = currReadyList.unlinkFront();
+            std::unordered_set<OrderMoveVertex*> component;
 
-        // Nonsesne, but what we used to do
-        if (currReadyList.empty()) {
+            while (!currReadyList.empty()) {
+                // Remove vertex from ready list under the DomScope. This is the vertex we are
+                // returning.
+                OrderMoveVertex* const vtxp = currReadyList.unlinkFront();
+
+                // Finally yield the selected vertex
+                const bool newEntry = component.emplace(vtxp).second;
+                UASSERT_OBJ(newEntry, vtxp, "Should be new");
+
+                // Remove dependency on vertex we are returning. This might add vertices to
+                // currReadyList.
+                for (V3GraphEdge& edge : vtxp->outEdges()) {
+                    // The dependent variable
+                    OrderMoveVertex* const dVtxp = edge.top()->as<OrderMoveVertex>();
+                    // Update number of dependencies
+                    const uint32_t nDeps = dVtxp->user() - 1;
+                    dVtxp->user(nDeps);
+                    // If no more dependencies, mark it ready
+                    if (!nDeps) ready(dVtxp);
+                }
+            }
+
             currDomScope.isOnList(false);
             m_readyDomScopeps.unlink(&currDomScope);
-        }
 
-        // Remove dependency on vertex we are returning. This might add vertices to currReadyList.
-        for (V3GraphEdge& edge : mVtxp->outEdges()) {
-            // The dependent variable
-            OrderMoveVertex* const dVtxp = edge.top()->as<OrderMoveVertex>();
-            // Update number of dependencies
-            const uint32_t nDeps = dVtxp->user() - 1;
-            dVtxp->user(nDeps);
-            // If no more dependencies, mark it ready
-            if (!nDeps) ready(dVtxp);
-        }
+            order(rootps, component);
 
-        // If no more ready vertices in the current DomScope, prefer to continue with a new scope
-        // under the same domain.
-        if (currReadyList.empty()) {
-            m_nextDomScopep = nullptr;
+            // No more ready vertices in the current DomScope, prefer to continue with a new
+            // scope under the same domain.
+            nextDomScopep = m_readyDomScopeps.frontp();
             for (OrderMoveDomScope& domScope : m_readyDomScopeps) {
                 if (domScope.domainp() == currDomScope.domainp()) {
-                    m_nextDomScopep = &domScope;
+                    nextDomScopep = &domScope;
                     break;
                 }
             }
         }
+    }
 
-        // Finally yield the selected vertex
-        return mVtxp;
+    OrderMoveVertex* getNext() {
+        if (m_nextVtxIndex >= m_vtxps.size()) return nullptr;
+        return m_vtxps[m_nextVtxIndex++];
     }
 };
 

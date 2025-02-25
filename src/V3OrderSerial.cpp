@@ -48,6 +48,7 @@ std::vector<AstActive*> V3Order::createSerial(OrderGraph& graph, const std::stri
     for (V3GraphVertex& vtx : moveGraphp->vertices()) {
         if (vtx.inEmpty()) serializer.addSeed(vtx.as<OrderMoveVertex>());
     }
+    serializer.doit();
 
     // Emit all logic as they become ready
     V3OrderCFuncEmitter emitter{tag, slow};
