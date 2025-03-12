@@ -179,7 +179,7 @@ class LinkCellsVisitor final : public VNVisitor {
                     if (!vtxp) return;
                     if (vtxp->user()) return;
                     vtxp->user(1);
-                    for (V3GraphEdge& edge: vtxp->outEdges()) {
+                    for (V3GraphEdge& edge : vtxp->outEdges()) {
                         mark(edge.top()->cast<LinkCellsVertex>());
                     }
                 };
@@ -191,7 +191,7 @@ class LinkCellsVisitor final : public VNVisitor {
             LinkCellsVertex* vp = vtx.cast<LinkCellsVertex>();
             if (!vp) continue;
             if (vp->user()) continue;
-            std::cout << "unused: " << vp->modp()->typeName() << " " << vp->name()  << "\n";
+            std::cout << "unused: " << vp->modp()->typeName() << " " << vp->name() << "\n";
         }
         std::cout << std::endl;
         // exit(0);
