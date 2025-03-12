@@ -170,6 +170,32 @@ class LinkCellsVisitor final : public VNVisitor {
         m_graph.removeRedundantEdgesMax(&V3GraphEdge::followAlwaysTrue);
         if (dumpGraphLevel()) m_graph.dumpDotFilePrefixed("linkcells");
         m_graph.rank();
+        for (V3GraphVertex& vtx : m_graph.vertices()) vtx.user(0);
+        for (V3GraphVertex& vtx : m_graph.vertices()) {
+            LinkCellsVertex* vp = vtx.cast<LinkCellsVertex>();
+            if (!vp) continue;
+            if (vp->modp()->name() == v3Global.opt.topModule()) {
+                const std::function<void(LinkCellsVertex*)> mark = [&](LinkCellsVertex* vtxp) {
+                    if (!vtxp) return;
+                    if (vtxp->user()) return;
+                    vtxp->user(1);
+                    for (V3GraphEdge& edge: vtxp->outEdges()) {
+                        mark(edge.top()->cast<LinkCellsVertex>());
+                    }
+                };
+                mark(vp);
+            }
+        }
+
+        for (V3GraphVertex& vtx : m_graph.vertices()) {
+            LinkCellsVertex* vp = vtx.cast<LinkCellsVertex>();
+            if (!vp) continue;
+            if (vp->user()) continue;
+            std::cout << "unused: " << vp->modp()->typeName() << " " << vp->name()  << "\n";
+        }
+        std::cout << std::endl;
+        // exit(0);
+
         for (V3GraphVertex& vtx : m_graph.vertices()) {
             if (const LinkCellsVertex* const vvertexp = vtx.cast<LinkCellsVertex>()) {
                 // +1 so we leave level 1  for the new wrapper we'll make in a moment
