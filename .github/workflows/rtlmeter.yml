@@ -24,6 +24,8 @@ concurrency:
 jobs:
   build-gcc:
     name: Build GCC
+    # Only run scheduled jobs if explicitly enabled for that repo (e.g.: not on forks)
+    if: ${{ github.event_name != 'schedule' || vars.ENABLE_SCHEDULED_JOBS == 'true' }}
     uses: ./.github/workflows/reusable-rtlmeter-build.yml
     with:
       runs-on: ubuntu-24.04
@@ -31,6 +33,8 @@ jobs:
 
   build-clang:
     name: Build Clang
+    # Only run scheduled jobs if explicitly enabled for that repo (e.g.: not on forks)
+    if: ${{ github.event_name == 'schedule' || vars.ENABLE_SCHEDULED_JOBS == 'true' }}
     uses: ./.github/workflows/reusable-rtlmeter-build.yml
     with:
       runs-on: ubuntu-24.04
@@ -51,30 +55,30 @@ jobs:
       max-parallel: 2
       matrix:
         cases:
-          - "NVDLA:*"
+          #- "NVDLA:*"
           - "OpenPiton:1x1:*"
-          - "OpenPiton:2x2:*"
-          - "OpenPiton:4x4:*"
-          - "OpenTitan:*"
-          - "VeeR-EH1:asic*"
-          - "VeeR-EH1:default*"
-          - "VeeR-EH1:hiperf*"
-          - "VeeR-EH2:asic*"
-          - "VeeR-EH2:default*"
-          - "VeeR-EH2:hiperf*"
-          - "VeeR-EL2:asic*"
-          - "VeeR-EL2:default*"
-          - "VeeR-EL2:hiperf*"
-          - "Vortex:mini:*"
-          - "Vortex:sane:*"
-          # - "XiangShan:default-chisel3:* !*:linux"
-          # - "XiangShan:default-chisel6:* !*:linux"
-          - "XiangShan:mini-chisel3:* !*:linux"
-          # - "XiangShan:mini-chisel6:* !*:linux"
+          #- "OpenPiton:2x2:*"
+          #- "OpenPiton:4x4:*"
+          #- "OpenTitan:*"
+          #- "VeeR-EH1:asic*"
+          #- "VeeR-EH1:default*"
+          #- "VeeR-EH1:hiperf*"
+          #- "VeeR-EH2:asic*"
+          #- "VeeR-EH2:default*"
+          #- "VeeR-EH2:hiperf*"
+          #- "VeeR-EL2:asic*"
+          #- "VeeR-EL2:default*"
+          #- "VeeR-EL2:hiperf*"
+          #- "Vortex:mini:*"
+          #- "Vortex:sane:*"
+          ## - "XiangShan:default-chisel3:* !*:linux"
+          ## - "XiangShan:default-chisel6:* !*:linux"
+          #- "XiangShan:mini-chisel3:* !*:linux"
+          ## - "XiangShan:mini-chisel6:* !*:linux"
           - "XuanTie-E902:*"
-          - "XuanTie-E906:*"
-          - "XuanTie-C906:*"
-          - "XuanTie-C910:*"
+          #- "XuanTie-E906:*"
+          #- "XuanTie-C906:*"
+          #- "XuanTie-C910:*"
 
   run-clang:
     name: Run Clang | ${{ matrix.cases }}
@@ -91,35 +95,37 @@ jobs:
       max-parallel: 2
       matrix:
         cases:
-          - "NVDLA:*"
+          #- "NVDLA:*"
           - "OpenPiton:1x1:*"
-          - "OpenPiton:2x2:*"
-          - "OpenPiton:4x4:*"
-          - "OpenTitan:*"
-          - "VeeR-EH1:asic*"
-          - "VeeR-EH1:default*"
-          - "VeeR-EH1:hiperf*"
-          - "VeeR-EH2:asic*"
-          - "VeeR-EH2:default*"
-          - "VeeR-EH2:hiperf*"
-          - "VeeR-EL2:asic*"
-          - "VeeR-EL2:default*"
-          - "VeeR-EL2:hiperf*"
-          - "Vortex:mini:*"
-          - "Vortex:sane:*"
-          - "XiangShan:default-chisel3:* !*:linux"
-          - "XiangShan:default-chisel6:* !*:linux"
-          - "XiangShan:mini-chisel3:* !*:linux"
-          - "XiangShan:mini-chisel6:* !*:linux"
+          #- "OpenPiton:2x2:*"
+          #- "OpenPiton:4x4:*"
+          #- "OpenTitan:*"
+          #- "VeeR-EH1:asic*"
+          #- "VeeR-EH1:default*"
+          #- "VeeR-EH1:hiperf*"
+          #- "VeeR-EH2:asic*"
+          #- "VeeR-EH2:default*"
+          #- "VeeR-EH2:hiperf*"
+          #- "VeeR-EL2:asic*"
+          #- "VeeR-EL2:default*"
+          #- "VeeR-EL2:hiperf*"
+          #- "Vortex:mini:*"
+          #- "Vortex:sane:*"
+          #- "XiangShan:default-chisel3:* !*:linux"
+          #- "XiangShan:default-chisel6:* !*:linux"
+          #- "XiangShan:mini-chisel3:* !*:linux"
+          #- "XiangShan:mini-chisel6:* !*:linux"
           - "XuanTie-E902:*"
-          - "XuanTie-E906:*"
-          - "XuanTie-C906:*"
-          - "XuanTie-C910:*"
+          #- "XuanTie-E906:*"
+          #- "XuanTie-C906:*"
+          #- "XuanTie-C910:*"
 
   combine-results:
     name: Combine results
     needs: [run-gcc, run-clang]
-    if: ${{ always() }}  # Run even if dependencies failed
+    # Run if any of the dependencies have run, even if failed.
+    # That is, don't run if all skipped, or the workflow was cancelled.
+    if: ${{ (contains(needs.*.result, 'success') || contains(needs.*.result, 'failure')) && !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
       - name: Download all GCC results
