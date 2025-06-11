@@ -48,6 +48,7 @@ class V3DfgRegularizeContext final {
 
 public:
     VDouble0 m_temporariesIntroduced;  // Number of temporaries introduced
+    VDouble0 m_splitConcats;  // Number of assignments created due to split concatenations
 
     std::string tmpNamePrefix(const DfgGraph&);  // Return prefix to use for given graph
 
@@ -112,7 +113,7 @@ namespace V3DfgPasses {
 DfgGraph* astToDfg(AstModule&, V3DfgOptimizationContext&) VL_MT_DISABLED;
 
 // Optimize the given DfgGraph
-void optimize(DfgGraph&, V3DfgOptimizationContext&) VL_MT_DISABLED;
+void optimize(DfgGraph&, V3DfgOptimizationContext&, bool lastRun) VL_MT_DISABLED;
 
 // Convert DfgGraph back into Ast, and insert converted graph back into its parent module.
 // Returns the parent module.
@@ -129,7 +130,7 @@ void inlineVars(DfgGraph&) VL_MT_DISABLED;
 // Peephole optimizations
 void peephole(DfgGraph&, V3DfgPeepholeContext&) VL_MT_DISABLED;
 // Regularize graph. This must be run before converting back to Ast.
-void regularize(DfgGraph&, V3DfgRegularizeContext&) VL_MT_DISABLED;
+void regularize(DfgGraph&, V3DfgRegularizeContext&, bool lastRun) VL_MT_DISABLED;
 // Remove unused nodes
 void removeUnused(DfgGraph&) VL_MT_DISABLED;
 // Eliminate (remove or replace) redundant variables. Also removes resulting unused logic.

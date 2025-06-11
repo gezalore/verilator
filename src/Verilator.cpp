@@ -291,7 +291,7 @@ static void process() {
 
         if (v3Global.opt.fDfgPreInline()) {
             // Pre inline DFG optimization
-            V3DfgOptimizer::optimize(v3Global.rootp(), "pre inline");
+            V3DfgOptimizer::optimize(v3Global.rootp(), "pre inline", /* lastRun: */ false);
         }
 
         if (!(v3Global.opt.serializeOnly() && !v3Global.opt.flatten())) {
@@ -308,7 +308,7 @@ static void process() {
 
         if (v3Global.opt.fDfgPostInline()) {
             // Post inline DFG optimization
-            V3DfgOptimizer::optimize(v3Global.rootp(), "post inline");
+            V3DfgOptimizer::optimize(v3Global.rootp(), "post inline", /* lastRun: */ true);
         }
 
         // --PRE-FLAT OPTIMIZATIONS------------------

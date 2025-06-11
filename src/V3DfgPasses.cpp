@@ -33,6 +33,8 @@ V3DfgCseContext::~V3DfgCseContext() {
 V3DfgRegularizeContext::~V3DfgRegularizeContext() {
     V3Stats::addStat("Optimizations, DFG " + m_label + " Regularize, temporaries introduced",
                      m_temporariesIntroduced);
+    V3Stats::addStat("Optimizations, DFG " + m_label + " Regularize, split concats",
+                     m_splitConcats);
 }
 
 V3DfgEliminateVarsContext::~V3DfgEliminateVarsContext() {
@@ -332,7 +334,7 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
     for (AstVar* const varp : replacedVariables) varp->unlinkFrBack()->deleteTree();
 }
 
-void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgOptimizationContext& ctx) {
+void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgOptimizationContext& ctx, bool lastRun) {
     // There is absolutely nothing useful we can do with a graph of size 2 or less
     if (dfg.size() <= 2) return;
 
@@ -360,6 +362,6 @@ void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgOptimizationContext& ctx) {
     }
     // Accumulate patterns for reporting
     if (v3Global.opt.stats()) ctx.m_patternStats.accumulate(dfg);
-    apply(4, "regularize", [&]() { regularize(dfg, ctx.m_regularizeContext); });
+    apply(4, "regularize", [&]() { regularize(dfg, ctx.m_regularizeContext, lastRun); });
     if (dumpDfgLevel() >= 8) dfg.dumpDotAllVarConesPrefixed(ctx.prefix() + "optimized");
 }

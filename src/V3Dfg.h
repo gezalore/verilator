@@ -332,6 +332,13 @@ public:
     template <typename Vertex>
     inline Vertex* findSink() const VL_MT_DISABLED;
 
+    // Asserts there is only a single sink and returns it.
+    DfgVertex& singleSink() const VL_MT_DISABLED {
+        UASSERT_OBJ(m_sinksp && !m_sinksp->m_nextp, this,
+                    "DfgVertex::singleSink() called on node with no or multiple sinks");
+        return *(m_sinksp->m_sinkp);
+    }
+
     // Is this a DfgConst that is all zeroes
     inline bool isZero() const VL_MT_DISABLED;
 
