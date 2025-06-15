@@ -11,6 +11,6 @@ import vltest_bootstrap
 
 test.scenarios('vlt')
 
-test.compile(verilator_flags2=["--stats", "-fno-const-before-dfg"]);
+test.compile(verilator_flags2=["--stats", "-fno-const-before-dfg"])
 
 test.passes()
