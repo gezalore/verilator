@@ -2358,7 +2358,8 @@ void AstPatMember::dumpJson(std::ostream& str) const {
 void AstNodeTriop::dump(std::ostream& str) const { this->AstNodeExpr::dump(str); }
 void AstNodeTriop::dumpJson(std::ostream& str) const { dumpJsonGen(str); }
 void AstSel::dump(std::ostream& str) const {
-    this->AstNodeTriop::dump(str);
+    this->AstNodeBiop::dump(str);
+    str << " widthConst=" << this->widthConst();
     if (declRange().ranged()) {
         str << " decl" << declRange() << "]";
         if (declElWidth() != 1) str << "/" << declElWidth();

@@ -94,9 +94,7 @@
                           <varref loc="d,19,21,19,22" name="__Vfunc_vlvbound_test.foo__0__i" dtype_id="3"/>
                         </muls>
                         <const loc="d,19,22,19,23" name="32&apos;h0" dtype_id="8"/>
-                        <const loc="d,19,22,19,23" name="32&apos;h4" dtype_id="8"/>
                       </sel>
-                      <const loc="d,19,28,19,29" name="32&apos;sh2" dtype_id="4"/>
                     </sel>
                   </eq>
                   <sel loc="d,19,10,19,11" dtype_id="5">
@@ -104,9 +102,7 @@
                     <sel loc="d,19,11,19,12" dtype_id="9">
                       <varref loc="d,19,11,19,12" name="__Vfunc_vlvbound_test.foo__0__i" dtype_id="3"/>
                       <const loc="d,19,11,19,12" name="32&apos;h0" dtype_id="8"/>
-                      <const loc="d,19,11,19,12" name="32&apos;h3" dtype_id="8"/>
                     </sel>
-                    <const loc="d,19,10,19,11" name="32&apos;h1" dtype_id="8"/>
                   </sel>
                 </assign>
               </begin>
@@ -166,9 +162,7 @@
                           <varref loc="d,19,21,19,22" name="__Vfunc_vlvbound_test.foo__1__i" dtype_id="3"/>
                         </muls>
                         <const loc="d,19,22,19,23" name="32&apos;h0" dtype_id="8"/>
-                        <const loc="d,19,22,19,23" name="32&apos;h4" dtype_id="8"/>
                       </sel>
-                      <const loc="d,19,28,19,29" name="32&apos;sh2" dtype_id="4"/>
                     </sel>
                   </eq>
                   <sel loc="d,19,10,19,11" dtype_id="5">
@@ -176,9 +170,7 @@
                     <sel loc="d,19,11,19,12" dtype_id="9">
                       <varref loc="d,19,11,19,12" name="__Vfunc_vlvbound_test.foo__1__i" dtype_id="3"/>
                       <const loc="d,19,11,19,12" name="32&apos;h0" dtype_id="8"/>
-                      <const loc="d,19,11,19,12" name="32&apos;h3" dtype_id="8"/>
                     </sel>
-                    <const loc="d,19,10,19,11" name="32&apos;h1" dtype_id="8"/>
                   </sel>
                 </assign>
               </begin>
