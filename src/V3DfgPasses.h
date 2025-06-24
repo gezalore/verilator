@@ -120,6 +120,10 @@ DfgGraph* astToDfg(AstModule&, V3DfgOptimizationContext&) VL_MT_DISABLED;
 // Same as above, but for the entire netlist, after V3Scope
 DfgGraph* astToDfg(AstNetlist&, V3DfgOptimizationContext&) VL_MT_DISABLED;
 
+// Attempt to make the given cyclic graph into an acyclic equivalent.
+// Return the acyclic graphwhen successfol, or nullptr if unsuccessful.
+std::unique_ptr<DfgGraph> breakCycles(const DfgGraph&, V3DfgOptimizationContext&) VL_MT_DISABLED;
+
 // Optimize the given DfgGraph
 void optimize(DfgGraph&, V3DfgOptimizationContext&) VL_MT_DISABLED;
 

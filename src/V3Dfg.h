@@ -139,6 +139,7 @@ protected:
     AstNodeDType* m_dtypep;  // Data type of the result of this vertex - mutable for efficiency
     DfgGraph* m_graphp;  // The containing DfgGraph
     const VDfgType m_type;  // Vertex type tag
+    public:
     uint32_t m_userCnt = 0;  // User data generation number
     UserDataStorage m_userDataStorage;  // User data storage
 
@@ -705,6 +706,9 @@ public:
 
     // 'const' variant of 'forEachVertex'. No mutation allowed.
     inline void forEachVertex(std::function<void(const DfgVertex&)> f) const;
+
+    // Return an identical, independent copy of this graph. Vertex and edge order might differ.
+    std::unique_ptr<DfgGraph> clone() const VL_MT_DISABLED;
 
     // Add contents of other graph to this graph. Leaves other graph empty.
     void addGraph(DfgGraph& other) VL_MT_DISABLED;
