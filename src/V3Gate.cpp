@@ -612,6 +612,7 @@ class GateOkVisitor final : public VNVisitorConst {
     void visit(AstNode* nodep) override {
         if (!m_isSimple) return;  // Fastpath
 
+        if (VN_IS(nodep, Sel)) ++m_ops;
         if (++m_ops > v3Global.opt.gateStmts()) {
             clearSimple("--gate-stmts exceeded");
             return;
