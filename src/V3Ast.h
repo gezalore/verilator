@@ -2810,7 +2810,7 @@ public:
     int nodeCount() const {
         // TODO: this should really return size_t, but need to fix use sites
         int count = 0;
-        this->foreach([&count](const AstNode*) { ++count; });
+        this->foreach([&count](const AstNode* np) { count += VN_IS(np, Sel) ? 2 : 1; });
         return count;
     }
 };
