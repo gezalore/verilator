@@ -583,9 +583,7 @@ private:
     void visit(AstNodeBiop* nodep) override {
         if (!optimizable()) return;  // Accelerate
         checkNodeInfo(nodep);
-        if (m_checkOnly && VN_IS(nodep, Sel)) {
-            m_dataCount += 32;
-        }
+        if (m_checkOnly && VN_IS(nodep, Sel)) { m_dataCount += 32; }
         iterateChildrenConst(nodep);
         if (!m_checkOnly && optimizable()) {
             AstConst* const valuep = newConst(nodep);
