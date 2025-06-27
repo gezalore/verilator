@@ -730,7 +730,7 @@ public:
     }
 
     static std::vector<ThreadSchedule> apply(V3Graph& mtaskGraph) {
-        return PackThreads{}.pack(mtaskGraph);
+        return PackThreads{1, 1}.pack(mtaskGraph);
     }
 };
 

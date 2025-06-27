@@ -224,11 +224,11 @@ class InlineMarkVisitor final : public VNVisitor {
         }
     }
     //--------------------
-    void visit(AstSel* nodep) override {
-        if (m_modp) m_modp->user4Inc();  // Inc statement count
-        if (m_modp) m_modp->user4Inc();  // Inc statement count
-        iterateChildren(nodep);
-    }
+    // void visit(AstSel* nodep) override {
+    //     if (m_modp) m_modp->user4Inc();  // Inc statement count
+    //     if (m_modp) m_modp->user4Inc();  // Inc statement count
+    //     iterateChildren(nodep);
+    // }
     void visit(AstNode* nodep) override {
         if (m_modp) m_modp->user4Inc();  // Inc statement count
         iterateChildren(nodep);

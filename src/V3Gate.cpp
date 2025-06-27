@@ -612,7 +612,7 @@ class GateOkVisitor final : public VNVisitorConst {
     void visit(AstNode* nodep) override {
         if (!m_isSimple) return;  // Fastpath
 
-        if (VN_IS(nodep, Sel)) ++m_ops;
+        // if (VN_IS(nodep, Sel)) ++m_ops;
         if (++m_ops > v3Global.opt.gateStmts()) {
             clearSimple("--gate-stmts exceeded");
             return;
@@ -838,8 +838,38 @@ class GateInline final {
                 }
             }
 
+            // continue; OK
+            // if (m_statInlined > 130150 / 8) continue; // OK
+            // if (m_statInlined > 130150 * 3 / 16) continue; // OK
+            // if (m_statInlined > 130150 * 7 / 32) continue; // OK
+            // if (m_statInlined > 130150 * 15 / 64) continue; // OK  30503
+            // if (m_statInlined > mid) continue; // OK 31011
+            // if (m_statInlined > mid) continue; // OK 31265
+            // if (m_statInlined > mid) continue; // OK 31296
+            // if (m_statInlined > mid) continue; // OK 31300
+
+            constexpr uint32_t lo = 31300;
+            constexpr uint32_t hi = 31302;
+            // constexpr uint32_t mid = (hi + lo) / 2;
+            constexpr uint32_t mid = 0;
+            if (m_statInlined == 0) UINFO(0, "@@@ " << mid);
+
+            if (m_statInlined > mid) continue;
+
+            // if (m_statInlined > mid) continue; // BAD  31301
+            // if (m_statInlined > mid) continue; // BAD 31302
+            // if (m_statInlined > mid) continue; // BAD 31304
+            // if (m_statInlined > mid) continue; // BAD 31312
+            // if (m_statInlined > mid) continue; // BAD 31392
+            // if (m_statInlined > mid) continue; // BAD 31392
+            // if (m_statInlined > 130150 * 31 / 128) continue; // BAD 31520
+            // if (m_statInlined > 130150 * 4 / 16) continue; // BAD
+            // if (m_statInlined > 130150 / 2) continue; // BAD
+
+
             // Process it
             ++m_statInlined;
+
 
             AstVarScope* const vscp = vVtxp->varScp();
             AstNodeExpr* const substp = okVisitor.substitutionp();
@@ -1431,11 +1461,11 @@ void V3Gate::gateAll(AstNetlist* netlistp) {
         GateInline::apply(*graphp);
         if (dumpGraphLevel() >= 6) graphp->dumpDotFilePrefixed("gate_inline");
 
-        // Remove redundant logic
-        if (v3Global.opt.fDedupe()) {
-            GateDedupe::apply(*graphp);
-            if (dumpGraphLevel() >= 6) graphp->dumpDotFilePrefixed("gate_dedup");
-        }
+        // // Remove redundant logic
+        // if (v3Global.opt.fDedupe()) {
+        //     GateDedupe::apply(*graphp);
+        //     if (dumpGraphLevel() >= 6) graphp->dumpDotFilePrefixed("gate_dedup");
+        // }
 
         // Merge assignments
         if (v3Global.opt.fAssemble()) {
