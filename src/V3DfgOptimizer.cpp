@@ -244,8 +244,7 @@ static void process(DfgGraph& dfg, V3DfgOptimizationContext& ctx) {
         = dfg.extractCyclicComponents("cyclic");
 
     // Split the remaining acyclic DFG into [weakly] connected components
-    std::vector<std::unique_ptr<DfgGraph>> acyclicComponents
-        = dfg.splitIntoComponents("acyclic");
+    std::vector<std::unique_ptr<DfgGraph>> acyclicComponents = dfg.splitIntoComponents("acyclic");
 
     // Quick sanity check
     UASSERT_OBJ(dfg.size() == 0, dfg.modulep(), "DfgGraph should have become empty");

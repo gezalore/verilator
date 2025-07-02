@@ -304,7 +304,8 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         const uint32_t msb = lsb + selVtxp->width() - 1;
         os << toDotId(vtx);
         os << " [label=\"SEL\n_[" << msb << ":" << lsb << "]\nW" << vtx.width() << " / F"
-           << vtx.fanout() << "\n" << vtx.m_userCnt << "/" << vtx.m_userDataStorage <<'"';
+           << vtx.fanout() << "\n"
+           << vtx.m_userCnt << "/" << vtx.m_userDataStorage << '"';
         if (vtx.hasMultipleSinks()) {
             os << ", shape=doublecircle";
         } else {
@@ -315,7 +316,8 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
     }
 
     os << toDotId(vtx);
-    os << " [label=\"" << vtx.typeName() << "\nW" << vtx.width() << " / F" << vtx.fanout() << "\n" << vtx.m_userCnt << "/" << vtx.m_userDataStorage << '"';
+    os << " [label=\"" << vtx.typeName() << "\nW" << vtx.width() << " / F" << vtx.fanout() << "\n"
+       << vtx.m_userCnt << "/" << vtx.m_userDataStorage << '"';
     if (vtx.hasMultipleSinks()) {
         os << ", shape=doublecircle";
     } else {

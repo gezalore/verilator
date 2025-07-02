@@ -166,7 +166,7 @@ class ChaseDriver final : public DfgVisitor {
     // SATE
 
     // Set of visited vertex/lsb pairs
-    DfgGraph& m_dfg; // The graph being processed
+    DfgGraph& m_dfg;  // The graph being processed
     std::unordered_set<std::pair<const DfgVertex*, uint32_t>, HashforVisited> m_visited;
     DfgVertex* m_currp = nullptr;  // The currently found furthest driver
     uint32_t m_lsb = 0;  // LSB to extract from the current driver
@@ -240,20 +240,19 @@ class ChaseDriver final : public DfgVisitor {
         }
     }
 
-
-    void visit (DfgConst* vtxp) override {
+    void visit(DfgConst* vtxp) override {
         DfgConst* const constp = new DfgConst{m_dfg, vtxp->fileline(), m_width};
         constp->num().opSelInto(vtxp->num(), m_lsb, m_width);
         chase(constp, 0);
     }
-
 
     void visit(DfgVertex* vtxp) override {
         // Base case: cannot continue ...
         // UINFO(0, "Cannot chase vertex type: " << vtxp->typeName());
         // ... but can check if a Sel would make this node OK
         if (vtxp->width() > m_msb && vtxp->user<uint32_t>() != m_component) {
-            DfgSel* const selp = new DfgSel{m_dfg, vtxp->fileline(), DfgVertex::dtypeForWidth(m_width) };
+            DfgSel* const selp
+                = new DfgSel{m_dfg, vtxp->fileline(), DfgVertex::dtypeForWidth(m_width)};
             selp->fromp(vtxp);
             selp->lsb(m_lsb);
             chase(selp, 0);
@@ -327,7 +326,8 @@ std::unique_ptr<DfgGraph> V3DfgPasses::breakCycles(const DfgGraph& dfg,
                 DfgSel* const selp = sink.cast<DfgSel>();
                 if (!selp) return;
                 // Try to find the driver out of cycle
-                DfgVertex* const fixp = ChaseDriver::apply(*clonep, varp, selp->lsb(), selp->width());
+                DfgVertex* const fixp
+                    = ChaseDriver::apply(*clonep, varp, selp->lsb(), selp->width());
                 if (!fixp) return;
                 // We can replace this sink
                 selp->replaceWith(fixp);

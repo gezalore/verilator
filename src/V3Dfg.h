@@ -139,7 +139,7 @@ protected:
     AstNodeDType* m_dtypep;  // Data type of the result of this vertex - mutable for efficiency
     DfgGraph* m_graphp;  // The containing DfgGraph
     const VDfgType m_type;  // Vertex type tag
-    public:
+public:
     uint32_t m_userCnt = 0;  // User data generation number
     UserDataStorage m_userDataStorage;  // User data storage
 
