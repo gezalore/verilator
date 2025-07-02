@@ -255,7 +255,7 @@ static void process(DfgGraph& dfg, V3DfgOptimizationContext& ctx) {
         DfgGraph& component = **it;
         std::unique_ptr<DfgGraph> acyclicp = V3DfgPasses::breakCycles(**it, ctx);
         if (acyclicp) {
-            // acyclicp->dumpDotFilePrefixed(ctx.prefix() + "unkinked");
+            acyclicp->dumpDotFilePrefixed(ctx.prefix() + "unkinked");
             acyclicComponents.emplace_back(std::move(acyclicp));
             it = cyclicComponents.erase(it);
         } else {

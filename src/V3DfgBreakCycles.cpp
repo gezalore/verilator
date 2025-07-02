@@ -291,12 +291,12 @@ std::unique_ptr<DfgGraph> V3DfgPasses::breakCycles(const DfgGraph& dfg,
     if (dfg.size() <= 2) return nullptr;
 
     const std::string prefix = ctx.prefix() + "breakCycles-";
-    // dfg.dumpDotFilePrefixed(prefix + "input");
+    dfg.dumpDotFilePrefixed(prefix + "input");
 
     // We might fail, so first of all, create a clone of the graph. This is what
     //  we will be working on, and return if successful. Do not touch the input.
     std::unique_ptr<DfgGraph> clonep = dfg.clone();
-    // clonep->dumpDotFilePrefixed(prefix + "clone");
+    clonep->dumpDotFilePrefixed(prefix + "clone");
 
     // Round 1. Attempt to push Var Sel drivers through to the driving expressions
     for (bool again = true; again;) {
@@ -308,7 +308,7 @@ std::unique_ptr<DfgGraph> V3DfgPasses::breakCycles(const DfgGraph& dfg,
 
         again = false;
 
-        // UINFO(0, "Go for it");
+        UINFO(0, "Go for it");
 
         for (DfgVertexVar& vtx : clonep->varVertices()) {
             // Only handle DfgVarPacked at this point
@@ -318,7 +318,7 @@ std::unique_ptr<DfgGraph> V3DfgPasses::breakCycles(const DfgGraph& dfg,
             const uint32_t component = varp->getUser<uint32_t>();
             if (!component) continue;
 
-            // UINFO(0, "Cyclic " << varp->varp()->name());
+            UINFO(0, "Cyclic " << varp->varp()->name());
 
             varp->forEachSink([&](DfgVertex& sink) {
                 // Ignore if sink is not part of cycle
@@ -333,12 +333,12 @@ std::unique_ptr<DfgGraph> V3DfgPasses::breakCycles(const DfgGraph& dfg,
                 selp->replaceWith(fixp);
                 selp->unlinkDelete(*clonep);
                 again = true;
-                // clonep->dumpDotFilePrefixed(prefix + "fixChase");
+                clonep->dumpDotFilePrefixed(prefix + "fixChase");
             });
         }
     }
 
-    // UINFO(0, "Give up");
+    UINFO(0, "Give up");
 
     return nullptr;
 }
