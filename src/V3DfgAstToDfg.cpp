@@ -28,6 +28,7 @@
 
 #include "V3PchAstNoMT.h"  // VL_MT_DISABLED_CODE_UNIT
 
+#include "V3Cfg.h"
 #include "V3Const.h"
 #include "V3Dfg.h"
 #include "V3DfgPasses.h"
@@ -748,6 +749,12 @@ class AstToDfgVisitor final : public VNVisitor {
     void visit(AstAlways* nodep) override {
         // Ignore sequential logic, or if there are multiple statements
         const VAlwaysKwd kwd = nodep->keyword();
+
+        if (!nodep->sensesp() && (kwd == VAlwaysKwd::ALWAYS || kwd == VAlwaysKwd::ALWAYS_COMB)) {
+            auto cfgp = CfgBuilder::apply(nodep);
+            if (cfgp) cfgp->dumpDotFilePrefixed(m_ctx.prefix() + "cfg");
+        }
+
         if (nodep->sensesp() || !nodep->isJustOneBodyStmt()
             || (kwd != VAlwaysKwd::ALWAYS && kwd != VAlwaysKwd::ALWAYS_COMB)) {
             markReferenced(nodep);

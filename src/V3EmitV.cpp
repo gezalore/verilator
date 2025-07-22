@@ -1006,8 +1006,8 @@ class EmitVStreamVisitor final : public EmitVBaseVisitorConst {
     void putqs(AstNode*, const string& str) override { putbs(str); }
 
 public:
-    EmitVStreamVisitor(const AstNode* nodep, std::ostream& os)
-        : EmitVBaseVisitorConst{false, nullptr}
+    EmitVStreamVisitor(const AstNode* nodep, std::ostream& os, bool suppressUnknown)
+        : EmitVBaseVisitorConst{suppressUnknown, nullptr}
         , m_os(os) {  // Need () or GCC 4.8 false warning
         iterateConst(const_cast<AstNode*>(nodep));
     }
@@ -1017,8 +1017,8 @@ public:
 //######################################################################
 // EmitV class functions
 
-void V3EmitV::verilogForTree(const AstNode* nodep, std::ostream& os) {
-    { EmitVStreamVisitor{nodep, os}; }
+void V3EmitV::verilogForTree(const AstNode* nodep, std::ostream& os, bool suppressUnknown) {
+    { EmitVStreamVisitor{nodep, os, suppressUnknown}; }
 }
 
 void V3EmitV::emitvFiles() {
