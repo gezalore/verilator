@@ -38,6 +38,15 @@ std::unique_ptr<DfgGraph> astToDfg(AstModule&, V3DfgContext&) VL_MT_DISABLED;
 // Same as above, but for the entire netlist, after V3Scope
 std::unique_ptr<DfgGraph> astToDfg(AstNetlist&, V3DfgContext&) VL_MT_DISABLED;
 
+// Synthesize DfgAlways vertices that are part of a cycle into regular vertices
+void synthesizeCyclicAlways(DfgGraph&, V3DfgContext&) VL_MT_DISABLED;
+
+// Synthesize all DfgAlways vertices - primarilly used for testing
+void synthesizeAllAlways(DfgGraph&, V3DfgContext&) VL_MT_DISABLED;
+
+// Remove all DfgAlways vertices from the graph
+void removeAlwaysVertices(DfgGraph&);
+
 // Attempt to make the given cyclic graph into an acyclic, or "less cyclic"
 // equivalent. If the returned pointer is null, then no improvement was
 // possible on the input graph. Otherwise the returned graph is an improvement
@@ -72,6 +81,10 @@ void regularize(DfgGraph&, V3DfgRegularizeContext&) VL_MT_DISABLED;
 void removeUnused(DfgGraph&) VL_MT_DISABLED;
 // Eliminate (remove or replace) redundant variables. Also removes resulting unused logic.
 void eliminateVars(DfgGraph&, V3DfgEliminateVarsContext&) VL_MT_DISABLED;
+// Attempt to synthesize given DfgAlways into regular vertices. Returns true
+// on success, in which case the given DfgAlways was removed from the graph.
+bool synthesize(DfgGraph&, DfgAlways*, V3DfgSynthesisContext&, V3DfgAstToDfgContext&,
+                size_t& tmpCntr) VL_MT_DISABLED;
 
 }  // namespace V3DfgPasses
 

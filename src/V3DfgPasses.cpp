@@ -125,6 +125,8 @@ void V3DfgPasses::removeUnused(DfgGraph& dfg) {
         VL_PREFETCH_RW(workListp);
         // If used, then nothing to do, so move on
         if (vtxp->hasSinks()) continue;
+        // Keep DfgAlways - might have side-effect
+        if (vtxp->is<DfgAlways>()) continue;
         // Add sources of unused vertex to work list
         vtxp->forEachSource([&](DfgVertex& src) {
             // We only remove actual operation vertices in this loop
@@ -506,6 +508,59 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
     for (AstNode* const nodep : replacedVariables) nodep->unlinkFrBack()->deleteTree();
 }
 
+void V3DfgPasses::synthesizeAllAlways(DfgGraph& dfg, V3DfgContext& ctx) {
+    // Gather all vertices
+    std::vector<DfgAlways*> alwaysps;
+    for (DfgVertex& vtx : dfg.opVertices()) {
+        DfgAlways* const alwaysp = vtx.cast<DfgAlways>();
+        if (!alwaysp) continue;
+        alwaysps.emplace_back(alwaysp);
+    }
+
+    // Attempt to synthesize them all
+    size_t tmpCnt = 0;
+    bool synthesizedSome = false;
+    for (DfgAlways* const alwaysp : alwaysps) {
+        if (V3DfgPasses::synthesize(dfg, alwaysp, ctx.m_synthesisContext,
+                                    ctx.m_ast2DfgSynthContext, tmpCnt)) {
+            synthesizedSome = true;
+        }
+    }
+
+    // If something was synthesized, clean up the graph
+    if (synthesizedSome) V3DfgPasses::removeUnused(dfg);
+}
+
+void V3DfgPasses::removeAlwaysVertices(DfgGraph& dfg) {
+    for (DfgVertex* const vtxp : dfg.opVertices().unlinkable()) {
+        DfgAlways* const alwaysp = vtxp->cast<DfgAlways>();
+        if (!alwaysp) continue;
+        // Mark sources as referened in module
+        alwaysp->forEachSource([](DfgVertex& vtx) { vtx.as<DfgVertexVar>()->setHasModRefs(); });
+
+        // Mark sink as written and referenced
+        std::function<void(DfgVertex&)> markSink = [&](DfgVertex& sink) -> void {
+            if (DfgVertexVar* const varp = sink.cast<DfgVertexVar>()) {
+                varp->nodep()->user3(true);  // Mark as written outside DFG
+                varp->setHasModRefs();  // Mark as referenced in module
+                return;
+            } else if (DfgVertexSplice* const splicep = sink.cast<DfgVertexSplice>()) {
+                splicep->forEachSink(markSink);
+            } else {
+                sink.v3fatalSrc("Should not be type " << sink.typeName());
+            }
+        };
+        alwaysp->forEachSink(markSink);
+
+        // Delete this DfgAlways
+        vtxp->unlinkDelete(dfg);
+    }
+    // remove undriven sources of splice vertices
+    for (DfgVertex& vtx : dfg.opVertices()) {
+        if (DfgSplicePacked* const sp = vtx.cast<DfgSplicePacked>()) sp->removeUndrivenSources();
+    }
+}
+
 void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgContext& ctx) {
     // There is absolutely nothing useful we can do with a graph of size 2 or less
     if (dfg.size() <= 2) return;
@@ -523,7 +578,6 @@ void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgContext& ctx) {
         ++passNumber;
     };
 
-    if (dumpDfgLevel() >= 8) dfg.dumpDotAllVarConesPrefixed(ctx.prefix() + "input");
     apply(3, "input           ", [&]() {});
     apply(4, "inlineVars      ", [&]() { inlineVars(dfg); });
     apply(4, "cse0            ", [&]() { cse(dfg, ctx.m_cseContext0); });
@@ -538,5 +592,4 @@ void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgContext& ctx) {
     // Accumulate patterns for reporting
     if (v3Global.opt.stats()) ctx.m_patternStats.accumulate(dfg);
     apply(4, "regularize", [&]() { regularize(dfg, ctx.m_regularizeContext); });
-    if (dumpDfgLevel() >= 8) dfg.dumpDotAllVarConesPrefixed(ctx.prefix() + "optimized");
 }

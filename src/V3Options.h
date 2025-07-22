@@ -280,6 +280,7 @@ private:
     bool m_debugWidth = false;      // main switch: --debug-width
     bool m_decoration = true;       // main switch: --decoration
     bool m_decorationNodes = false;  // main switch: --decoration=nodes
+    VOptionBool m_dfgSynthesize;  // main switch: -dfg-synthesize {all,cyclic,none}
     bool m_diagnosticsSarif = false;  // main switch: --diagnostics-sarif
     bool m_dpiHdrOnly = false;      // main switch: --dpi-hdr-only
     bool m_emitAccessors = false;   // main switch: --emit-accessors
@@ -668,6 +669,7 @@ public:
     int compLimitMembers() const VL_MT_SAFE { return m_compLimitMembers; }
     int compLimitParens() const { return m_compLimitParens; }
 
+    VOptionBool dfgSynthesize() const { return m_dfgSynthesize; }
     string diagnosticsSarifOutput() const VL_MT_SAFE {
         return m_diagnosticsSarifOutput.empty() ? makeDir() + "/" + prefix() + ".sarif"
                                                 : m_diagnosticsSarifOutput;
@@ -736,7 +738,7 @@ public:
     bool fConstBitOpTree() const { return m_fConstBitOpTree; }
     bool fConstEager() const { return m_fConstEager; }
     bool fDedupe() const { return m_fDedupe; }
-    bool fDfgBreakCyckes() const { return m_fDfgBreakCycles; }
+    bool fDfgBreakCycles() const { return m_fDfgBreakCycles; }
     bool fDfgPeephole() const { return m_fDfgPeephole; }
     bool fDfgPreInline() const { return m_fDfgPreInline; }
     bool fDfgPostInline() const { return m_fDfgPostInline; }

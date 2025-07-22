@@ -171,7 +171,7 @@ public:
 
 private:
     V3DfgDfgToAstContext(V3DfgContext& ctx, const std::string& label)
-        : V3DfgSubContext{ctx, label, "Dfg2Ast"} {}
+        : V3DfgSubContext{ctx, label, "DfgToAst"} {}
     ~V3DfgDfgToAstContext() { addStat("result equations", m_resultEquations); }
 };
 class V3DfgEliminateVarsContext final : public V3DfgSubContext {
@@ -219,6 +219,23 @@ private:
         : V3DfgSubContext{ctx, label, "Regularize"} {}
     ~V3DfgRegularizeContext() { addStat("temporaries introduced", m_temporariesIntroduced); }
 };
+class V3DfgSynthesisContext final : public V3DfgSubContext {
+    // Only V3DfgContext can create an instance
+    friend class V3DfgContext;
+
+public:
+    // STATE
+    VDouble0 m_nAlwaysOkSynth;  // Number of always blocks successfully synthesised
+    VDouble0 m_nAlwaysNoSynth;  // Number of always blocks that filed to synthesise
+
+private:
+    V3DfgSynthesisContext(V3DfgContext& ctx, const std::string& label)
+        : V3DfgSubContext{ctx, label, "Synthesis"} {}
+    ~V3DfgSynthesisContext() {
+        addStat("always blocks synthesized", m_nAlwaysOkSynth);
+        addStat("always blocks failed to synthesize", m_nAlwaysNoSynth);
+    }
+};
 
 //////////////////////////////////////////////////////////////////////////////
 // Top level V3DfgContext
@@ -235,7 +252,8 @@ public:
     VDouble0 m_modules;  // Number of modules optimized
 
     // Sub contexts - keep sorted by type
-    V3DfgAstToDfgContext m_ast2DfgContext{*this, m_label};
+    V3DfgAstToDfgContext m_ast2DfgWholeContext{*this, m_label + " whole"};
+    V3DfgAstToDfgContext m_ast2DfgSynthContext{*this, m_label + " synth"};
     V3DfgBinToOneHotContext m_binToOneHotContext{*this, m_label};
     V3DfgBreakCyclesContext m_breakCyclesContext{*this, m_label};
     V3DfgCseContext m_cseContext0{*this, m_label + " 1st"};
@@ -244,6 +262,7 @@ public:
     V3DfgEliminateVarsContext m_eliminateVarsContext{*this, m_label};
     V3DfgPeepholeContext m_peepholeContext{*this, m_label};
     V3DfgRegularizeContext m_regularizeContext{*this, m_label};
+    V3DfgSynthesisContext m_synthesisContext{*this, m_label};
 
     // Node pattern collector
     V3DfgPatternStats m_patternStats;

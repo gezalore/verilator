@@ -18,6 +18,7 @@
 
 #include "V3Dfg.h"
 
+#include "V3EmitV.h"
 #include "V3File.h"
 
 VL_DEFINE_DEBUG_FUNCTIONS;
@@ -107,6 +108,11 @@ std::unique_ptr<DfgGraph> DfgGraph::clone() const {
             vtxp2clonep.emplace(&vtx, cp);
             break;
         }
+        case VDfgType::atAlways: {
+            vtx.v3fatalSrc("DfgAlways cannot be cloned");
+            VL_UNREACHABLE;
+            break;
+        }
         default: {
             vtx.v3fatalSrc("Unhandled operation vertex type: " + vtx.typeName());
             VL_UNREACHABLE;
@@ -145,9 +151,14 @@ std::unique_ptr<DfgGraph> DfgGraph::clone() const {
                 DfgSplicePacked* const cp = vtxp2clonep.at(vp)->as<DfgSplicePacked>();
                 vp->forEachSourceEdge([&](const DfgEdge& edge, size_t i) {
                     if (DfgVertex* const srcp = edge.sourcep()) {
-                        cp->addDriver(vp->driverFileLine(i),  //
-                                      vp->driverLsb(i),  //
-                                      vtxp2clonep.at(srcp));
+                        DfgVertex* const srcClonep = vtxp2clonep.at(srcp);
+                        if (vp->driverIsDefault(i)) {
+                            cp->addDefaultDriver(vp->driverFileLine(i), srcClonep);
+                        } else if (vp->driverIsUnresolved(i)) {
+                            cp->addUnresolvedDriver(srcClonep);
+                        } else {
+                            cp->addDriver(vp->driverFileLine(i), vp->driverLsb(i), srcClonep);
+                        }
                     }
                 });
                 break;
@@ -246,7 +257,8 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         AstNode* const nodep = varVtxp->nodep();
         AstVar* const varp = varVtxp->varp();
         os << toDotId(vtx);
-        os << " [label=\"" << nodep->name() << "\n";
+        os << " [label=\"" << nodep->prettyName() << "\n";
+        os << cvtToHex(varVtxp) << "\n";
         varVtxp->dtypep()->dumpSmall(os);
         os << " / F" << varVtxp->fanout() << '"';
 
@@ -275,7 +287,8 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         AstNode* const nodep = arrVtxp->nodep();
         AstVar* const varp = arrVtxp->varp();
         os << toDotId(vtx);
-        os << " [label=\"" << nodep->name() << "\n";
+        os << " [label=\"" << nodep->prettyName() << "\n";
+        os << cvtToHex(arrVtxp) << "\n";
         arrVtxp->dtypep()->dumpSmall(os);
         os << " / F" << arrVtxp->fanout() << '"';
         if (varp->direction() == VDirection::INPUT) {
@@ -310,6 +323,7 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         } else {
             os << num.ascii();
         }
+        os << "\n" << cvtToHex(constVtxp) << "\n";
         os << '"';
         os << ", shape=plain";
         os << "]\n";
@@ -321,6 +335,7 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         const uint32_t msb = lsb + selVtxp->width() - 1;
         os << toDotId(vtx);
         os << " [label=\"SEL\n_[" << msb << ":" << lsb << "]\n";
+        os << cvtToHex(selVtxp) << "\n";
         vtx.dtypep()->dumpSmall(os);
         os << " / F" << vtx.fanout() << '"';
         if (vtx.hasMultipleSinks()) {
@@ -335,6 +350,7 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
     if (vtx.is<DfgVertexSplice>()) {
         os << toDotId(vtx);
         os << " [label=\"" << vtx.typeName() << "\n";
+        os << cvtToHex(&vtx) << "\n";
         vtx.dtypep()->dumpSmall(os);
         os << " / F" << vtx.fanout() << '"';
         if (vtx.hasMultipleSinks()) {
@@ -346,8 +362,22 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         return;
     }
 
+    if (const DfgAlways* const alwaysp = vtx.cast<DfgAlways>()) {
+        os << toDotId(vtx);
+        std::stringstream ss;
+        V3EmitV::debugVerilogForTree(alwaysp->nodep(), ss);
+        os << " [label=\"";
+        os << VString::replaceSubstr(VString::replaceSubstr(ss.str(), "\n", "\\l"), "\"", "\\\"");
+        os << "\\n" << cvtToHex(&vtx);
+        os << "\"\n";
+        os << ", shape=box, style=\"rounded,filled\", fillcolor=cornsilk, nojustify=true";
+        os << "]\n";
+        return;
+    }
+
     os << toDotId(vtx);
     os << " [label=\"" << vtx.typeName() << "\n";
+    os << cvtToHex(&vtx) << "\n";
     vtx.dtypep()->dumpSmall(os);
     os << " / F" << vtx.fanout() << '"';
     if (vtx.hasMultipleSinks()) {

@@ -237,6 +237,20 @@ void V3DfgOptimizer::extract(AstNetlist* netlistp) {
 }
 
 static void process(DfgGraph& dfg, V3DfgContext& ctx) {
+    if (v3Global.opt.dfgSynthesize().isSetTrue()) {
+        // Synthesize every DfgAlways
+        V3DfgPasses::synthesizeAllAlways(dfg, ctx);
+        if (dumpDfgLevel() >= 8) dfg.dumpDotFilePrefixed(ctx.prefix() + "synth");
+    } else if (!v3Global.opt.dfgSynthesize().isSetFalse()) {
+        // Synthesize every DfgAlways that is part of a cycle into regular vertices if possible
+        V3DfgPasses::synthesizeCyclicAlways(dfg, ctx);
+        if (dumpDfgLevel() >= 8) dfg.dumpDotFilePrefixed(ctx.prefix() + "synth");
+    }
+
+    // Delete remaining DfgAlways vertices, there is nothing else we can do about them
+    V3DfgPasses::removeAlwaysVertices(dfg);
+    if (dumpDfgLevel() >= 8) dfg.dumpDotFilePrefixed(ctx.prefix() + "rmalways");
+
     // Extract the cyclic sub-graphs. We do this because a lot of the optimizations assume a
     // DAG, and large, mostly acyclic graphs could not be optimized due to the presence of
     // small cycles.
@@ -250,7 +264,7 @@ static void process(DfgGraph& dfg, V3DfgContext& ctx) {
     UASSERT_OBJ(dfg.size() == 0, dfg.modulep(), "DfgGraph should have become empty");
 
     // Attempt to convert cyclic components into acyclic ones
-    if (v3Global.opt.fDfgBreakCyckes()) {
+    if (v3Global.opt.fDfgBreakCycles()) {
         for (auto it = cyclicComponents.begin(); it != cyclicComponents.end();) {
             auto result = V3DfgPasses::breakCycles(**it, ctx);
             if (!result.first) {

@@ -932,6 +932,42 @@ class V3DfgPeephole final : public DfgVisitor {
                 }
             }
         }
+
+        // Sel from SplicePacked
+        if (DfgSplicePacked* const sp = fromp->cast<DfgSplicePacked>()) {
+            // DfgVertex* defaultp = nullptr;
+            // bool tryWholeDefault = true;
+            // const auto pair = sp->sourceEdges();
+            // for (size_t i = 0; i < pair.second; ++i) {
+            //     UASSERT_OBJ(!sp->driverIsUnresolved(i), sp, "Should not have unresovled
+            //     driver"); DfgVertex* const srcp = pair.first[i].sourcep(); if
+            //     (sp->driverIsDefault(i)) {
+            //         UASSERT_OBJ(!defaultp, sp, "Multiple default drivers for DfgSplicePacked");
+            //         defaultp = srcp;
+            //         continue;
+            //     }
+            //     const uint32_t dLsb = sp->driverLsb(i);
+            //     const uint32_t dMsb = dLsb + srcp->width() - 1;
+            //     // Check if this driver covers any of the bits, then we can't use whole default
+            //     if (msb >= dLsb && dMsb >= lsb) tryWholeDefault = false;
+            //     // If it does not cover the whole searched bit range, move on
+            //     if (lsb < dLsb || dMsb < msb) continue;
+            //     // Replace with sel from driver
+            //     APPLYING(PUSH_SEL_THROUGH_SPLICE_DRIVER) {
+            //         DfgSel* const replacementp = make<DfgSel>(vtxp, srcp, lsb - dLsb);
+            //         replace(vtxp, replacementp);
+            //         return;
+            //     }
+            // }
+            // // Replace with sel from default if exists and no conflict with drivers
+            // if (defaultp && tryWholeDefault) {
+            //     APPLYING(PUSH_SEL_THROUGH_SPLICE_DEFAULT) {
+            //         DfgSel* const replacementp = make<DfgSel>(vtxp, defaultp, lsb);
+            //         replace(vtxp, replacementp);
+            //         return;
+            //     }
+            // }
+        }
     }
 
     //=========================================================================

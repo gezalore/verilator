@@ -401,6 +401,14 @@ Summary:
    standard across Verilog tools while :vlopt:`-D <-D<var>>` is similar to
    :command:`gcc -D`.
 
+.. option:: -dfg-synthesize <what>
+
+   Rarely needed. Control which combinational always blocks are synthesized
+   by the DFG optimizer. Valid options are 'all', to synthesize everything
+   possible. 'none' to disable always block synthesis. 'cyclic' to synthesize
+   only those always blocks that form part of a combinational cycle.
+   Default is 'cyclic'.
+
 .. option:: --diagnostics-sarif
 
    Enables diagnostics output into a Static Analysis Results Interchange
