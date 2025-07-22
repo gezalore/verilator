@@ -125,6 +125,8 @@ void V3DfgPasses::removeUnused(DfgGraph& dfg) {
         VL_PREFETCH_RW(workListp);
         // If used, then nothing to do, so move on
         if (vtxp->hasSinks()) continue;
+        // Keep DfgAlways - might have side-effect
+        if (vtxp->is<DfgAlways>()) continue;
         // Add sources of unused vertex to work list
         vtxp->forEachSource([&](DfgVertex& src) {
             // We only remove actual operation vertices in this loop
@@ -508,6 +510,47 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
 
     // Remove the replaced variables
     for (AstNode* const nodep : replacedVariables) nodep->unlinkFrBack()->deleteTree();
+}
+
+void V3DfgPasses::synthesizeAllAlways(DfgGraph& dfg, V3DfgContext& ctx) {
+    // Gather all vertices
+    std::vector<DfgAlways*> alwaysps;
+    for (DfgVertex& vtx : dfg.opVertices()) {
+        DfgAlways* const alwaysp = vtx.cast<DfgAlways>();
+        if (!alwaysp) continue;
+        alwaysps.emplace_back(alwaysp);
+    }
+
+    // Synthesize them
+    V3DfgPasses::synthesize(dfg, alwaysps, ctx.m_synthesisContext);
+}
+
+void V3DfgPasses::removeAlwaysVertices(DfgGraph& dfg) {
+    std::vector<DfgVertexSplice*> spliceps;
+    for (DfgVertex* const vtxp : dfg.opVertices().unlinkable()) {
+        DfgAlways* const alwaysp = vtxp->cast<DfgAlways>();
+        if (!alwaysp) continue;
+        // Mark source variabels as read in module
+        alwaysp->forEachSource([](DfgVertex& vtx) {  //
+            vtx.as<DfgVertexVar>()->setHasModRdRefs();
+        });
+
+        // Mark sink variables as written in module, gather splice vertices
+        alwaysp->forEachSink([&](DfgVertex& sink) {
+            DfgVertexSplice* const splicep = sink.as<DfgVertexSplice>();
+            spliceps.emplace_back(splicep);
+            splicep->singleSink()->as<DfgVertexVar>()->setHasModWrRefs();
+        });
+
+        // Delete this DfgAlways
+        vtxp->unlinkDelete(dfg);
+    }
+    // Remove undriven sources of splice vertices
+    for (DfgVertexSplice* const splicep : spliceps) {
+        if (DfgSplicePacked* const splicePackedp = splicep->cast<DfgSplicePacked>()) {
+            splicePackedp->removeUndrivenSources();
+        }
+    }
 }
 
 void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgContext& ctx) {

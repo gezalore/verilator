@@ -17,36 +17,23 @@ root = ".."
 if not os.path.exists(root + "/.git"):
     test.skip("Not in a git repository")
 
-# Read expected source lines hit
-expectedLines = set()
-
-with open(root + "/src/V3DfgBreakCycles.cpp", 'r', encoding="utf8") as fd:
-    for lineno, line in enumerate(fd, 1):
-        line = line.split("//")[0]
-        if re.match(r'^[^#]*SET_RESULT', line):
-            expectedLines.add(lineno)
-        if re.match(r'^[^#]*MASK', line):
-            expectedLines.add(lineno)
-
-if not expectedLines:
-    test.error("Failed to read expected source line numbers")
-
 # Generate the equivalence checks and declaration boilerplate
 rdFile = test.top_filename
 plistFile = test.obj_dir + "/portlist.vh"
 pdeclFile = test.obj_dir + "/portdecl.vh"
 checkFile = test.obj_dir + "/checks.h"
-nExpectedCycles = 0
+nAlways = 0
 with open(rdFile, 'r', encoding="utf8") as rdFh, \
      open(plistFile, 'w', encoding="utf8") as plistFh, \
      open(pdeclFile, 'w', encoding="utf8") as pdeclFh, \
      open(checkFile, 'w', encoding="utf8") as checkFh:
     for line in rdFh:
         line = line.split("//")[0]
+        if re.search(r'^\s*always', line):
+            nAlways += 1
         m = re.search(r'`signal\((\w+),', line)
         if not m:
             continue
-        nExpectedCycles += 1
         sig = m.group(1)
         plistFh.write(sig + ",\n")
         pdeclFh.write("output " + sig + ";\n")
@@ -70,49 +57,29 @@ test.compile(verilator_flags2=[
     "-Wno-UNOPTFLAT"
 ])  # yapf:disable
 
-# Check we got the expected number of circular logic warnings
-test.file_grep(test.obj_dir + "/obj_ref/Vref__stats.txt",
-               r'Warnings, Suppressed UNOPTFLAT\s+(\d+)', nExpectedCycles)
+test.file_grep_not(test.obj_dir + "/obj_ref/Vref__stats.txt",
+                   r'Synthesis, always blocks synthesized')
 
 # Compile optimized - also builds executable
 test.compile(verilator_flags2=[
     "--stats",
     "--build",
+    "--dfg-synthesize", "all",
     "-fno-dfg-post-inline",
     "-fno-dfg-scoped",
     "--exe",
     "+incdir+" + test.obj_dir,
     "-Mdir", test.obj_dir + "/obj_opt",
     "--prefix", "Vopt",
-    "-Werror-UNOPTFLAT",
-    "--dumpi-V3DfgBreakCycles", "9",  # To fill code coverage
+    "-fno-const-before-dfg",  # Otherwise V3Const makes testing painful
     "--debug", "--debugi", "0", "--dumpi-tree", "0",
     "-CFLAGS \"-I .. -I ../obj_ref\"",
     "../obj_ref/Vref__ALL.a",
     "../../t/" + test.name + ".cpp"
 ])  # yapf:disable
 
-# Check all source lines hit
-coveredLines = set()
-
-
-def readCovered(fileName):
-    with open(fileName, 'r', encoding="utf8") as fd:
-        for line in fd:
-            coveredLines.add(int(line.strip()))
-
-
-readCovered(test.obj_dir + "/obj_opt/Vopt__V3DfgBreakCycles-TraceDriver-line-coverage.txt")
-readCovered(test.obj_dir + "/obj_opt/Vopt__V3DfgBreakCycles-IndependentBits-line-coverage.txt")
-
-if coveredLines != expectedLines:
-    for n in sorted(expectedLines - coveredLines):
-        test.error_keep_going(f"V3DfgBreakCycles.cpp line {n} not covered")
-    for n in sorted(coveredLines - expectedLines):
-        test.error_keep_going(f"V3DfgBreakCycles.cpp line {n} covered but not expected")
-
-test.file_grep_not(test.obj_dir + "/obj_opt/Vopt__stats.txt",
-                   r'DFG.*non-representable.*\s[1-9]\d*$')
+test.file_grep(test.obj_dir + "/obj_opt/Vopt__stats.txt",
+               r'DFG pre inline Synthesis, always blocks synthesized\s+(\d+)$', nAlways)
 
 # Execute test to check equivalence
 test.execute(executable=test.obj_dir + "/obj_opt/Vopt")

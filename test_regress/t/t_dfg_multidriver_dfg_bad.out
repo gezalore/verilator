@@ -32,9 +32,9 @@
                       t/t_dfg_multidriver_dfg_bad.v:22:17: ... Location of first driver
    22 |     assign a[9] = i[9];
       |                 ^
-                      t/t_dfg_multidriver_dfg_bad.v:23:19: ... Location of other driver
+                      t/t_dfg_multidriver_dfg_bad.v:23:17: ... Location of other driver
    23 |     assign a[9] = ~i[9];
-      |                   ^
+      |                 ^
                       t/t_dfg_multidriver_dfg_bad.v:16:18: ... Only the first driver will be respected
 %Warning-MULTIDRIVEN: t/t_dfg_multidriver_dfg_bad.v:26:18: Elements [3:0] of signal 'u' have multiple combinational drivers
                                                          : ... note: In instance 't'
@@ -72,4 +72,40 @@
    40 |     assign x[3][3:2] = ~i[1:0];
       |                      ^
                       t/t_dfg_multidriver_dfg_bad.v:38:18: ... Only the first driver will be respected
+%Warning-MULTIDRIVEN: t/t_dfg_multidriver_dfg_bad.v:45:18: Bits [1:1] of signal 'y' have multiple combinational drivers
+                                                         : ... note: In instance 't'
+                      t/t_dfg_multidriver_dfg_bad.v:48:24: ... Location of first driver
+   48 |       {y[1:0], y[2:1]} = i[3:0] + 4'd5;
+      |                        ^
+                      t/t_dfg_multidriver_dfg_bad.v:48:24: ... Location of other driver
+   48 |       {y[1:0], y[2:1]} = i[3:0] + 4'd5;
+      |                        ^
+                      t/t_dfg_multidriver_dfg_bad.v:45:18: ... Only the first driver will be respected
+%Warning-MULTIDRIVEN: t/t_dfg_multidriver_dfg_bad.v:51:18: Bits [2:1] of signal 'z' have multiple combinational drivers
+                                                         : ... note: In instance 't'
+                      t/t_dfg_multidriver_dfg_bad.v:53:14: ... Location of first driver
+   53 |       z[2:0] = i[2:0];
+      |              ^
+                      t/t_dfg_multidriver_dfg_bad.v:58:17: ... Location of other driver
+   58 |       z[3:1] = i[3:1];
+      |                 ^
+                      t/t_dfg_multidriver_dfg_bad.v:51:18: ... Only the first driver will be respected
+%Warning-MULTIDRIVEN: t/t_dfg_multidriver_dfg_bad.v:51:18: Bits [6:5] of signal 'z' have multiple combinational drivers
+                                                         : ... note: In instance 't'
+                      t/t_dfg_multidriver_dfg_bad.v:57:14: ... Location of first driver
+   57 |       z[6:4] = i[6:4];
+      |              ^
+                      t/t_dfg_multidriver_dfg_bad.v:54:14: ... Location of other driver
+   54 |       z[7:5] = i[7:5];
+      |              ^
+                      t/t_dfg_multidriver_dfg_bad.v:51:18: ... Only the first driver will be respected
+%Warning-MULTIDRIVEN: t/t_dfg_multidriver_dfg_bad.v:51:18: Bits [7:7] of signal 'z' have multiple combinational drivers
+                                                         : ... note: In instance 't'
+                      t/t_dfg_multidriver_dfg_bad.v:54:14: ... Location of first driver
+   54 |       z[7:5] = i[7:5];
+      |              ^
+                      t/t_dfg_multidriver_dfg_bad.v:60:20: ... Location of other driver
+   60 |     assign z[10:7] = i[10:7];
+      |                    ^
+                      t/t_dfg_multidriver_dfg_bad.v:51:18: ... Only the first driver will be respected
 %Error: Exiting due to
