@@ -325,7 +325,7 @@ void V3DfgOptimizer::optimize(AstNetlist* netlistp, const string& label) {
             ++ctx.m_modules;
 
             // Build the DFG of this module
-            const std::unique_ptr<DfgGraph> dfg{V3DfgPasses::astToDfg(*modp, ctx)};
+            const std::unique_ptr<DfgGraph> dfg = V3DfgPasses::astToDfg(*modp, ctx);
             if (dumpDfgLevel() >= 8) dfg->dumpDotFilePrefixed(ctx.prefix() + "whole-input");
 
             // Actually process the graph
@@ -340,7 +340,7 @@ void V3DfgOptimizer::optimize(AstNetlist* netlistp, const string& label) {
         UINFO(4, "Applying DFG optimization to entire netlist");
 
         // Build the DFG of the whole design
-        const std::unique_ptr<DfgGraph> dfg{V3DfgPasses::astToDfg(*netlistp, ctx)};
+        const std::unique_ptr<DfgGraph> dfg = V3DfgPasses::astToDfg(*netlistp, ctx);
         if (dumpDfgLevel() >= 8) dfg->dumpDotFilePrefixed(ctx.prefix() + "whole-input");
 
         // Actually process the graph
