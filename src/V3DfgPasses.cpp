@@ -139,6 +139,11 @@ void V3DfgPasses::removeUnused(DfgGraph& dfg) {
         vtxp->unlinkDelete(dfg);
     }
 
+    // Remove unused and undriven variable vertices
+    for (DfgVertexVar* const vtxp : dfg.varVertices().unlinkable()) {
+        if (!vtxp->hasSinks() && !vtxp->srcp()) VL_DO_DANGLING(vtxp->unlinkDelete(dfg), vtxp);
+    }
+
     // Finally remove unused constants
     for (DfgConst* const vtxp : dfg.constVertices().unlinkable()) {
         if (!vtxp->hasSinks()) VL_DO_DANGLING(vtxp->unlinkDelete(dfg), vtxp);
@@ -294,7 +299,8 @@ void V3DfgPasses::binToOneHot(DfgGraph& dfg, V3DfgBinToOneHotContext& ctx) {
                 varp->varp()->isInternal(true);
                 varp->srcp(srcp);
             }
-            varp->setHasModRefs();
+            // Mark as read from Ast
+            varp->setHasModRdRefs();
             return varp;
         }();
         // The previous index variable - we don't need a vertex for this
@@ -314,7 +320,8 @@ void V3DfgPasses::binToOneHot(DfgGraph& dfg, V3DfgBinToOneHotContext& ctx) {
                 = dfg.makeNewVar(flp, name, tabDTypep, nullptr)->as<DfgVarArray>();
             varp->varp()->isInternal(true);
             varp->varp()->noReset(true);
-            varp->setHasModRefs();
+            // Mark as written from Ast
+            varp->setHasModWrRefs();
             return varp;
         }();
 
@@ -451,9 +458,6 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
         // Can't remove if must be kept (including external, non module references)
         if (varp->keep()) continue;
 
-        // Can't remove if referenced in other DFGs of the same module (otherwise might rm twice)
-        if (varp->hasDfgRefs()) continue;
-
         // If it has multiple sinks, it can't be eliminated
         if (varp->hasMultipleSinks()) continue;
 
@@ -523,7 +527,6 @@ void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgContext& ctx) {
         ++passNumber;
     };
 
-    if (dumpDfgLevel() >= 8) dfg.dumpDotAllVarConesPrefixed(ctx.prefix() + "input");
     apply(3, "input           ", [&]() {});
     apply(4, "inlineVars      ", [&]() { inlineVars(dfg); });
     apply(4, "cse0            ", [&]() { cse(dfg, ctx.m_cseContext0); });
@@ -538,5 +541,4 @@ void V3DfgPasses::optimize(DfgGraph& dfg, V3DfgContext& ctx) {
     // Accumulate patterns for reporting
     if (v3Global.opt.stats()) ctx.m_patternStats.accumulate(dfg);
     apply(4, "regularize", [&]() { regularize(dfg, ctx.m_regularizeContext); });
-    if (dumpDfgLevel() >= 8) dfg.dumpDotAllVarConesPrefixed(ctx.prefix() + "optimized");
 }

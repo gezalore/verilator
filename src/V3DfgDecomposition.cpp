@@ -330,8 +330,6 @@ class ExtractCyclicComponents final {
                 }
             }
             UASSERT_OBJ(clonep, &vtx, "Unhandled 'DfgVertexVar' sub-type");
-            if (vtx.hasModRefs()) clonep->setHasModRefs();
-            if (vtx.hasExtRefs()) clonep->setHasExtRefs();
             VertexState& cloneStatep = allocState(*clonep);
             cloneStatep.component = component;
             // We need to mark both the original and the clone as having references in other DFGs

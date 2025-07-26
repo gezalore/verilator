@@ -301,9 +301,10 @@ void V3DfgOptimizer::optimize(AstNetlist* netlistp, const string& label) {
     //                    - V3DfgPasses::eliminateVars,
     //                    - V3DfgPasses::dfgToAst,
     // AstVar::user2 -> bool: Flag indicating referenced by AstVarXRef (set just below)
-    // AstVar::user3, AstVarScope::user3
-    //               -> bool: Flag indicating written by logic not representable as DFG
-    //                        (set by V3DfgPasses::astToDfg)
+    // AstVar::user3, AstVarScope::user3 -> int, with bottom 2 bits used:
+    //                                      - bit0: Read by logic not represented in DFG
+    //                                      - bit1: Written by logic not represented in DFG
+    //
     const VNUser2InUse user2InUse;
     const VNUser3InUse user3InUse;
 
@@ -325,7 +326,7 @@ void V3DfgOptimizer::optimize(AstNetlist* netlistp, const string& label) {
             ++ctx.m_modules;
 
             // Build the DFG of this module
-            const std::unique_ptr<DfgGraph> dfg{V3DfgPasses::astToDfg(*modp, ctx)};
+            const std::unique_ptr<DfgGraph> dfg = V3DfgPasses::astToDfg(*modp, ctx);
             if (dumpDfgLevel() >= 8) dfg->dumpDotFilePrefixed(ctx.prefix() + "whole-input");
 
             // Actually process the graph
@@ -340,7 +341,7 @@ void V3DfgOptimizer::optimize(AstNetlist* netlistp, const string& label) {
         UINFO(4, "Applying DFG optimization to entire netlist");
 
         // Build the DFG of the whole design
-        const std::unique_ptr<DfgGraph> dfg{V3DfgPasses::astToDfg(*netlistp, ctx)};
+        const std::unique_ptr<DfgGraph> dfg = V3DfgPasses::astToDfg(*netlistp, ctx);
         if (dumpDfgLevel() >= 8) dfg->dumpDotFilePrefixed(ctx.prefix() + "whole-input");
 
         // Actually process the graph
