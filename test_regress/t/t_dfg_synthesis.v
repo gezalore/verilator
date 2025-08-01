@@ -32,23 +32,73 @@ module t (
   //end
   //`signal(SIMPLE, simple);
 
-  //logic [2:0] circular;
+  //logic [2:0] self_circular;
   //always_comb begin
-  //  circular[0] = rand_a[0];
-  //  circular[1] = ~circular[0];
-  //  circular[2] = ~circular[1];
+  //  self_circular[0] = rand_a[0];
+  //  self_circular[1] = ~self_circular[0];
+  //  self_circular[2] = ~self_circular[1];
   //end
-  //`signal(CIRCULAR, circular);
+  //`signal(SELF_CIRCULAR, self_circular);
 
-  logic [4:0] a;
+  //logic [3:0] split_circular;
+  //always_comb begin
+  //  split_circular[0] = rand_a[0];
+  //  split_circular[2] = rand_a[1];
+  //end
+  //always_comb begin
+  //  split_circular[1] = ~split_circular[0];
+  //  split_circular[3] = ~split_circular[2];
+  //end
+  //`signal(SPLIT_CIRCULAR, split_circular);
+
+  logic [3:0] conditional_a;
   always_comb begin
-    a[0] = rand_a[0];
-    a[2] = rand_a[1];
+    conditional_a = 4'd0;
+    if (rand_a[0]) begin
+      conditional_a = rand_b[3:0];
+    end else begin
+      conditional_a = ~rand_b[3:0];
+    end
   end
-  always_comb begin
-    a[1] = ~a[0];
-    a[3] = ~a[2];
-  end
-  `signal(FOO, a);
+  `signal(CONDITONAL_A, conditional_a);
+
+  //logic [3:0] conditional_b;
+  //always_comb begin
+  //  conditional_b = 4'd0;
+  //  if (rand_a[0]) begin
+  //    conditional_b = rand_b[3:0];
+  //  end
+  //end
+  //`signal(CONDITONAL_B, conditional_b);
+
+  //logic [3:0] conditional_c;
+  //always_comb begin
+  //  if (rand_a[0]) begin
+  //    conditional_c = rand_b[3:0];
+  //  end else if (rand_a[1]) begin
+  //    conditional_c = ~rand_b[3:0];
+  //  end else begin
+  //    conditional_c = rand_b[7:4];
+  //  end
+  //end
+  //`signal(CONDITONAL_C, conditional_c);
+
+  //logic [3:0] conditional_d;
+  //always_comb begin
+  //  conditional_d = 4'd0;
+  //  if (rand_a[0]) begin
+  //    conditional_d = rand_b[3:0];
+  //  end else begin
+  //    if (rand_a[1]) begin
+  //      conditional_d = rand_b[3:0];
+  //    end else begin
+  //      conditional_d = rand_b[7:4];
+  //    end
+  //    conditional_d = ~conditional_d;
+  //  end
+  //end
+  //`signal(CONDITONAL_D, conditional_d);
 
 endmodule
+
+

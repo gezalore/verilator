@@ -57,6 +57,9 @@ test.compile(verilator_flags2=[
     "-Wno-UNOPTFLAT"
 ])  # yapf:disable
 
+test.file_grep_not(test.obj_dir + "/obj_ref/Vref__stats.txt",
+                   r'Synthesis, always blocks synthesized')
+
 # Compile optimized - also builds executable
 test.compile(verilator_flags2=[
     "--stats",

@@ -543,6 +543,198 @@ class AstToDfgVisitor final : public VNVisitor {
         return true;
     }
 
+    //////////////////////////////////////////////////////////////////////////
+    // Always block synthesis related
+    //////////////////////////////////////////////////////////////////////////
+
+    bool synthesizeBasicBlock(SymTab& st, const BasicBlock& bb) {
+        VL_RESTORER(m_synthesis);
+        m_synthesis = true;
+        for (AstNode* stmtp : bb.stmtps()) {
+            // Regular statements
+            if (AstAssign* const ap = VN_CAST(stmtp, Assign)) {
+                ++m_ctx.m_inputEquations;
+                if (ap->timingControlp()) {
+                    ++m_ctx.m_nonRepTiming;
+                    return false;
+                }
+                if (!convertEquation(ap->fileline(), ap->lhsp(), ap->rhsp())) return false;
+                for (const auto& pair : m_synthesisUpdates) {
+                    st[pair.first] = pair.second;
+                    pair.first->user1p(pair.second);
+                }
+                m_synthesisUpdates.clear();
+                continue;
+            }
+            // Terminators
+            if (AstIf* const ifp = VN_CAST(stmtp, If)) {
+                UASSERT_OBJ(ifp == bb.stmtps().back(), ifp, "Branch should be last statement");
+                continue;
+            }
+
+            return false;
+        }
+        return true;
+    }
+
+    // Given a basic block, and it's predicate, assign perdicates to its outgoing edges
+    bool assignSuccessorPredicates(const BasicBlock& bb, DfgVertex* predp) {
+        // The predicate of the block should be set
+        UASSERT_OBJ(predp, predp, "Missing BasicBlock predicate");
+        // There should be at most 2 successors
+        UASSERT_OBJ(bb.outEdges().size() <= 2, predp, "More than 2 successor for BasicBlock");
+        // Get the predicate if the terminator statement is a "taken branch" (or implicit "goto")
+        DfgVertex* const takenPredp = [&]() -> DfgVertex* {
+            // Empty block -> implicit goto
+            if (bb.stmtps().empty()) return predp;
+            // Last statement in block
+            AstNode* const stmtp = bb.stmtps().back();
+            // Regular statements -> implicit goto
+            if (!stmtp) return predp;
+            if (VN_IS(stmtp, Assign)) return predp;
+            // Branches
+            if (AstIf* const ifp = VN_CAST(stmtp, If)) {
+                // Convet condition
+                DfgVertex* const condp = convertRValue(ifp->condp());
+                if (!condp) return nullptr;
+                FileLine* const flp = condp->fileline();
+                AstNodeDType* const bitDTypep = DfgVertex::dtypeForWidth(1);
+                DfgVertex* const truthyp = [&]() -> DfgVertex* {
+                    // Single bit condition can be use directly
+                    if (condp->width() == 1) return condp;
+                    // Multi bit condition: use 'condp != 0'
+                    DfgConst* const zerop = new DfgConst{m_dfg, flp, condp->width(), 0};
+                    m_uncommittedVertices.push_back(zerop);
+                    DfgNeq* const neqp = new DfgNeq{m_dfg, flp, bitDTypep};
+                    m_uncommittedVertices.push_back(neqp);
+                    neqp->lhsp(zerop);
+                    neqp->rhsp(condp);
+                    return neqp;
+                }();
+                // New predicate is 'predp & truthyp'
+                DfgAnd* const andp = new DfgAnd{m_dfg, flp, bitDTypep};
+                m_uncommittedVertices.push_back(andp);
+                andp->lhsp(predp);
+                andp->rhsp(truthyp);
+                return andp;
+            }
+            // Unhandled
+            return nullptr;
+        }();
+        if (!takenPredp) return false;
+        // Assign predicates to successor edged
+        for (const V3GraphEdge& edge : bb.outEdges()) {
+            const ControlFlowGraphEdge& cfgEdge = *edge.as<ControlFlowGraphEdge>();
+            DfgVertex* edgePredp = takenPredp;
+            // If it's a not taken edge, invert the predicate
+            if (cfgEdge.kind() == ControlFlowGraphEdge::Kind::ConditionFalse) {
+                DfgNot* const notp = new DfgNot{m_dfg, edgePredp->fileline(), edgePredp->dtypep()};
+                m_uncommittedVertices.push_back(notp);
+                notp->srcp(edgePredp);
+                edgePredp = notp;
+            }
+            // Set user pointer of edge
+            const_cast<ControlFlowGraphEdge&>(cfgEdge).userp(edgePredp);
+        }
+        // Done
+        return true;
+    }
+
+    // Synthesize a DfgAlways into regular vertices. Return ture on success.
+    bool synthesizeAlways(DfgAlways& vtx) {
+        // If any written variables are forced or otherwise udpated from
+        // outside, we can't do it, as we will likely need to introduce
+        // intermediate values that would not be updated.
+        const bool hasExternalWriter = vtx.findSink<DfgVertex>([](const DfgVertex& sink) -> bool {
+            // 'sink' is a splice (for which 'vtxp' is an unresolved driver),
+            // which drives the target variable.
+            DfgVertexVar* varp = sink.singleSink()->as<DfgVertexVar>();
+            AstVar* const astVarp = varp->varp();
+            if (varp->nodep()->user2()) return true;  // Target of a hierarchical reference
+            if (astVarp->isForced()) return true;  // Forced
+            return false;
+        });
+        if (hasExternalWriter) return false;
+
+        // Fetch the CFG of the always
+        const ControlFlowGraph& cfg = vtx.cfg();
+
+        // If there is a backward edge (loop), we can't synthesize it
+        for (const V3GraphVertex& vtx : cfg.vertices()) {
+            const BasicBlock& curr = *vtx.as<BasicBlock>();
+            bool hasLoop = false;
+            curr.forEachSuccessor([&](const BasicBlock& succ) {
+                // IDs are the reverse post-order numbering, so easy to check for a back-edge
+                if (succ.id() < curr.id()) hasLoop = true;
+            });
+            if (hasLoop) return false;
+        }
+
+        // Currently we only handle single basic block cases
+        // if (cfg.size() > 1) return false;
+
+        // Map from basic block to its output symbol table
+        BasicBlockMap<SymTab> bb2SymTab{cfg};
+
+        // Set up 'Variable' -> 'DfgVertexVar' bindings for input variables
+        vtx.forEachSource([&](DfgVertex& src) {
+            DfgVertexVar* const vvp = src.as<DfgVertexVar>();
+            VariableType* const varp = reinterpret_cast<VariableType*>(vvp->nodep());
+            varp->user1p(vvp);
+        });
+
+        // Synthesize all blocks
+        for (const V3GraphVertex& vtx : cfg.vertices()) {
+            const BasicBlock& bb = *vtx.as<BasicBlock>();
+            // Synthesize the block
+            if (!synthesizeBasicBlock(bb2SymTab[bb], bb)) return false;
+            // Set the predicate of this block
+            DfgVertex* const predp = [&]() -> DfgVertex* {
+                // Entry block has no predecessors, use constant true;
+                if (bb.inEmpty()) {
+                    DfgConst* const truep = new DfgConst{m_dfg, vtx.fileline(), 1, 1};
+                    m_uncommittedVertices.push_back(truep);
+                    return truep;
+                }
+                // Or together all the incoming predicates
+                auto it = bb.inEdges().begin();
+                DfgVertex* const resp = reinterpret_cast<DfgVertex*>((*it).userp());
+                while (++it != bb.inEdges().end()) {
+                    DfgOr* const orp = new DfgOr{m_dfg, resp->fileline(), resp->dtypep()};
+                    m_uncommittedVertices.push_back(orp);
+                    orp->rhsp(resp);
+                    orp->lhsp(reinterpret_cast<DfgVertex*>((*it).userp()));
+                }
+                return resp;
+            }();
+            // Set the predicates on the successor edges
+            if (!assignSuccessorPredicates(bb, predp)) return false;
+            // TODO: JOIN VARIABLES
+        }
+
+        m_dfg.dumpDotFilePrefixed("eee");
+
+        // Relink sinks to read the computed values for the target variable
+        vtx.forEachSinkEdge([&](DfgEdge& edge) {
+            AstNode* const tgtp = edge.sinkp()->singleSink()->as<DfgVertexVar>()->nodep();
+            VariableType* const varp = reinterpret_cast<VariableType*>(tgtp);
+            DfgVertexVar* const resp = bb2SymTab[cfg.exit()].at(varp);
+            edge.relinkSource(resp->srcp());
+            if (resp->hasSinks()) {
+                resp->replaceWith(edge.sinkp()->singleSink()->as<DfgVertexVar>());
+            }
+        });
+
+        // Remove unused temporaries
+        for (const auto& pair : bb2SymTab[cfg.exit()]) {
+            DfgVertexVar* tmpp = pair.second;
+            UASSERT_OBJ(!tmpp->hasSinks(), tmpp, "Final temporary should be unused");
+            VL_DO_DANGLING(tmpp->unlinkDelete(m_dfg), tmpp);
+        }
+
+        return true;
+    }
+
     // VISITORS
 
     // Unhandled node
@@ -681,86 +873,6 @@ class AstToDfgVisitor final : public VNVisitor {
         UASSERT_OBJ(m_uncommittedVertices.empty(), &root, "Uncommitted vertices remain");
     }
 
-    //////////////////////////////////////////////////////////////////////////
-
-    bool synthesizeBasicBlock(SymTab& st, const BasicBlock& bb) {
-        VL_RESTORER(m_synthesis);
-        m_synthesis = true;
-        for (AstNode* stmtp : bb.stmtps()) {
-            if (AstAssign* const ap = VN_CAST(stmtp, Assign)) {
-                ++m_ctx.m_inputEquations;
-                if (ap->timingControlp()) {
-                    ++m_ctx.m_nonRepTiming;
-                    return false;
-                }
-                if (!convertEquation(ap->fileline(), ap->lhsp(), ap->rhsp())) return false;
-                for (const auto& pair : m_synthesisUpdates) {
-                    st[pair.first] = pair.second;
-                    pair.first->user1p(pair.second);
-                }
-                m_synthesisUpdates.clear();
-                continue;
-            }
-            if (AstIf* const ifp = VN_CAST(stmtp, If)) { continue; }
-
-            return false;
-        }
-        return true;
-    }
-
-    // Synthesize a DfgAlways into regular vertices. Return ture on success.
-    bool synthesizeAlways(DfgAlways& vtx) {
-        // If any written variables are forced or otherwise udpated from
-        // outside, we can't do it, as we will likely need to introduce
-        // intermediate values that would not be updated.
-        const bool hasExternalWriter = vtx.findSink<DfgVertex>([](const DfgVertex& sink) -> bool {
-            // 'sink' is a splice (for which 'vtxp' is an unresolved driver),
-            // which drives the target variable.
-            DfgVertexVar* varp = sink.singleSink()->as<DfgVertexVar>();
-            AstVar* const astVarp = varp->varp();
-            if (varp->nodep()->user2()) return true;  // Target of a hierarchical reference
-            if (astVarp->isForced()) return true;  // Forced
-            return false;
-        });
-        if (hasExternalWriter) return false;
-
-        // Fetch the CFG of the always
-        const ControlFlowGraph& cfg = vtx.cfg();
-
-        // Currently we onlyhandle single basic block cases
-        if (cfg.size() > 1) return false;
-
-        vtx.forEachSource([&](DfgVertex& src) {
-            DfgVertexVar* const vvp = src.as<DfgVertexVar>();
-            VariableType* const varp = reinterpret_cast<VariableType*>(vvp->nodep());
-            varp->user1p(vvp);
-        });
-
-        const BasicBlock* const bbp = &vtx.cfg().enter();
-
-        SymTab st;
-        if (!synthesizeBasicBlock(st, *bbp)) return false;
-
-        // Relink sinks to read the computed values for the target variable
-        vtx.forEachSinkEdge([&](DfgEdge& edge) {
-            AstNode* const tgtp = edge.sinkp()->singleSink()->as<DfgVertexVar>()->nodep();
-            VariableType* const varp = reinterpret_cast<VariableType*>(tgtp);
-            DfgVertexVar* const resp = st.at(varp);
-            edge.relinkSource(resp->srcp());
-            if (resp->hasSinks())
-                resp->replaceWith(edge.sinkp()->singleSink()->as<DfgVertexVar>());
-        });
-
-        // Remove unused temporaries
-        for (const auto& pair : st) {
-            DfgVertexVar* tmpp = pair.second;
-            UASSERT_OBJ(!tmpp->hasSinks(), tmpp, "Final temporary should be unused");
-            VL_DO_DANGLING(tmpp->unlinkDelete(m_dfg), tmpp);
-        }
-
-        return true;
-    }
-
     // Synthesize DfgAlways
     AstToDfgVisitor(DfgGraph& dfg, DfgAlways* vtxp, V3DfgAstToDfgContext& ctx, size_t& tmpCntr)
         : m_dfg{dfg}
@@ -771,6 +883,8 @@ class AstToDfgVisitor final : public VNVisitor {
             // Delete the always block and vertex, now represented in regular DFG
             vtxp->nodep()->unlinkFrBack()->deleteTree();
             vtxp->unlinkDelete(dfg);
+        } else {
+            revertUncommittedVertices();
         }
     }
 
