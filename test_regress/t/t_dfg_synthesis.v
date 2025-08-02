@@ -32,6 +32,15 @@ module t (
   //end
   //`signal(SIMPLE, simple);
 
+  //logic [1:0] reassign;
+  //always_comb begin
+  //  reassign[0] =  rand_a[0];
+  //  reassign[0] = ~rand_a[0];
+  //  reassign[1] =  rand_a[1];
+  //  reassign[1] = ~rand_a[1];
+  //end
+  //`signal(REASSIGN, reassign);
+
   //logic [2:0] self_circular;
   //always_comb begin
   //  self_circular[0] = rand_a[0];
@@ -39,6 +48,14 @@ module t (
   //  self_circular[2] = ~self_circular[1];
   //end
   //`signal(SELF_CIRCULAR, self_circular);
+
+  //logic [2:0] part_circular;
+  //always_comb begin
+  //  part_circular[0] = rand_a[0];
+  //  part_circular[1] = ~part_circular[0];
+  //end
+  //// part_circular[2] deliberately undriven!
+  //`signal(PART_CIRCULAR, part_circular);
 
   //logic [3:0] split_circular;
   //always_comb begin
@@ -51,16 +68,16 @@ module t (
   //end
   //`signal(SPLIT_CIRCULAR, split_circular);
 
-  logic [3:0] conditional_a;
-  always_comb begin
-    conditional_a = 4'd0;
-    if (rand_a[0]) begin
-      conditional_a = rand_b[3:0];
-    end else begin
-      conditional_a = ~rand_b[3:0];
-    end
-  end
-  `signal(CONDITONAL_A, conditional_a);
+  //logic [3:0] conditional_a;
+  //always_comb begin
+  //  conditional_a = 4'd0;
+  //  if (rand_a[0]) begin
+  //    conditional_a = rand_b[3:0];
+  //  end else begin
+  //    conditional_a = ~rand_b[3:0];
+  //  end
+  //end
+  //`signal(CONDITONAL_A, conditional_a);
 
   //logic [3:0] conditional_b;
   //always_comb begin
@@ -71,34 +88,45 @@ module t (
   //end
   //`signal(CONDITONAL_B, conditional_b);
 
+  //// verilator lint_off LATCH
   //logic [3:0] conditional_c;
   //always_comb begin
   //  if (rand_a[0]) begin
   //    conditional_c = rand_b[3:0];
-  //  end else if (rand_a[1]) begin
+  //  end
+  //  if (~rand_a[0]) begin
   //    conditional_c = ~rand_b[3:0];
-  //  end else begin
-  //    conditional_c = rand_b[7:4];
   //  end
   //end
   //`signal(CONDITONAL_C, conditional_c);
+  //// verilator lint_on LATCH
 
   //logic [3:0] conditional_d;
   //always_comb begin
-  //  conditional_d = 4'd0;
   //  if (rand_a[0]) begin
   //    conditional_d = rand_b[3:0];
+  //  end else if (rand_a[1]) begin
+  //    conditional_d = ~rand_b[3:0];
   //  end else begin
-  //    if (rand_a[1]) begin
-  //      conditional_d = rand_b[3:0];
-  //    end else begin
-  //      conditional_d = rand_b[7:4];
-  //    end
-  //    conditional_d = ~conditional_d;
+  //    conditional_d = rand_b[7:4];
   //  end
   //end
   //`signal(CONDITONAL_D, conditional_d);
 
+  logic [3:0] conditional_e;
+  always_comb begin
+    conditional_e = 4'd0;
+    if (rand_a[0]) begin
+      conditional_e = rand_b[3:0];
+    end else begin
+      if (rand_a[1]) begin
+        conditional_e = rand_b[3:0];
+      end else begin
+        conditional_e = rand_b[7:4];
+      end
+      conditional_e = ~conditional_e;
+    end
+  end
+  `signal(CONDITONAL_E, conditional_e);
+
 endmodule
-
-

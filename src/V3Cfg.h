@@ -150,6 +150,7 @@ public:
         : m_map{cfg.size()} {}
 
     T_Value& operator[](const BasicBlock& bb) { return m_map.at(bb.id()); }
+    const T_Value& operator[](const BasicBlock& bb) const { return m_map.at(bb.id()); }
 };
 
 //////////////////////////////////////////////////////////////////////////////

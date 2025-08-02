@@ -63,9 +63,7 @@ with open(rdFile, 'r', encoding="utf8") as rdFh, \
 test.compile(verilator_flags2=[
     "--stats",
     "--build",
-    "-fno-dfg-break-cycles",
-    "-fno-dfg-post-inline",
-    "-fno-dfg-scoped",
+    "-fno-dfg",
     "+incdir+" + test.obj_dir,
     "-Mdir", test.obj_dir + "/obj_ref",
     "--prefix", "Vref",

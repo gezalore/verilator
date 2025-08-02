@@ -369,6 +369,13 @@ public:
     uint32_t driverIsUnresolved(size_t i) const { return m_driverData.at(i).m_isUnresolved; }
     uint32_t driverIsDefault(size_t i) const { return m_driverData.at(i).m_isDefault; }
 
+    bool drivesWholeResult() const {
+        return arity() == 1  //
+               && !driverIsUnresolved(0)  //
+               && driverLsb(0) == 0  //
+               && source(0)->width() == width();
+    }
+
     const std::string srcName(size_t idx) const override {
         const DriverData& dd = m_driverData.at(idx);
         if (dd.m_isUnresolved) return "unresolved";

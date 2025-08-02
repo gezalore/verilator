@@ -89,7 +89,6 @@ template <bool T_Scoped>
 class AstToDfgVisitor final : public VNVisitor {
     // NODE STATE
     // AstNode::user1p   // DfgVertex for this AstNode
-    const VNUser1InUse m_user1InUse;
 
     // TYPES
     using RootType = std::conditional_t<T_Scoped, AstNetlist, AstModule>;
@@ -281,9 +280,7 @@ class AstToDfgVisitor final : public VNVisitor {
                     FileLine* const flp = vtxpr->fileline();
                     AstNodeDType* const dtypep = vtxpr->dtypep();
                     if (vtxpr->is<DfgVarPacked>()) {
-                        DfgSplicePacked* const sp = new DfgSplicePacked{m_dfg, flp, dtypep};
-                        if (tgtp->user1p()) sp->addDefaultDriver(nodep->fileline(), getNet(tgtp));
-                        vtxpr->srcp(sp);
+                        vtxpr->srcp(new DfgSplicePacked{m_dfg, flp, dtypep});
                     } else {
                         nodep->v3fatalSrc("Unhandled DfgVertexVar sub-type");  // LCOV_EXCL_LINE
                     }
@@ -547,7 +544,108 @@ class AstToDfgVisitor final : public VNVisitor {
     // Always block synthesis related
     //////////////////////////////////////////////////////////////////////////
 
-    bool synthesizeBasicBlock(SymTab& st, const BasicBlock& bb) {
+    void incorporatePreviousDriver(DfgVertexVar* newp, DfgVertexVar* oldp, VariableType* varp) {
+        DfgSplicePacked* const newSplicep = newp->srcp()->as<DfgSplicePacked>();
+
+        if (oldp->nodep() == varp) {
+            newSplicep->addDefaultDriver(oldp->fileline(), oldp);
+            return;
+        }
+
+        DfgSplicePacked* const oldSplicep = oldp->srcp()->as<DfgSplicePacked>();
+
+        struct Range final {
+            uint32_t m_msb;
+            uint32_t m_lsb;
+            Range() = delete;
+            Range(uint32_t msb, uint32_t lsb)
+                : m_msb{msb}
+                , m_lsb{lsb} {}
+        };
+
+        // TODO: resolve multi-driven ranges
+        std::vector<Range> driven;
+        newSplicep->forEachSourceEdge([&](DfgEdge& edge, size_t i) {
+            DfgVertex* const driverp = edge.sourcep();
+            UASSERT_OBJ(driverp, newSplicep, "Should not have created undriven sources");
+            UASSERT_OBJ(!newSplicep->driverIsUnresolved(i), newSplicep,
+                        "Should not be unresolved");
+            UASSERT_OBJ(!newSplicep->driverIsDefault(i), newSplicep, "Should not be default");
+            const uint32_t lsb = newSplicep->driverLsb(i);
+            const uint32_t msb = lsb + driverp->width() - 1;
+            driven.emplace_back(msb, lsb);
+        });
+        UASSERT_OBJ(!driven.empty(), newp, "Should have at least one driver");
+
+        // Sort ranges
+        std::stable_sort(driven.begin(), driven.end(), [](const Range& a, const Range& b) {
+            if (a.m_lsb != b.m_lsb) return a.m_lsb < b.m_lsb;
+            return a.m_msb < b.m_msb;
+        });
+
+        const auto addOldDriver = [&](FileLine* const flp, uint32_t msb, uint32_t lsb) {
+            DfgSel* const selp = new DfgSel{m_dfg, flp, DfgVertex::dtypeForWidth(msb - lsb + 1)};
+            m_uncommittedVertices.push_back(selp);
+            selp->lsb(lsb);
+            selp->fromp(oldp);
+            newSplicep->addDriver(flp, lsb, selp);
+        };
+
+        DfgVertex* defaultp = nullptr;
+        oldSplicep->forEachSourceEdge([&](DfgEdge& edge, size_t i) {
+            DfgVertex* const driverp = edge.sourcep();
+            UASSERT_OBJ(driverp, oldSplicep, "Should not have created undriven sources");
+            UASSERT_OBJ(!oldSplicep->driverIsUnresolved(i), oldSplicep,
+                        "Should not be unresolved");
+            if (oldSplicep->driverIsDefault(i)) {
+                UASSERT_OBJ(!defaultp, driverp, "Multiple default drivers");
+                defaultp = driverp;
+                return;
+            }
+            FileLine* const flp = oldSplicep->driverFileLine(i);
+            const uint32_t oldDriverLsb = oldSplicep->driverLsb(i);
+            const uint32_t oldDriverMsb = oldDriverLsb + driverp->width() - 1;
+            uint32_t insertLsb = oldDriverLsb;
+            uint32_t insertMsb = oldDriverMsb;
+            auto it = driven.begin();
+            // drivenRanges most often only have one element, so loop is fine
+            while (insertMsb >= insertLsb) {
+                // Insert remaining bits if no more new drivers or they are above old range
+                if (it == driven.end() || it->m_lsb > insertMsb) {
+                    addOldDriver(flp, insertMsb, insertLsb);
+                    break;
+                }
+                const Range& range = *it;
+                // If the old driver is below the new one, move on to the next new driver
+                if (insertLsb > range.m_msb) {
+                    ++it;
+                    continue;
+                }
+                // Old driver overlaps with new driver. Insert only the bits not written by new.
+                if (range.m_lsb > insertLsb) {
+                    addOldDriver(flp, std::min(insertMsb, range.m_lsb - 1), insertLsb);
+                }
+                // Need to insert remaining bits starting above new driver
+                insertLsb = range.m_msb + 1;
+                // Old range is now below new one, so move on to the next new driver
+                ++it;
+            }
+        });
+
+        if (defaultp) newSplicep->addDefaultDriver(defaultp->fileline(), defaultp);
+    }
+
+    bool synthesizeBasicBlock(const SymTab& iSymTab, SymTab& oSymTab, const BasicBlock& bb) {
+        // Initialize Variable -> Vertex bindings available in this block
+        // UINFO(0, "synthesizeBasicBlock " << bb.id());
+        for (const auto& pair : iSymTab) {
+            VariableType* const varp = pair.first;
+            DfgVertexVar* const vtxp = pair.second;
+            // UINFO(0, varp->name() << " -> " << vtxp);
+            varp->user1p(vtxp);
+            oSymTab[varp] = vtxp;
+        }
+        // Synthesize each statement individually
         VL_RESTORER(m_synthesis);
         m_synthesis = true;
         for (AstNode* stmtp : bb.stmtps()) {
@@ -559,9 +657,21 @@ class AstToDfgVisitor final : public VNVisitor {
                     return false;
                 }
                 if (!convertEquation(ap->fileline(), ap->lhsp(), ap->rhsp())) return false;
+                // m_dfg.dumpDotFilePrefixed("xxx");
+                // Apply variable updates from this statement
                 for (const auto& pair : m_synthesisUpdates) {
-                    st[pair.first] = pair.second;
-                    pair.first->user1p(pair.second);
+                    // The target variable that was assigned to
+                    VariableType* const astVarp = pair.first;
+                    // The new, potentially partially assigned value
+                    DfgVertexVar* const dfgVarp = pair.second;
+                    // The previous value of the same variable
+                    DfgVertexVar* const oldVarp = astVarp->user1u().template to<DfgVertexVar*>();
+                    // Incorporate old value into the new value
+                    if (oldVarp) incorporatePreviousDriver(dfgVarp, oldVarp, astVarp);
+                    // Update binding of target variable
+                    astVarp->user1p(dfgVarp);
+                    // Update output symbol table of this block
+                    oSymTab[astVarp] = dfgVarp;
                 }
                 m_synthesisUpdates.clear();
                 continue;
@@ -571,10 +681,32 @@ class AstToDfgVisitor final : public VNVisitor {
                 UASSERT_OBJ(ifp == bb.stmtps().back(), ifp, "Branch should be last statement");
                 continue;
             }
-
+            // Unhandled
             return false;
         }
         return true;
+    }
+
+    // Construct predicate of basic block
+    DfgVertex* getBasicBlockPredicate(FileLine* const flp, const BasicBlock& bb) {
+        // Entry block has no predecessors, use constant true;
+        if (bb.inEmpty()) {
+            DfgConst* const truep = new DfgConst{m_dfg, flp, 1, 1};
+            m_uncommittedVertices.push_back(truep);
+            return truep;
+        }
+
+        // Or together all the incoming predicates
+        const auto& inEdges = bb.inEdges();
+        auto it = inEdges.begin();
+        DfgVertex* const resp = reinterpret_cast<DfgVertex*>((*it).userp());
+        while (++it != inEdges.end()) {
+            DfgOr* const orp = new DfgOr{m_dfg, flp, resp->dtypep()};
+            m_uncommittedVertices.push_back(orp);
+            orp->rhsp(resp);
+            orp->lhsp(reinterpret_cast<DfgVertex*>((*it).userp()));
+        }
+        return resp;
     }
 
     // Given a basic block, and it's predicate, assign perdicates to its outgoing edges
@@ -622,7 +754,7 @@ class AstToDfgVisitor final : public VNVisitor {
             return nullptr;
         }();
         if (!takenPredp) return false;
-        // Assign predicates to successor edged
+        // Assign predicates to successor edges
         for (const V3GraphEdge& edge : bb.outEdges()) {
             const ControlFlowGraphEdge& cfgEdge = *edge.as<ControlFlowGraphEdge>();
             DfgVertex* edgePredp = takenPredp;
@@ -637,6 +769,113 @@ class AstToDfgVisitor final : public VNVisitor {
             const_cast<ControlFlowGraphEdge&>(cfgEdge).userp(edgePredp);
         }
         // Done
+        return true;
+    }
+
+    DfgVertexVar* joinDrivers(VariableType* varp, DfgVertex* predicatep, DfgVertexVar* thenp,
+                              DfgVertexVar* elsep) {
+        UASSERT_OBJ(!predicatep->is<DfgConst>(), predicatep, "joinDrivers with cons predicate");
+
+        // UINFO(0, "joinDrivers " << varp->name() << " " << predicatep << " ? " << thenp << " : "
+        // << elsep);
+
+        // If both bindings are the the same, then no need to resolve them
+        if (thenp == elsep) return thenp;
+
+        DfgSplicePacked* const thenSplicep = thenp->srcp()->as<DfgSplicePacked>();
+        DfgSplicePacked* const elseSplicep = elsep->srcp()->as<DfgSplicePacked>();
+
+        // If both paths are fully driven, just create a conditionsl
+        if (thenSplicep->drivesWholeResult() && elseSplicep->drivesWholeResult()) {
+            AstNodeDType* const dtypep = DfgVertex::dtypeFor(getAstVar(varp));
+            FileLine* const flp = predicatep->fileline();
+
+            DfgCond* const condp = new DfgCond{m_dfg, flp, dtypep};
+            m_uncommittedVertices.emplace_back(condp);
+            condp->condp(predicatep);
+            condp->thenp(thenp);
+            condp->elsep(elsep);
+
+            DfgSplicePacked* const splicep = new DfgSplicePacked{m_dfg, flp, dtypep};
+            m_uncommittedVertices.emplace_back(splicep);
+            splicep->addDriver(thenp->fileline(), 0, condp);
+
+            DfgVertexVar* const tmpp = makeTmp(varp);
+            tmpp->srcp(splicep);
+            return tmpp;
+        }
+
+        return nullptr;
+        // struct Range final {
+        //     uint32_t m_msb;
+        //     uint32_t m_lsb;
+        //     Range() = delete;
+        //     Range(uint32_t msb, uint32_t lsb)
+        //         : m_msb{msb}
+        //         , m_lsb{lsb} {}
+        // };
+
+        // // TODO: resolve multi-driven ranges
+        // std::vector<Range> driven;
+        // newSplicep->forEachSourceEdge([&](DfgEdge& edge, size_t i) {
+        //     DfgVertex* const driverp = edge.sourcep();
+        //     UASSERT_OBJ(driverp, newSplicep, "Should not have created undriven sources");
+        //     UASSERT_OBJ(!newSplicep->driverIsUnresolved(i), newSplicep,
+        //                 "Should not be unresolved");
+        //     UASSERT_OBJ(!newSplicep->driverIsDefault(i), newSplicep, "Should not be default");
+        //     const uint32_t lsb = newSplicep->driverLsb(i);
+        //     const uint32_t msb = lsb + driverp->width() - 1;
+        //     driven.emplace_back(msb, lsb);
+        // });
+    }
+
+    bool createInputSymbolTable(SymTab& joined, const BasicBlock& bb,
+                                const BasicBlockMap<SymTab>& bb2OSymTab) {
+        // Input symbol table of entry block was previously initialzied
+        if (bb.inEmpty()) return true;
+        UASSERT(joined.empty(), "Unresolved input symbol table should be empty");
+
+        // If there is only one predecessor, just copy
+        if (bb.inSize1()) {
+            joined = bb2OSymTab[*(bb.inEdges().frontp()->fromp()->as<BasicBlock>())];
+            return true;
+        }
+
+        // Gather predecessors and the path predicates
+        using Predessor = std::pair<const BasicBlock*, DfgVertex*>;
+        std::vector<Predessor> predecessors;
+        for (const V3GraphEdge& edge : bb.inEdges()) {
+            DfgVertex* const predicatep = reinterpret_cast<DfgVertex*>(edge.userp());
+            const BasicBlock* const predecessorp = edge.fromp()->as<BasicBlock>();
+            predecessors.emplace_back(predecessorp, predicatep);
+        }
+        // Sort predecessors topologically. This way more specifics will
+        // come after less specifics, and the entry block will be first if present.
+        std::sort(
+            predecessors.begin(), predecessors.end(),
+            [](const Predessor& a, const Predessor& b) { return a.first->id() < b.first->id(); });
+
+        joined = bb2OSymTab[*predecessors[0].first];
+        for (size_t i = 1; i < predecessors.size(); ++i) {
+            DfgVertex* const predicatep = predecessors[i].second;
+            const SymTab& oSymTab = bb2OSymTab[*predecessors[i].first];
+            // Give up if something is not assigned on all paths ... Latch?
+            if (joined.size() != oSymTab.size()) return false;
+            // Join each symbol
+            for (auto& pair : joined) {
+                VariableType* const varp = pair.first;
+                // Find same variable on other path
+                auto it = oSymTab.find(varp);
+                // Give up if something is not assigned on all paths ... Latch?
+                if (it == oSymTab.end()) return false;
+                DfgVertexVar* const thenp = it->second;
+                DfgVertexVar* const elsep = pair.second;
+                DfgVertexVar* const newp = joinDrivers(varp, predicatep, thenp, elsep);
+                if (!newp) return false;
+                pair.second = newp;
+            }
+        }
+
         return true;
     }
 
@@ -673,64 +912,54 @@ class AstToDfgVisitor final : public VNVisitor {
         // Currently we only handle single basic block cases
         // if (cfg.size() > 1) return false;
 
-        // Map from basic block to its output symbol table
-        BasicBlockMap<SymTab> bb2SymTab{cfg};
+        // Maps from basic block to its input and symbol tables
+        BasicBlockMap<SymTab> bb2ISymTab{cfg};
+        BasicBlockMap<SymTab> bb2OSymTab{cfg};
 
-        // Set up 'Variable' -> 'DfgVertexVar' bindings for input variables
+        // Initialzie input symbol table of entry block
         vtx.forEachSource([&](DfgVertex& src) {
             DfgVertexVar* const vvp = src.as<DfgVertexVar>();
             VariableType* const varp = reinterpret_cast<VariableType*>(vvp->nodep());
-            varp->user1p(vvp);
+            bb2ISymTab[cfg.enter()][varp] = vvp;
         });
 
         // Synthesize all blocks
-        for (const V3GraphVertex& vtx : cfg.vertices()) {
-            const BasicBlock& bb = *vtx.as<BasicBlock>();
-            // Synthesize the block
-            if (!synthesizeBasicBlock(bb2SymTab[bb], bb)) return false;
-            // Set the predicate of this block
-            DfgVertex* const predp = [&]() -> DfgVertex* {
-                // Entry block has no predecessors, use constant true;
-                if (bb.inEmpty()) {
-                    DfgConst* const truep = new DfgConst{m_dfg, vtx.fileline(), 1, 1};
-                    m_uncommittedVertices.push_back(truep);
-                    return truep;
-                }
-                // Or together all the incoming predicates
-                auto it = bb.inEdges().begin();
-                DfgVertex* const resp = reinterpret_cast<DfgVertex*>((*it).userp());
-                while (++it != bb.inEdges().end()) {
-                    DfgOr* const orp = new DfgOr{m_dfg, resp->fileline(), resp->dtypep()};
-                    m_uncommittedVertices.push_back(orp);
-                    orp->rhsp(resp);
-                    orp->lhsp(reinterpret_cast<DfgVertex*>((*it).userp()));
-                }
-                return resp;
-            }();
-            // Set the predicates on the successor edges
-            if (!assignSuccessorPredicates(bb, predp)) return false;
-            // TODO: JOIN VARIABLES
+        for (const V3GraphVertex& cfgVtx : cfg.vertices()) {
+            const BasicBlock& bb = *cfgVtx.as<BasicBlock>();
+            // Join symbol tables from predecessor blocks
+            if (!createInputSymbolTable(bb2ISymTab[bb], bb, bb2OSymTab)) return false;
+            {
+                const VNUser1InUse user1InUse;
+                // Synthesize the block
+                if (!synthesizeBasicBlock(bb2ISymTab[bb], bb2OSymTab[bb], bb)) return false;
+                // Get the predicate of this block
+                DfgVertex* const predp = getBasicBlockPredicate(vtx.fileline(), bb);
+                // Set the predicates on the successor edges
+                if (!assignSuccessorPredicates(bb, predp)) return false;
+            }
         }
 
-        m_dfg.dumpDotFilePrefixed("eee");
+        // m_dfg.dumpDotFilePrefixed("eee");
 
         // Relink sinks to read the computed values for the target variable
         vtx.forEachSinkEdge([&](DfgEdge& edge) {
             AstNode* const tgtp = edge.sinkp()->singleSink()->as<DfgVertexVar>()->nodep();
             VariableType* const varp = reinterpret_cast<VariableType*>(tgtp);
-            DfgVertexVar* const resp = bb2SymTab[cfg.exit()].at(varp);
+            DfgVertexVar* const resp = bb2OSymTab[cfg.exit()].at(varp);
             edge.relinkSource(resp->srcp());
             if (resp->hasSinks()) {
                 resp->replaceWith(edge.sinkp()->singleSink()->as<DfgVertexVar>());
             }
         });
 
-        // Remove unused temporaries
-        for (const auto& pair : bb2SymTab[cfg.exit()]) {
-            DfgVertexVar* tmpp = pair.second;
-            UASSERT_OBJ(!tmpp->hasSinks(), tmpp, "Final temporary should be unused");
-            VL_DO_DANGLING(tmpp->unlinkDelete(m_dfg), tmpp);
-        }
+        // m_dfg.dumpDotFilePrefixed("fff");
+
+        // // Remove unused temporaries
+        // for (const auto& pair : bb2OSymTab[cfg.exit()]) {
+        //     DfgVertexVar* tmpp = pair.second;
+        //     if (tmpp->hasSinks()) continue;
+        //     VL_DO_DANGLING(tmpp->unlinkDelete(m_dfg), tmpp);
+        // }
 
         return true;
     }
@@ -869,6 +1098,7 @@ class AstToDfgVisitor final : public VNVisitor {
         , m_ctx{ctx}
         , m_tmpCntr{tmpCntr} {
         // Build the DFG for all logic under 'root'
+        const VNUser1InUse user1InUse;
         iterate(&root);
         UASSERT_OBJ(m_uncommittedVertices.empty(), &root, "Uncommitted vertices remain");
     }
@@ -930,58 +1160,11 @@ class AstToDfgNormalize final {
             , m_vtxp{vtxp} {}
     };
 
-    static void bitsDrivenByDefault(  //
-        std::vector<DefaultPacked>& drivenViaDefaultr,  //
-        DfgVarPacked* driverp,  //
-        DfgVarPacked* varp  //
-    ) {
-        // If reached the variable we are trying to resolve, then we reached
-        // the input of a circular always block, we can stop.
-        if (driverp == varp) return;
-
-        DfgVarPacked* defaultp = nullptr;
-
-        DfgSplicePacked* const splicep = driverp->srcp()->as<DfgSplicePacked>();
-        splicep->forEachSourceEdge([&](DfgEdge& edge, size_t i) {
-            DfgVertex* const driverp = edge.sourcep();
-            UASSERT_OBJ(driverp, splicep, "Should not have created undriven sources");
-            UASSERT_OBJ(!splicep->driverIsUnresolved(i), splicep, "Should not be unresolved");
-
-            // Default driver from higher up in always block.
-            if (splicep->driverIsDefault(i)) {
-                UASSERT_OBJ(!defaultp, splicep, "Multiple default drivers");
-                defaultp = driverp->as<DfgVarPacked>();
-                return;
-            }
-
-            // Resolved driver
-            UASSERT_OBJ(!driverp->is<DfgSplicePacked>(), splicep, "Should not be SplicePacked");
-
-            FileLine* const flp = splicep->driverFileLine(i);
-            const uint32_t lsb = splicep->driverLsb(i);
-            const uint32_t msb = lsb + driverp->width() - 1;
-
-            for (uint32_t bit = lsb; bit <= msb; ++bit) {
-                DefaultPacked& entry = drivenViaDefaultr.at(bit);
-                // Already driven, assume from a later assignment, so ignore this driver
-                // TODO: there could be a multi-driver here '{a[0], a[0]} = 2'd10;', need warning.
-                if (entry.m_vtxp) continue;
-                entry.m_vtxp = driverp;
-                entry.m_fileline = flp;
-            }
-        });
-
-        // Continue through the default chain
-        if (defaultp) bitsDrivenByDefault(drivenViaDefaultr, defaultp, varp);
-    }
-
     void gatherPackedDrivers(  //
         DfgSplicePacked* splicep,  //
         std::vector<DriverPacked>& driversr,  //
         std::vector<DfgAlways*>& alwayspsr  //
     ) {
-        DfgVarPacked* defaultp = nullptr;
-
         // Sometime assignment ranges are coalesced by V3Const,
         // so we unpack concatenations for better error reporting.
         const std::function<void(FileLine*, uint32_t, DfgVertex*)> gather
@@ -1026,12 +1209,8 @@ class AstToDfgNormalize final {
                 UASSERT_OBJ(!spliceBp->driverIsUnresolved(iB), spliceBp,
                             "Should not be unresolved");
 
-                // Default driver from higher up in always block.
-                if (spliceBp->driverIsDefault(iB)) {
-                    UASSERT_OBJ(!defaultp, spliceBp, "Multiple default drivers");
-                    defaultp = driverBp->as<DfgVarPacked>();
-                    return;
-                }
+                // Default driver of circular variable, we can ignore
+                if (spliceBp->driverIsDefault(iB)) return;
 
                 // Resolved driver
                 UASSERT_OBJ(!driverBp->is<DfgSplicePacked>(), spliceBp,
@@ -1039,39 +1218,6 @@ class AstToDfgNormalize final {
                 gather(spliceBp->driverFileLine(iB), spliceBp->driverLsb(iB), driverBp);
             });
         });
-
-        if (!defaultp) return;
-
-        // Compute the bits driven through the defaults chain
-        DfgVarPacked* const varp = splicep->singleSink()->as<DfgVarPacked>();
-        const uint32_t width = varp->width();
-        std::vector<DefaultPacked> drivenViaDefault{width};
-        bitsDrivenByDefault(drivenViaDefault, defaultp, varp);
-
-        // Add every range driven throught the defaults chain
-        uint32_t lsb = 0;  // LSB of current range
-        DfgVertex* driverp = drivenViaDefault.at(0).m_vtxp;  // Driver of current range
-        FileLine* flp = drivenViaDefault.at(0).m_fileline;  // Driver location of current range
-        for (uint32_t msb = 0; msb < width; ++msb) {
-            const bool endRange
-                = msb == width - 1 || driverp != drivenViaDefault.at(msb + 1).m_vtxp;
-            if (!endRange) continue;
-            // If this range is driven, add the driver
-            if (driverp) {
-                // Rather than adding the driver directly, select it out of the temporary.
-                // We can fold this later, but this avoids having many redundant sub-expressions.
-                AstNodeDType* const dtypep = DfgVertex::dtypeForWidth(msb - lsb + 1);
-                DfgSel* const selp = new DfgSel{m_dfg, flp, dtypep};
-                selp->lsb(lsb);
-                selp->fromp(defaultp);
-                driversr.emplace_back(flp, lsb, selp);
-            }
-            // Next range
-            lsb = msb + 1;
-            if (lsb == width) break;
-            driverp = drivenViaDefault.at(lsb).m_vtxp;
-            flp = drivenViaDefault.at(lsb).m_fileline;
-        }
     }
 
     // Normalize packed driver - return the normalized vertex and location for 'splicep'
@@ -1146,35 +1292,35 @@ class AstToDfgNormalize final {
             }
         }
 
-        // Coalesce adjacent ranges
-        for (size_t i = 0, j = 1; j < drivers.size(); ++j) {
-            DriverPacked& a = drivers[i];
-            DriverPacked& b = drivers[j];
+        // // Coalesce adjacent ranges
+        // for (size_t i = 0, j = 1; j < drivers.size(); ++j) {
+        //     DriverPacked& a = drivers[i];
+        //     DriverPacked& b = drivers[j];
 
-            // Coalesce adjacent range
-            const uint32_t aWidth = a.m_vtxp->width();
-            const uint32_t bWidth = b.m_vtxp->width();
-            if (a.m_lsb + aWidth == b.m_lsb) {
-                const auto dtypep = DfgVertex::dtypeForWidth(aWidth + bWidth);
-                DfgConcat* const concatp = new DfgConcat{m_dfg, a.m_fileline, dtypep};
-                concatp->rhsp(a.m_vtxp);
-                concatp->lhsp(b.m_vtxp);
-                a.m_vtxp = concatp;
-                b.m_vtxp = nullptr;  // Mark as moved
-                ++m_ctx.m_coalescedAssignments;
-                continue;
-            }
+        //     // Coalesce adjacent range
+        //     const uint32_t aWidth = a.m_vtxp->width();
+        //     const uint32_t bWidth = b.m_vtxp->width();
+        //     if (a.m_lsb + aWidth == b.m_lsb) {
+        //         const auto dtypep = DfgVertex::dtypeForWidth(aWidth + bWidth);
+        //         DfgConcat* const concatp = new DfgConcat{m_dfg, a.m_fileline, dtypep};
+        //         concatp->rhsp(a.m_vtxp);
+        //         concatp->lhsp(b.m_vtxp);
+        //         a.m_vtxp = concatp;
+        //         b.m_vtxp = nullptr;  // Mark as moved
+        //         ++m_ctx.m_coalescedAssignments;
+        //         continue;
+        //     }
 
-            ++i;
+        //     ++i;
 
-            // Compact non-adjacent ranges within the vector
-            if (j != i) {
-                DriverPacked& c = drivers[i];
-                UASSERT_OBJ(!c.m_vtxp, c.m_fileline, "Should have been marked moved");
-                c = b;
-                b.m_vtxp = nullptr;  // Mark as moved
-            }
-        }
+        //     // Compact non-adjacent ranges within the vector
+        //     if (j != i) {
+        //         DriverPacked& c = drivers[i];
+        //         UASSERT_OBJ(!c.m_vtxp, c.m_fileline, "Should have been marked moved");
+        //         c = b;
+        //         b.m_vtxp = nullptr;  // Mark as moved
+        //     }
+        // }
 
         // Reinsert drivers in order
         splicep->resetSources();
@@ -1185,10 +1331,7 @@ class AstToDfgNormalize final {
         for (DfgAlways* const alwaysp : alwaysDriverps) splicep->addUnresolvedDriver(alwaysp);
 
         // If the whole variable is driven whole, we can just use that driver
-        if (splicep->arity() == 1  //
-            && !splicep->driverIsUnresolved(0)  //
-            && splicep->driverLsb(0) == 0  //
-            && splicep->source(0)->width() == splicep->width()) {
+        if (splicep->drivesWholeResult()) {
             const auto result = std::make_pair(splicep->source(0), splicep->driverFileLine(0));
             VL_DO_DANGLING(splicep->unlinkDelete(m_dfg), splicep);
             return result;
