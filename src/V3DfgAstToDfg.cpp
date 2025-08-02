@@ -1088,8 +1088,7 @@ public:
     }
 };
 
-
-template<bool T_Scoped>
+template <bool T_Scoped>
 class AstToDfgSynthesize final {
     using Variable = std::conditional_t<T_Scoped, AstVarScope, AstVar>;
     using SymTab = std::unordered_map<Variable*, DfgVertexVar*>;
@@ -1521,7 +1520,6 @@ class AstToDfgSynthesize final {
 
         return true;
     }
-
 
     // Synthesize DfgAlways
     AstToDfgSynthesize(DfgGraph& dfg, DfgAlways* vtxp, V3DfgAstToDfgContext& ctx, size_t& tmpCntr)
