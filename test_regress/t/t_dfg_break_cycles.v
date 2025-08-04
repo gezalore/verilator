@@ -141,13 +141,13 @@ module t (
   `signal(ARRAY_3, 3);
   assign ARRAY_3 = array_3[0];
 
-  logic [3:0] always0_t;
+  logic [3:0] always_0;
   always_comb begin
-    always0_t[0] = rand_a[0];
-    always0_t[2] = always0_t[1];
-    always0_t[3] = ~always0_t[1];
+    always_0[0] = rand_a[0];
+    always_0[2] = always_0[1];
+    always_0[3] = ~always_0[1];
   end
-  assign always0_t[1] = ~always0_t[0];
+  assign always_0[1] = ~always_0[0];
   `signal(ALWAYS_0, 1);
-  assign ALWAYS_0 = ^always0_t;
+  assign ALWAYS_0 = ^always_0;
 endmodule

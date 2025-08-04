@@ -86,9 +86,9 @@
                       t/t_dfg_multidriver_dfg_bad.v:53:14: ... Location of first driver
    53 |       z[2:0] = i[2:0];
       |              ^
-                      t/t_dfg_multidriver_dfg_bad.v:58:17: ... Location of other driver
+                      t/t_dfg_multidriver_dfg_bad.v:58:14: ... Location of other driver
    58 |       z[3:1] = i[3:1];
-      |                 ^
+      |              ^
                       t/t_dfg_multidriver_dfg_bad.v:51:18: ... Only the first driver will be respected
 %Warning-MULTIDRIVEN: t/t_dfg_multidriver_dfg_bad.v:51:18: Bits [6:5] of signal 'z' have multiple combinational drivers
                                                          : ... note: In instance 't'
@@ -108,4 +108,28 @@
    60 |     assign z[10:7] = i[10:7];
       |                    ^
                       t/t_dfg_multidriver_dfg_bad.v:51:18: ... Only the first driver will be respected
+%Warning-MULTIDRIVEN: t/t_dfg_multidriver_dfg_bad.v:74:18: Bits [5:2] of signal 't.sub_1.a' have multiple combinational drivers
+                      t/t_dfg_multidriver_dfg_bad.v:63:20: ... Location of first driver
+   63 |     assign sub_1.a = i;
+      |                    ^
+                      t/t_dfg_multidriver_dfg_bad.v:75:19: ... Location of other driver
+   75 |     assign a[5:2] = i[5:2];
+      |                   ^
+                      t/t_dfg_multidriver_dfg_bad.v:74:18: ... Only the first driver will be respected
+%Warning-MULTIDRIVEN: t/t_dfg_multidriver_dfg_bad.v:74:18: Bits [3:2] of signal 't.sub_2.a' have multiple combinational drivers
+                      t/t_dfg_multidriver_dfg_bad.v:67:25: ... Location of first driver
+   67 |     assign sub_2.a[3:0] = i[3:0];
+      |                         ^
+                      t/t_dfg_multidriver_dfg_bad.v:75:19: ... Location of other driver
+   75 |     assign a[5:2] = i[5:2];
+      |                   ^
+                      t/t_dfg_multidriver_dfg_bad.v:74:18: ... Only the first driver will be respected
+%Warning-MULTIDRIVEN: t/t_dfg_multidriver_dfg_bad.v:74:18: Bits [5:5] of signal 't.sub_2.a' have multiple combinational drivers
+                      t/t_dfg_multidriver_dfg_bad.v:75:19: ... Location of first driver
+   75 |     assign a[5:2] = i[5:2];
+      |                   ^
+                      t/t_dfg_multidriver_dfg_bad.v:66:26: ... Location of other driver
+   66 |     assign sub_2.a[10:5] = i[10:5];
+      |                          ^
+                      t/t_dfg_multidriver_dfg_bad.v:74:18: ... Only the first driver will be respected
 %Error: Exiting due to

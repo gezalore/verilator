@@ -84,7 +84,7 @@ DfgSliceSel* makeVertex<DfgSliceSel, AstSliceSel>(const AstSliceSel*, DfgGraph&)
 
 }  // namespace
 
-static DfgVertexVar* createVarImpl(DfgGraph& dfg, AstVar* varp, const char* prefixp, size_t n,
+static DfgVertexVar* createTmpImpl(DfgGraph& dfg, AstVar* varp, const char* prefixp, size_t n,
                                    AstScope* scopep) {
     std::string prefix{prefixp};
     prefix += "_";
@@ -96,14 +96,18 @@ static DfgVertexVar* createVarImpl(DfgGraph& dfg, AstVar* varp, const char* pref
     return vtxp;
 }
 
-// Create a new variable capable of holding 'varp'
-static DfgVertexVar* createVar(DfgGraph& dfg, AstVar* varp, const char* prefixp, size_t n) {
-    return createVarImpl(dfg, varp, prefixp, n, nullptr);
+// Create a new temporary variable capable of holding 'varp'
+static DfgVertexVar* createTmp(DfgGraph& dfg, AstVar* varp, const char* prefixp, size_t n) {
+    DfgVertexVar* const vtxp = createTmpImpl(dfg, varp, prefixp, n, nullptr);
+    vtxp->tmpForp(varp);
+    return vtxp;
 }
 
-// Create a new variable capable of holding 'vscp'
-static DfgVertexVar* createVar(DfgGraph& dfg, AstVarScope* vscp, const char* prefixp, size_t n) {
-    return createVarImpl(dfg, vscp->varp(), prefixp, n, vscp->scopep());
+// Create a new temporary variable capable of holding 'vscp'
+static DfgVertexVar* createTmp(DfgGraph& dfg, AstVarScope* vscp, const char* prefixp, size_t n) {
+    DfgVertexVar* const vtxp = createTmpImpl(dfg, vscp->varp(), prefixp, n, vscp->scopep());
+    vtxp->tmpForp(vscp);
+    return vtxp;
 }
 
 // Visitor that can convert combinational Ast logic constructs/assignments to Dfg
@@ -232,7 +236,7 @@ class AstToDfgConverter final : public VNVisitor {
             } else {
                 // Get or create a new temporary
                 DfgVertexVar*& r = (*m_updatesp)[tgtp];
-                if (!r) r = createVar(m_dfg, tgtp, "SynthAssign", (*m_tmpCntp)++);
+                if (!r) r = createTmp(m_dfg, tgtp, "SynthAssign", (*m_tmpCntp)++);
                 vtxp = r;
             }
 
@@ -667,9 +671,7 @@ public:
 class AstToDfgNormalizeDrivers final {
     // STATE
     DfgGraph& m_dfg;  // The graph being processed
-    // The AstVar to report errors against. This might differ from the 'varp()' of the
-    // DfgVertexVar being normalized, which can be a synthesized temporary for this m_astVarp.
-    AstVar* const m_astVarp;
+    DfgVertexVar& m_var;  // The variable being normalzied
     V3DfgAstToDfgContext& m_ctx;  // The context for stats
 
     // METHODS
@@ -778,18 +780,22 @@ class AstToDfgNormalizeDrivers final {
                 const uint32_t bEnd = b.m_lsb + bWidth;
                 const uint32_t overlapEnd = std::min(aEnd, bEnd) - 1;
 
+                // The AstVar/AstVarScope to report errors against
+                AstNode* const nodep = m_var.tmpForp() ? m_var.tmpForp() : m_var.nodep();
+                AstVar* const varp
+                    = VN_IS(nodep, Var) ? VN_AS(nodep, Var) : VN_AS(nodep, VarScope)->varp();
                 // Loop index often abused, so suppress
-                if (!m_astVarp->isUsedLoopIdx()) {
-                    m_astVarp->v3warn(  //
+                if (!varp->isUsedLoopIdx()) {
+                    nodep->v3warn(  //
                         MULTIDRIVEN,
                         "Bits ["  //
                             << overlapEnd << ":" << b.m_lsb << "] of signal '"
-                            << m_astVarp->prettyName() << sub
+                            << nodep->prettyName() << sub
                             << "' have multiple combinational drivers\n"
                             << a.m_fileline->warnOther() << "... Location of first driver\n"
                             << a.m_fileline->warnContextPrimary() << '\n'
                             << b.m_fileline->warnOther() << "... Location of other driver\n"
-                            << b.m_fileline->warnContextSecondary() << m_astVarp->warnOther()
+                            << b.m_fileline->warnContextSecondary() << nodep->warnOther()
                             << "... Only the first driver will be respected");
                 }
 
@@ -919,16 +925,17 @@ class AstToDfgNormalizeDrivers final {
                 const uint32_t bEnd = b.m_idx + bElements;
                 const uint32_t overlapEnd = std::min(aEnd, bEnd) - 1;
 
-                m_astVarp->v3warn(  //
+                // The AstVar/AstVarScope to report errors against
+                AstNode* const nodep = m_var.tmpForp() ? m_var.tmpForp() : m_var.nodep();
+                nodep->v3warn(  //
                     MULTIDRIVEN,
                     "Elements ["  //
-                        << overlapEnd << ":" << b.m_idx << "] of signal '"
-                        << m_astVarp->prettyName() << sub
-                        << "' have multiple combinational drivers\n"
+                        << overlapEnd << ":" << b.m_idx << "] of signal '" << nodep->prettyName()
+                        << sub << "' have multiple combinational drivers\n"
                         << a.m_fileline->warnOther() << "... Location of first driver\n"
                         << a.m_fileline->warnContextPrimary() << '\n'
                         << b.m_fileline->warnOther() << "... Location of other driver\n"
-                        << b.m_fileline->warnContextSecondary() << m_astVarp->warnOther()
+                        << b.m_fileline->warnContextSecondary() << nodep->warnOther()
                         << "... Only the first driver will be respected");
 
                 // If the first driver completely covers the range of the second driver,
@@ -977,10 +984,9 @@ class AstToDfgNormalizeDrivers final {
     }
 
     // CONSTRUCTOR
-    AstToDfgNormalizeDrivers(DfgGraph& dfg, AstVar* astVarp, DfgVertexVar& var,
-                             V3DfgAstToDfgContext& ctx)
+    AstToDfgNormalizeDrivers(DfgGraph& dfg, DfgVertexVar& var, V3DfgAstToDfgContext& ctx)
         : m_dfg{dfg}
-        , m_astVarp{astVarp}
+        , m_var{var}
         , m_ctx{ctx} {
         // Nothing to do for un-driven (input) variables
         if (!var.srcp()) return;
@@ -1002,9 +1008,8 @@ class AstToDfgNormalizeDrivers final {
     }
 
 public:
-    static void apply(DfgGraph& dfg, AstVar* astVarp, DfgVertexVar& var,
-                      V3DfgAstToDfgContext& ctx) {
-        AstToDfgNormalizeDrivers{dfg, astVarp, var, ctx};
+    static void apply(DfgGraph& dfg, DfgVertexVar& var, V3DfgAstToDfgContext& ctx) {
+        AstToDfgNormalizeDrivers{dfg, var, ctx};
     }
 };
 
@@ -1085,9 +1090,7 @@ public:
         AstToDfgVisitor{dfg, root, ctx};
         if (dumpDfgLevel() >= 9) dfg.dumpDotFilePrefixed(ctx.prefix() + "ast2dfg-conv");
         // Normalize all variable drivers
-        for (DfgVertexVar& var : dfg.varVertices()) {
-            AstToDfgNormalizeDrivers::apply(dfg, var.varp(), var, ctx);
-        }
+        for (DfgVertexVar& var : dfg.varVertices()) AstToDfgNormalizeDrivers::apply(dfg, var, ctx);
         if (dumpDfgLevel() >= 9) dfg.dumpDotFilePrefixed(ctx.prefix() + "ast2dfg-norm");
         // Remove all unused vertices
         V3DfgPasses::removeUnused(dfg);
@@ -1137,12 +1140,14 @@ class AstToDfgSynthesize final {
         // If the old value is the real variable we just computed the new value for,
         // then it is the circular feedback into the synthesized block, add it as default driver.
         if (oldp->nodep() == varp) {
-            // If the new value is filly defined, we should have noticed during live variabel
+            // If the new value is fully defined, we should have noticed during live variabel
             // analysis and not include 'oldp' as input to the synthesized block.
             UASSERT_OBJ(!newSplicep->drivesWholeResult(), newp, "Live variable analysis failed");
             newSplicep->addDefaultDriver(oldp->fileline(), oldp);
             return;
         }
+
+        // TODO: Coalesce drivers ...
 
         // Represents a range driven in the new value
         struct Range final {
@@ -1261,17 +1266,11 @@ class AstToDfgSynthesize final {
                     // The new, potentially partially assigned value
                     DfgVertexVar* const newVtxp = pair.second;
                     // Resolve multi-drivers of this variable withih this 'ap' assignment
-                    AstToDfgNormalizeDrivers::apply(m_dfg, getAstVar(varp), *newVtxp,
-                                                    m_ctx.m_ast2DfgContext);
+                    AstToDfgNormalizeDrivers::apply(m_dfg, *newVtxp, m_ctx.m_ast2DfgContext);
                     // The previous value of the same variable
                     DfgVertexVar* const oldVtxp = varp->user1u().template to<DfgVertexVar*>();
                     // Incorporate old value into the new value
-                    if (oldVtxp) {
-                        incorporatePreviousDriver(newVtxp, oldVtxp, varp);
-                        // Coalesce drivers
-                        AstToDfgNormalizeDrivers::apply(m_dfg, getAstVar(varp), *newVtxp,
-                                                        m_ctx.m_ast2DfgContext);
-                    }
+                    if (oldVtxp) incorporatePreviousDriver(newVtxp, oldVtxp, varp);
                     // Update binding of target variable
                     varp->user1p(newVtxp);
                     // Update output symbol table of this block
@@ -1393,7 +1392,7 @@ class AstToDfgSynthesize final {
             DfgSplicePacked* const splicep = new DfgSplicePacked{m_dfg, flp, dtypep};
             splicep->addDriver(thenp->fileline(), 0, condp);
 
-            DfgVertexVar* const tmpp = createVar(m_dfg, varp, "SynthJoin", m_tmpCnt++);
+            DfgVertexVar* const tmpp = createTmp(m_dfg, varp, "SynthJoin", m_tmpCnt++);
             tmpp->srcp(splicep);
             return tmpp;
         }
@@ -1531,7 +1530,7 @@ class AstToDfgSynthesize final {
             }
         }
 
-        m_dfg.dumpDotFilePrefixed("eee");
+        // m_dfg.dumpDotFilePrefixed("eee");
 
         // Relink sinks to read the computed values for the target variable
         vtx.forEachSinkEdge([&](DfgEdge& edge) {
@@ -1544,7 +1543,7 @@ class AstToDfgSynthesize final {
             }
         });
 
-        m_dfg.dumpDotFilePrefixed("fff");
+        // m_dfg.dumpDotFilePrefixed("fff");
 
         // Remove unused temporaries
         for (const auto& pair : bb2OSymTab[cfg.exit()]) {
@@ -1592,7 +1591,7 @@ public:
 
         // Normalize all output variable drivers
         for (DfgVertexVar* const varp : varps) {
-            AstToDfgNormalizeDrivers::apply(dfg, varp->varp(), *varp, ctx.m_ast2DfgContext);
+            AstToDfgNormalizeDrivers::apply(dfg, *varp, ctx.m_ast2DfgContext);
         }
         if (dumpDfgLevel() >= 9) dfg.dumpDotFilePrefixed(ctx.prefix() + "ast2dfg-synth-norm");
 

@@ -44,6 +44,8 @@ class DfgVertexVar VL_NOT_FINAL : public DfgVertexUnary {
     bool m_hasDfgRefs = false;  // This AstVar is referenced in a different DFG of the module
     // Location of driver of this variable. Only used for converting back to Ast. Might be nullptr.
     FileLine* m_driverFileLine = nullptr;
+    // If this DfgVertexVar is a synthesized temporary, this is the Var/VarScope it stands for.
+    AstNode* m_tmpForp = nullptr;
 
     bool selfEquals(const DfgVertex& that) const final VL_MT_DISABLED;
     V3Hash selfHash() const final VL_MT_DISABLED;
@@ -86,6 +88,9 @@ public:
 
     FileLine* driverFileLine() const { return m_driverFileLine; }
     void driverFileLine(FileLine* flp) { m_driverFileLine = flp; }
+
+    AstNode* tmpForp() const { return m_tmpForp; }
+    void tmpForp(AstNode* nodep) { m_tmpForp = nodep; }
 
     bool isDrivenFullyByDfg() const {
         return srcp() && !srcp()->is<DfgVertexSplice>() && !varp()->isForced();

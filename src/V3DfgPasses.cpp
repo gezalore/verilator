@@ -82,12 +82,17 @@ void V3DfgPasses::cse(DfgGraph& dfg, V3DfgCseContext& ctx) {
 
 void V3DfgPasses::inlineVars(DfgGraph& dfg) {
     for (DfgVertexVar& vtx : dfg.varVertices()) {
-        if (DfgVarPacked* const varp = vtx.cast<DfgVarPacked>()) {
-            if (varp->hasSinks() && varp->isDrivenFullyByDfg()) {
-                DfgVertex* const driverp = varp->srcp();
-                varp->forEachSinkEdge([=](DfgEdge& edge) { edge.relinkSource(driverp); });
-            }
-        }
+        // Only inline packed variables
+        DfgVarPacked* const varp = vtx.cast<DfgVarPacked>();
+        if (!varp) continue;
+        // Can't inline if it has no sinks to inline into, or no source to inline ...
+        if (!varp->hasSinks() || !varp->srcp()) continue;
+        // Can't inline if not fully driven, except synthesized temporaries
+        // that are all fully defined, even if assigned only partially.
+        if (!varp->isDrivenFullyByDfg() && !varp->tmpForp()) continue;
+        // Inline it
+        DfgVertex* const driverp = varp->srcp();
+        varp->forEachSinkEdge([=](DfgEdge& edge) { edge.relinkSource(driverp); });
     }
 }
 
@@ -141,7 +146,7 @@ void V3DfgPasses::removeUnused(DfgGraph& dfg) {
         vtxp->unlinkDelete(dfg);
     }
 
-    // Remove unused and undriven variable vertices
+    // Remove unused and undriven variable vertices - but keep the AstVars, they might be used
     for (DfgVertexVar* const vtxp : dfg.varVertices().unlinkable()) {
         if (!vtxp->hasSinks() && !vtxp->srcp()) VL_DO_DANGLING(vtxp->unlinkDelete(dfg), vtxp);
     }
@@ -430,6 +435,9 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
     // AstVarScope::user1p() : AstVarScope* -> The replacement variables
     const VNUser1InUse user1InUse;
 
+    // Whether we need to apply variable replacements
+    bool doReplace = false;
+
     // Process the work list
     while (workListp != sentinelp) {
         // Pick up the head of the work list
@@ -454,8 +462,13 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
         DfgVarPacked* const varp = vtxp->cast<DfgVarPacked>();
         if (!varp) continue;
 
-        // Can't remove if it has external drivers
-        if (!varp->isDrivenFullyByDfg()) continue;
+        if (!varp->tmpForp()) {
+            // Can't remove regular variable if it has external drivers
+            if (!varp->isDrivenFullyByDfg()) continue;
+        } else {
+            // Can't remove used temporaries
+            if (varp->hasSinks()) continue;
+        }
 
         // Can't remove if must be kept (including external, non module references)
         if (varp->keep()) continue;
@@ -467,7 +480,7 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
             // If it is only referenced in this DFG, it can be removed
             ++ctx.m_varsRemoved;
             varp->replaceWith(varp->srcp());
-            varp->nodep()->unlinkFrBack()->deleteTree();
+            ctx.m_deleteps.push_back(varp->nodep());  // Delete variable at the end
         } else if (DfgVarPacked* const driverp = varp->srcp()->cast<DfgVarPacked>()) {
             // If it's driven from another variable, it can be replaced by that.
             // Mark it for replacement
@@ -476,7 +489,8 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
             // Grab the AstVar/AstVarScope
             AstNode* const nodep = varp->nodep();
             UASSERT_OBJ(!nodep->user1p(), nodep, "Replacement already exists");
-            replacedVariables.emplace_back(nodep);
+            doReplace = true;
+            ctx.m_deleteps.push_back(nodep);  // Delete variable at the end
             nodep->user1p(driverp->nodep());
         } else {
             // Otherwise this *is* the canonical var
@@ -490,7 +504,7 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
     }
 
     // Job done if no replacements possible
-    if (replacedVariables.empty()) return;
+    if (!doReplace) return;
 
     // Apply variable replacements
     if (AstModule* const modp = dfg.modulep()) {
@@ -507,9 +521,6 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
             refp->varp(vscp->varp());
         });
     }
-
-    // Remove the replaced variables
-    for (AstNode* const nodep : replacedVariables) nodep->unlinkFrBack()->deleteTree();
 }
 
 void V3DfgPasses::synthesizeAllAlways(DfgGraph& dfg, V3DfgContext& ctx) {
