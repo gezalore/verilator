@@ -11,7 +11,8 @@ import vltest_bootstrap
 
 test.scenarios('simulator')
 
-test.compile(fails=test.vlt_all)
+test.compile(fails=test.vlt_all,
+             verilator_flags2=["-fno-dfg-break-cycles", "--dfg-synthesize", "none"])
 
 # Used to be %Error: t/t_order_wireloop.v:\d+: Wire inputs its own output, creating circular logic .wire x=x.
 # However we no longer gate optimize this

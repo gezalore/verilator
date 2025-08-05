@@ -234,6 +234,15 @@ module t (
    `signal(PUSH_SEL_THROUGH_SHIFTL, sel_from_shiftl[20:0]);
    `signal(REPLACE_SEL_FROM_SEL, sel_from_sel[4:3]);
 
+   logic [2:0] sel_from_partial_tmp;;
+   always_comb begin
+     sel_from_partial_tmp[1:0] = 2'd0;
+     if (rand_a[0]) begin
+       sel_from_partial_tmp[0] = rand_b[0];
+     end
+   end
+   `signal(PUSH_SEL_THROUGH_SPLICE, sel_from_partial_tmp[1:0]);
+
    // Asscending ranges
    `signal(ASCENDNG_SEL, arand_a[0:4]);
    // verilator lint_off ASCRANGE

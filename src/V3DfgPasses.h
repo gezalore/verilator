@@ -38,6 +38,12 @@ std::unique_ptr<DfgGraph> astToDfg(AstModule&, V3DfgContext&) VL_MT_DISABLED;
 // Same as above, but for the entire netlist, after V3Scope
 std::unique_ptr<DfgGraph> astToDfg(AstNetlist&, V3DfgContext&) VL_MT_DISABLED;
 
+// Synthesize DfgAlways vertices that are likely to improve performance
+void synthesizeAlwaysAuto(DfgGraph&, V3DfgContext&) VL_MT_DISABLED;
+
+// Synthesize all DfgAlways vertices - primarilly used for testing
+void synthesizeAlwaysAll(DfgGraph&, V3DfgContext&) VL_MT_DISABLED;
+
 // Remove all DfgAlways vertices from the graph
 void removeAlwaysVertices(DfgGraph&);
 

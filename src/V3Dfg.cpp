@@ -78,6 +78,8 @@ std::unique_ptr<DfgGraph> DfgGraph::clone() const {
             break;
         }
         }
+
+        if (AstNode* const tmpForp = vp->tmpForp()) cp->tmpForp(tmpForp);
     }
     // Clone operation vertices
     for (const DfgVertex& vtx : m_opVertices) {
@@ -148,7 +150,9 @@ std::unique_ptr<DfgGraph> DfgGraph::clone() const {
                 vp->forEachSourceEdge([&](const DfgEdge& edge, size_t i) {
                     if (DfgVertex* const srcp = edge.sourcep()) {
                         DfgVertex* const srcClonep = vtxp2clonep.at(srcp);
-                        if (vp->driverIsUnresolved(i)) {
+                        if (vp->driverIsDefault(i)) {
+                            cp->addDefaultDriver(vp->driverFileLine(i), srcClonep);
+                        } else if (vp->driverIsUnresolved(i)) {
                             cp->addUnresolvedDriver(srcClonep);
                         } else {
                             cp->addDriver(vp->driverFileLine(i), vp->driverLsb(i), srcClonep);
@@ -279,6 +283,9 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         os << toDotId(vtx);
         os << " [label=\"" << nodep->prettyName() << '\n';
         os << cvtToHex(varVtxp) << '\n';
+        if (AstNode* const tmpForp = varVtxp->tmpForp()) {
+            os << "temporary for: " << tmpForp->prettyName() << "\n";
+        }
         varVtxp->dtypep()->dumpSmall(os);
         os << " / F" << varVtxp->fanout() << '"';
 
@@ -294,6 +301,8 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
             os << ", shape=box, style=filled, fillcolor=darkorange1";  // Orange
         } else if (varVtxp->hasDfgRefs()) {
             os << ", shape=box, style=filled, fillcolor=gold2";  // Yellow
+        } else if (varVtxp->tmpForp()) {
+            os << ", shape=box, style=filled, fillcolor=gray80";
         } else {
             os << ", shape=box";
         }
@@ -307,6 +316,9 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         os << toDotId(vtx);
         os << " [label=\"" << nodep->prettyName() << '\n';
         os << cvtToHex(arrVtxp) << '\n';
+        if (AstNode* const tmpForp = arrVtxp->tmpForp()) {
+            os << "temporary for: " << tmpForp->prettyName() << "\n";
+        }
         arrVtxp->dtypep()->dumpSmall(os);
         os << " / F" << arrVtxp->fanout() << '"';
         if (varp->direction() == VDirection::INPUT) {
@@ -321,6 +333,8 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
             os << ", shape=box3d, style=filled, fillcolor=darkorange1";  // Orange
         } else if (arrVtxp->hasDfgRefs()) {
             os << ", shape=box3d, style=filled, fillcolor=gold2";  // Yellow
+        } else if (arrVtxp->tmpForp()) {
+            os << ", shape=box3d, style=filled, fillcolor=gray80";
         } else {
             os << ", shape=box3d";
         }

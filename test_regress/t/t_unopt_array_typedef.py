@@ -12,7 +12,9 @@ import vltest_bootstrap
 test.scenarios('simulator')
 test.top_filename = "t/t_unopt_array.v"
 
-test.compile(verilator_flags2=["-Wno-UNOPTFLAT +define+USE_TYPEDEF"])
+test.compile(verilator_flags2=[
+    "-Wno-UNOPTFLAT", "+define+USE_TYPEDEF", "-fno-dfg-break-cycles", "--dfg-synthesize", "none"
+])
 
 test.execute()
 

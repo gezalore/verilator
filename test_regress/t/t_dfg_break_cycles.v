@@ -22,9 +22,9 @@ module t (
   wire logic signed [63:0] srand_a;
   wire logic signed [63:0] srand_b;
 
-  //////////////////////////////////////////////////////////////////////////
-  // Interesting user code to cover
-  //////////////////////////////////////////////////////////////////////////
+  ////////////////////////////////////////////////////////////////////////////
+  //// Interesting user code to cover
+  ////////////////////////////////////////////////////////////////////////////
 
   `signal(GRAY_SEL, 3);
   assign GRAY_SEL = rand_a[2:0] ^ 3'(GRAY_SEL[2:1]);
@@ -140,4 +140,38 @@ module t (
   assign array_3[1] = array_3[0];
   `signal(ARRAY_3, 3);
   assign ARRAY_3 = array_3[0];
+
+  // verilator lint_off ALWCOMBORDER
+  logic [3:0] always_0;
+  always_comb begin
+    always_0[3] = ~always_0[1];
+    always_0[2] = always_0[1];
+    always_0[0] = rand_a[0];
+  end
+  assign always_0[1] = ~always_0[0];
+  `signal(ALWAYS_0, 4);
+  assign ALWAYS_0 = always_0;
+  // verilator lint_on ALWCOMBORDER
+
+  // verilator lint_off ALWCOMBORDER
+  logic [4:0] always_1;
+  always_comb begin
+    always_1[4] = always_1[0];
+    always_1[0] = rand_a[0];
+    always_1[3:2] = always_1[1:0];
+  end
+  assign always_1[1] = always_1[0];
+  `signal(ALWAYS_1, 5);
+  assign ALWAYS_1 = always_1;
+  // verilator lint_on ALWCOMBORDER
+
+  // verilator lint_off ALWCOMBORDER
+  logic [3:0] always_2;
+  always_comb begin
+    always_2[2:0] = 3'((always_2 << 1) | 4'(rand_a[0]));
+    always_2[3] = rand_a[0];
+  end
+  `signal(ALWAYS_2, 4);
+  assign ALWAYS_2 = always_2;
+   // verilator lint_on ALWCOMBORDER
 endmodule
