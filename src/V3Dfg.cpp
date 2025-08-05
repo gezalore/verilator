@@ -78,6 +78,8 @@ std::unique_ptr<DfgGraph> DfgGraph::clone() const {
             break;
         }
         }
+
+        if (AstNode* const tmpForp = vp->tmpForp()) cp->tmpForp(tmpForp);
     }
     // Clone operation vertices
     for (const DfgVertex& vtx : m_opVertices) {
@@ -148,7 +150,9 @@ std::unique_ptr<DfgGraph> DfgGraph::clone() const {
                 vp->forEachSourceEdge([&](const DfgEdge& edge, size_t i) {
                     if (DfgVertex* const srcp = edge.sourcep()) {
                         DfgVertex* const srcClonep = vtxp2clonep.at(srcp);
-                        if (vp->driverIsUnresolved(i)) {
+                        if (vp->driverIsDefault(i)) {
+                            cp->addDefaultDriver(vp->driverFileLine(i), srcClonep);
+                        } else if (vp->driverIsUnresolved(i)) {
                             cp->addUnresolvedDriver(srcClonep);
                         } else {
                             cp->addDriver(vp->driverFileLine(i), vp->driverLsb(i), srcClonep);
@@ -279,6 +283,9 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         os << toDotId(vtx);
         os << " [label=\"" << nodep->prettyName() << '\n';
         os << cvtToHex(varVtxp) << '\n';
+        if (AstNode* const tmpForp = varVtxp->tmpForp()) {
+            os << "temporary for: " << tmpForp->prettyName() << "\n";
+        }
         varVtxp->dtypep()->dumpSmall(os);
         os << " / F" << varVtxp->fanout() << '"';
 
@@ -307,6 +314,9 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         os << toDotId(vtx);
         os << " [label=\"" << nodep->prettyName() << '\n';
         os << cvtToHex(arrVtxp) << '\n';
+        if (AstNode* const tmpForp = arrVtxp->tmpForp()) {
+            os << "temporary for: " << tmpForp->prettyName() << "\n";
+        }
         arrVtxp->dtypep()->dumpSmall(os);
         os << " / F" << arrVtxp->fanout() << '"';
         if (varp->direction() == VDirection::INPUT) {

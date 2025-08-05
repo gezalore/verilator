@@ -12,7 +12,9 @@ import vltest_bootstrap
 test.scenarios('simulator')
 test.top_filename = "t/t_unopt_converge_initial.v"
 
-test.compile(v_flags2=['+define+ALLOW_UNOPT --output-split 0'])
+test.compile(v_flags2=[
+    '+define+ALLOW_UNOPT', '--output-split 0', "-fno-dfg-break-cycles", "--dfg-synthesize", "none"
+])
 
 if test.vlt_all:
     test.execute(fails=True, expect_filename=test.golden_filename)

@@ -43,6 +43,8 @@ class DfgVertexVar VL_NOT_FINAL : public DfgVertexUnary {
     AstVarScope* const m_varScopep;  // The AstVarScope associated with this vertex (not owned)
     // Location of driver of this variable. Only used for converting back to Ast. Might be nullptr.
     FileLine* m_driverFileLine = nullptr;
+    // If this DfgVertexVar is a synthesized temporary, this is the Var/VarScope it stands for.
+    AstNode* m_tmpForp = nullptr;
 
     bool selfEquals(const DfgVertex& that) const final VL_MT_DISABLED;
     V3Hash selfHash() const final VL_MT_DISABLED;
@@ -63,6 +65,9 @@ public:
 
     FileLine* driverFileLine() const { return m_driverFileLine; }
     void driverFileLine(FileLine* flp) { m_driverFileLine = flp; }
+
+    AstNode* tmpForp() const { return m_tmpForp; }
+    void tmpForp(AstNode* nodep) { m_tmpForp = nodep; }
 
     bool isDrivenFullyByDfg() const {
         return srcp() && !srcp()->is<DfgVertexSplice>() && !varp()->isForced();
@@ -308,11 +313,13 @@ class DfgSplicePacked final : public DfgVertexSplice {
         FileLine* m_flp;  // Location of this driver
         uint32_t m_lsb;  // LSB of range driven by this driver
         bool m_isUnresolved;  // Is a placeholder for a driver from an unresolved DfgAlways
+        bool m_isDefault;  // Is an initial assignment to the whole output
         DriverData() = delete;
-        DriverData(FileLine* flp, uint32_t lsb, bool isUnresolved)
+        DriverData(FileLine* flp, uint32_t lsb, bool isUnresolved, bool isDefault)
             : m_flp{flp}
             , m_lsb{lsb}
-            , m_isUnresolved{isUnresolved} {}
+            , m_isUnresolved{isUnresolved}
+            , m_isDefault{isDefault} {}
     };
     std::vector<DriverData> m_driverData;  // Additional data associated with each driver
 
@@ -328,12 +335,18 @@ public:
 
     void addDriver(FileLine* flp, uint32_t lsb, DfgVertex* vtxp) {
         UASSERT_OBJ(!vtxp->is<DfgAlways>(), vtxp, "addDriver called with DfgAlways");
-        m_driverData.emplace_back(flp, lsb, false);
+        m_driverData.emplace_back(flp, lsb, false, false);
         DfgVertexVariadic::addSource()->relinkSource(vtxp);
     }
 
     void addUnresolvedDriver(DfgVertex* vtxp) {
-        m_driverData.emplace_back(vtxp->fileline(), 0, true);
+        m_driverData.emplace_back(vtxp->fileline(), 0, true, false);
+        DfgVertexVariadic::addSource()->relinkSource(vtxp);
+    }
+
+    void addDefaultDriver(FileLine* flp, DfgVertex* vtxp) {
+        UASSERT_OBJ(!vtxp->is<DfgAlways>(), vtxp, "addDefaultDriver called with DfgAlways");
+        m_driverData.emplace_back(flp, 0, false, true);
         DfgVertexVariadic::addSource()->relinkSource(vtxp);
     }
 
@@ -367,10 +380,20 @@ public:
     FileLine* driverFileLine(size_t i) const { return m_driverData.at(i).m_flp; }
     uint32_t driverLsb(size_t i) const { return m_driverData.at(i).m_lsb; }
     uint32_t driverIsUnresolved(size_t i) const { return m_driverData.at(i).m_isUnresolved; }
+    uint32_t driverIsDefault(size_t i) const { return m_driverData.at(i).m_isDefault; }
+
+    bool drivesWholeResult() {
+        return arity() == 1  //
+               && !driverIsUnresolved(0)  //
+               && !driverIsDefault(0)  //
+               && driverLsb(0) == 0  //
+               && source(0)->width() == width();
+    }
 
     const std::string srcName(size_t idx) const override {
         const DriverData& dd = m_driverData.at(idx);
         if (dd.m_isUnresolved) return "unresolved";
+        if (dd.m_isDefault) return "default";
         const uint32_t lsb = driverLsb(idx);
         const uint32_t msb = lsb + source(idx)->width() - 1;
         return '[' + std::to_string(msb) + ':' + std::to_string(lsb) + ']';

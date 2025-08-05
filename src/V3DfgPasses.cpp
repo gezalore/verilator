@@ -82,12 +82,17 @@ void V3DfgPasses::cse(DfgGraph& dfg, V3DfgCseContext& ctx) {
 
 void V3DfgPasses::inlineVars(DfgGraph& dfg) {
     for (DfgVertexVar& vtx : dfg.varVertices()) {
-        if (DfgVarPacked* const varp = vtx.cast<DfgVarPacked>()) {
-            if (varp->hasSinks() && varp->isDrivenFullyByDfg()) {
-                DfgVertex* const driverp = varp->srcp();
-                varp->forEachSinkEdge([=](DfgEdge& edge) { edge.relinkSource(driverp); });
-            }
-        }
+        // Only inline packed variables
+        DfgVarPacked* const varp = vtx.cast<DfgVarPacked>();
+        if (!varp) continue;
+        // Can't inline if it has no sinks to inline into, or no source to inline ...
+        if (!varp->hasSinks() || !varp->srcp()) continue;
+        // Can't inline if not fully driven, except synthesized temporaries
+        // that are all fully defined, even if assigned only partially.
+        if (!varp->isDrivenFullyByDfg() && !varp->tmpForp()) continue;
+        // Inline it
+        DfgVertex* const driverp = varp->srcp();
+        varp->forEachSinkEdge([=](DfgEdge& edge) { edge.relinkSource(driverp); });
     }
 }
 
@@ -141,7 +146,7 @@ void V3DfgPasses::removeUnused(DfgGraph& dfg) {
         vtxp->unlinkDelete(dfg);
     }
 
-    // Remove unused and undriven variable vertices
+    // Remove unused and undriven variable vertices - but keep the AstVars, they might be used
     for (DfgVertexVar* const vtxp : dfg.varVertices().unlinkable()) {
         if (!vtxp->hasSinks() && !vtxp->srcp()) VL_DO_DANGLING(vtxp->unlinkDelete(dfg), vtxp);
     }
@@ -455,8 +460,13 @@ void V3DfgPasses::eliminateVars(DfgGraph& dfg, V3DfgEliminateVarsContext& ctx) {
         DfgVarPacked* const varp = vtxp->cast<DfgVarPacked>();
         if (!varp) continue;
 
-        // Can't remove if it has external drivers
-        if (!varp->isDrivenFullyByDfg()) continue;
+        if (!varp->tmpForp()) {
+            // Can't remove regular variable if it has external drivers
+            if (!varp->isDrivenFullyByDfg()) continue;
+        } else {
+            // Can't remove used temporaries
+            if (varp->hasSinks()) continue;
+        }
 
         // Can't remove if referenced external to the module/netlist
         if (varp->hasExtRefs()) continue;

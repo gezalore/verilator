@@ -20,6 +20,7 @@
 #include "V3DfgPasses.h"
 #include "V3Hash.h"
 
+#include <algorithm>
 #include <deque>
 #include <fstream>
 #include <limits>
@@ -242,18 +243,98 @@ class TraceDriver final : public DfgVisitor {
     }
 
     void visit(DfgSplicePacked* vtxp) override {
-        // Proceed with the driver that wholly covers the searched bits
+        DfgVertex* defaultp = nullptr;
+        struct Driver final {
+            DfgVertex* m_vtxp;
+            uint32_t m_lsb;
+            uint32_t m_msb;
+            Driver() = delete;
+            Driver(DfgVertex* vtxp, uint32_t lsb, uint32_t msb)
+                : m_vtxp{vtxp}
+                , m_lsb{lsb}
+                , m_msb{msb} {}
+        };
+        std::vector<Driver> drivers;
+
+        // Look at all the drivers, one might cover the whole range, but also gathe all drivers
         const auto pair = vtxp->sourceEdges();
+        bool tryWholeDefault = true;
         for (size_t i = 0; i < pair.second; ++i) {
+            UASSERT_OBJ(!vtxp->driverIsUnresolved(i), vtxp, "Should not have unresovled driver");
             DfgVertex* const srcp = pair.first[i].sourcep();
+            if (vtxp->driverIsDefault(i)) {
+                UASSERT_OBJ(!defaultp, vtxp, "Multiple default drivers for DfgSplicePacked");
+                defaultp = srcp;
+                continue;
+            }
             const uint32_t lsb = vtxp->driverLsb(i);
             const uint32_t msb = lsb + srcp->width() - 1;
-            // If it does not cover the searched bit range, move on
+            drivers.emplace_back(srcp, lsb, msb);
+            // Check if this driver covers any of the bits, then we can't use whole default
+            if (m_msb >= lsb && msb >= m_lsb) tryWholeDefault = false;
+            // If it does not cover the whole searched bit range, move on
             if (m_lsb < lsb || msb < m_msb) continue;
-            // Trace this driver
+            // Driver covers whole search range, trace that and we are done
             SET_RESULT(trace(srcp, m_msb - lsb, m_lsb - lsb));
             return;
         }
+
+        // Trace the default driver if no other drivers cover the searched range
+        if (defaultp && tryWholeDefault) {
+            SET_RESULT(trace(defaultp, m_msb, m_lsb));
+            return;
+        }
+
+        // Hard case: We need to combine multiple drivers to produce the searched bit range
+
+        // Sort ragnes (they are non-overlapping)
+        std::sort(drivers.begin(), drivers.end(),
+                  [](const Driver& a, const Driver& b) { return a.m_lsb < b.m_lsb; });
+
+        // Gather terms
+        std::vector<DfgVertex*> termps;
+        for (const Driver& driver : drivers) {
+            // Driver is below the searched LSB, move on
+            if (m_lsb > driver.m_msb) continue;
+            // Driver is above the searched MSB, done
+            if (driver.m_lsb > m_msb) break;
+            // Gap below this driver, trace default to fill it
+            if (driver.m_lsb > m_lsb) {
+                if (!defaultp) return;
+                DfgVertex* const termp = trace(defaultp, driver.m_lsb - 1, m_lsb);
+                if (!termp) return;
+                termps.emplace_back(termp);
+                m_lsb = driver.m_lsb;
+            }
+            // Driver covers searched range, pick the needed/available bits
+            uint32_t lim = std::min(m_msb, driver.m_msb);
+            DfgVertex* const termp
+                = trace(driver.m_vtxp, lim - driver.m_lsb, m_lsb - driver.m_lsb);
+            if (!termp) return;
+            termps.emplace_back(termp);
+            m_lsb = lim + 1;
+        }
+        if (m_msb >= m_lsb) {
+            if (!defaultp) return;
+            DfgVertex* const termp = trace(defaultp, m_msb, m_lsb);
+            if (!termp) return;
+            termps.emplace_back(termp);
+        }
+
+        // The earlier cheks cover the case when either a whole driver or the default covers
+        // the whole range, so there should be at least 2 terms required here.
+        UASSERT_OBJ(termps.size() >= 2, vtxp, "Should have returned in special cases");
+
+        // Concatenate all terms and set result
+        DfgVertex* resp = termps.front();
+        for (size_t i = 1; i < termps.size(); ++i) {
+            DfgVertex* const termp = termps[i];
+            DfgConcat* const catp = make<DfgConcat>(termp, resp->width() + termp->width());
+            catp->rhsp(resp);
+            catp->lhsp(termp);
+            resp = catp;
+        }
+        SET_RESULT(resp);
     }
 
     void visit(DfgVarPacked* vtxp) override {
@@ -519,7 +600,13 @@ class IndependentBits final : public DfgVisitor {
         // Combine the masks of all drivers
         V3Number& m = MASK(vtxp);
         vtxp->forEachSourceEdge([&](DfgEdge& edge, size_t i) {
-            UASSERT_OBJ(!vtxp->driverIsUnresolved(i), vtxp, "Should not have unresolved driver");
+            UASSERT_OBJ(!vtxp->driverIsUnresolved(i), vtxp, "Should not have unresovled driver");
+            if (!vtxp->driverIsDefault(i)) return;
+            const DfgVertex* const srcp = edge.sourcep();
+            m = MASK(srcp);
+        });
+        vtxp->forEachSourceEdge([&](DfgEdge& edge, size_t i) {
+            if (vtxp->driverIsDefault(i)) return;
             const DfgVertex* const srcp = edge.sourcep();
             m.opSelInto(MASK(srcp), vtxp->driverLsb(i), srcp->width());
         });
@@ -676,7 +763,9 @@ class IndependentBits final : public DfgVisitor {
             if (VN_IS(currp->dtypep(), UnpackArrayDType)) {
                 // For an unpacked array vertex, just enque it's sinks.
                 // (There can be no loops through arrays directly)
-                currp->forEachSink([&](DfgVertex& vtx) { workList.emplace_back(&vtx); });
+                currp->forEachSink([&](DfgVertex& vtx) {
+                    if (vtx.getUser<uint64_t>() == m_component) workList.emplace_back(&vtx);
+                });
                 continue;
             }
 
@@ -690,7 +779,9 @@ class IndependentBits final : public DfgVisitor {
 
             // If mask changed, enqueue sinks
             if (!prevMask.isCaseEq(maskCurr)) {
-                currp->forEachSink([&](DfgVertex& vtx) { workList.emplace_back(&vtx); });
+                currp->forEachSink([&](DfgVertex& vtx) {
+                    if (vtx.getUser<uint64_t>() == m_component) workList.emplace_back(&vtx);
+                });
 
                 // Check the mask only ever contrects (no bit goes 0 -> 1)
                 if (VL_UNLIKELY(v3Global.opt.debugCheck())) {
@@ -912,39 +1003,45 @@ class FixUpIndependentRanges final {
             lsb = msb + 1;
         }
 
-        // If we managed to imporove something, apply the replacement
-        if (nImprovements) {
-            // Concatenate all the terms to create the replacement
-            DfgVertex* replacementp = termps.front();
-            const uint64_t vComp = vtxp->getUser<uint64_t>();
-            for (size_t i = 1; i < termps.size(); ++i) {
-                DfgVertex* const termp = termps[i];
-                const uint32_t catWidth = replacementp->width() + termp->width();
-                AstNodeDType* const dtypep = DfgVertex::dtypeForWidth(catWidth);
-                DfgConcat* const catp = new DfgConcat{dfg, flp, dtypep};
-                catp->rhsp(replacementp);
-                catp->lhsp(termp);
-                // Need to figure out which component the replacement vertex
-                // belongs to. If any of the terms are of the original
-                // component, it's part of that component, otherwise its not
-                // cyclic (all terms are from outside the original component,
-                // and feed into the original component).
-                const uint64_t tComp = termp->getUser<uint64_t>();
-                const uint64_t rComp = replacementp->getUser<uint64_t>();
-                catp->setUser<uint64_t>(tComp == vComp || rComp == vComp ? vComp : 0);
-                replacementp = catp;
-            }
+        // If no imporovement was possible, delete the terms we just created
+        if (!nImprovements) {
+            for (DfgVertex* const vtxp : termps) VL_DO_DANGLING(vtxp->unlinkDelete(dfg), vtxp);
+            termps.clear();
+            return 0;
+        }
 
-            // Replace the vertex
-            vtxp->replaceWith(replacementp);
-            // Connect the Sel nodes in the replacement
-            for (DfgVertex* const termp : termps) {
-                if (DfgSel* const selp = termp->cast<DfgSel>()) {
-                    if (!selp->fromp()) selp->fromp(vtxp);
-                }
+        // We managed to imporove something, apply the replacement
+        // Concatenate all the terms to create the replacement
+        DfgVertex* replacementp = termps.front();
+        const uint64_t vComp = vtxp->getUser<uint64_t>();
+        for (size_t i = 1; i < termps.size(); ++i) {
+            DfgVertex* const termp = termps[i];
+            const uint32_t catWidth = replacementp->width() + termp->width();
+            AstNodeDType* const dtypep = DfgVertex::dtypeForWidth(catWidth);
+            DfgConcat* const catp = new DfgConcat{dfg, flp, dtypep};
+            catp->rhsp(replacementp);
+            catp->lhsp(termp);
+            // Need to figure out which component the replacement vertex
+            // belongs to. If any of the terms are of the original
+            // component, it's part of that component, otherwise its not
+            // cyclic (all terms are from outside the original component,
+            // and feed into the original component).
+            const uint64_t tComp = termp->getUser<uint64_t>();
+            const uint64_t rComp = replacementp->getUser<uint64_t>();
+            catp->setUser<uint64_t>(tComp == vComp || rComp == vComp ? vComp : 0);
+            replacementp = catp;
+        }
+
+        // Replace the vertex
+        vtxp->replaceWith(replacementp);
+        // Connect the Sel nodes in the replacement
+        for (DfgVertex* const termp : termps) {
+            if (DfgSel* const selp = termp->cast<DfgSel>()) {
+                if (!selp->fromp()) selp->fromp(vtxp);
             }
         }
 
+        // Done
         return nImprovements;
     }
 
