@@ -43,6 +43,8 @@ class DfgVertexVar VL_NOT_FINAL : public DfgVertexUnary {
     AstVarScope* const m_varScopep;  // The AstVarScope associated with this vertex (not owned)
     // Location of driver of this variable. Only used for converting back to Ast. Might be nullptr.
     FileLine* m_driverFileLine = nullptr;
+    // If this DfgVertexVar is a synthesized temporary, this is the Var/VarScope it stands for.
+    AstNode* m_tmpForp = nullptr;
 
     bool selfEquals(const DfgVertex& that) const final VL_MT_DISABLED;
     V3Hash selfHash() const final VL_MT_DISABLED;
@@ -63,6 +65,9 @@ public:
 
     FileLine* driverFileLine() const { return m_driverFileLine; }
     void driverFileLine(FileLine* flp) { m_driverFileLine = flp; }
+
+    AstNode* tmpForp() const { return m_tmpForp; }
+    void tmpForp(AstNode* nodep) { m_tmpForp = nodep; }
 
     bool isDrivenFullyByDfg() const {
         return srcp() && !srcp()->is<DfgVertexSplice>() && !varp()->isForced();
@@ -100,10 +105,142 @@ public:
     }
 };
 class DfgVertexSplice VL_NOT_FINAL : public DfgVertexVariadic {
+protected:
+    struct DriverData final {
+        FileLine* m_flp;  // Location of this driver
+        uint32_t m_lo;  // Low index of range driven by this driver
+        bool m_isUnresolved;  // Is a placeholder for a driver from an unresolved DfgLogic
+        DriverData() = delete;
+        DriverData(FileLine* flp, uint32_t lo, bool isUnresolved)
+            : m_flp{flp}
+            , m_lo{lo}
+            , m_isUnresolved{isUnresolved} {}
+    };
+    std::vector<DriverData> m_driverData;  // Additional data associated with each driver
+
+    bool selfEquals(const DfgVertex& that) const override VL_MT_DISABLED;
+    V3Hash selfHash() const override VL_MT_DISABLED;
+
 public:
     DfgVertexSplice(DfgGraph& dfg, VDfgType type, FileLine* flp, AstNodeDType* dtypep)
-        : DfgVertexVariadic{dfg, type, flp, dtypep, 1u} {}
+        : DfgVertexVariadic{dfg, type, flp, dtypep, 2u} {
+        // Add optional source for 'defaultp'
+        addSource();
+    }
     ASTGEN_MEMBERS_DfgVertexSplice;
+
+    std::pair<const DfgEdge*, size_t> sourceEdges() const override {
+        const std::pair<const DfgEdge*, size_t> pair = DfgVertexVariadic::sourceEdges();
+        UASSERT_OBJ(pair.second > 0, this, "default driver edge is missing");
+        // If it has a default driver that's it
+        if (pair.first->sourcep()) return pair;
+        // Otherwise there is one less source
+        return {pair.first + 1, pair.second - 1};
+    }
+    std::pair<DfgEdge*, size_t> sourceEdges() override {
+        const auto pair = const_cast<const DfgVertexSplice*>(this)->sourceEdges();
+        return {const_cast<DfgEdge*>(pair.first), pair.second};
+    }
+
+    // Named getter/setter for optional default driver
+    DfgVertex* defaultp() const { return DfgVertexVariadic::source(0); }
+    void defaultp(DfgVertex* vtxp) {
+        UASSERT_OBJ(!vtxp->is<DfgLogic>(), vtxp, "default driver can't be a DfgLogic");
+        const bool found = findSourceEdge([vtxp](const DfgEdge& e, size_t) -> bool {  //
+            return e.sourcep() == vtxp;
+        });
+        UASSERT_OBJ(!found, this, "adding existing driver as default");
+        DfgVertexVariadic::sourceEdge(0)->relinkSource(vtxp);
+    }
+
+    // Add resolved driver
+    void addDriver(FileLine* flp, uint32_t lo, DfgVertex* vtxp) {
+        UASSERT_OBJ(!vtxp->is<DfgLogic>(), vtxp, "addDriver called with DfgLogic");
+        UASSERT_OBJ(vtxp != defaultp(), this, "adding default driver as resolved");
+        m_driverData.emplace_back(flp, lo, false);
+        DfgVertexVariadic::addSource()->relinkSource(vtxp);
+    }
+
+    // Add unresolved driver
+    void addUnresolvedDriver(DfgVertex* vtxp) {
+        m_driverData.emplace_back(vtxp->fileline(), 0, true);
+        DfgVertexVariadic::addSource()->relinkSource(vtxp);
+    }
+
+    FileLine* driverFileLine(size_t idx) const {
+        UASSERT_OBJ(!defaultp() || idx > 0, this, "'driverFileLine' called on default driver");
+        if (defaultp()) --idx;
+        return m_driverData.at(idx).m_flp;
+    }
+    uint32_t driverIsUnresolved(size_t idx) const {
+        UASSERT_OBJ(!defaultp() || idx > 0, this, "'driverIsUnresolved' called on default driver");
+        if (defaultp()) --idx;
+        return m_driverData.at(idx).m_isUnresolved;
+    }
+    uint32_t driverLo(size_t idx) const {
+        UASSERT_OBJ(!defaultp() || idx > 0, this, "'driverLo' called on default driver");
+        if (defaultp()) --idx;
+        const DriverData& dd = m_driverData.at(idx);
+        UASSERT_OBJ(!dd.m_isUnresolved, this, "'driverLo' called on unresolved driver");
+        return dd.m_lo;
+    }
+
+    DfgVertex* driverAt(size_t idx) const {
+        const DfgEdge* const edgep = findSourceEdge([this, idx](const DfgEdge& e, size_t i) {  //
+            // Don't pick the default driver
+            if (i == 0 && defaultp()) return false;
+            return !driverIsUnresolved(i) && driverLo(i) == idx;
+        });
+        return edgep ? edgep->sourcep() : nullptr;
+    }
+
+    // If drives the whole result explicitly (not through defaultp), this is
+    // the actual driver this DfgVertexSplice can be replaced with.
+    inline DfgVertex* wholep() const;
+
+    void resetSources() {
+        m_driverData.clear();
+        // Unlink default driver
+        DfgVertex* const dp = defaultp();
+        DfgVertexVariadic::sourceEdge(0)->unlinkSource();
+        // Reset DfgVertexVariadic sources
+        DfgVertexVariadic::resetSources();
+        // Add back the default driver if present
+        DfgEdge* const edgep = DfgVertexVariadic::addSource();
+        if (dp) edgep->relinkSource(dp);
+    }
+
+    // Remove undriven non-default sources
+    void removeUndrivenSources() {
+        // Grab and reset the driver data
+        std::vector<DriverData> driverData;
+        driverData.swap(m_driverData);
+
+        // Grab and unlink non-default sources
+        std::vector<DfgVertex*> sources;
+        sources.reserve(arity());
+        forEachSourceEdge([&](DfgEdge& edge, size_t idx) {
+            if (idx == 0 && defaultp()) return;
+            sources.push_back(edge.sourcep());
+            edge.unlinkSource();
+        });
+        resetSources();
+
+        // Add back the driven sources
+        for (size_t i = 0; i < sources.size(); ++i) {
+            if (!sources[i]) continue;
+            m_driverData.emplace_back(driverData[i]);
+            DfgVertexVariadic::addSource()->relinkSource(sources[i]);
+        }
+    }
+
+    const std::string srcName(size_t idx) const override {
+        if (idx == 0 && defaultp()) return "default";
+        if (driverIsUnresolved(idx)) return "unresolved";
+        const uint32_t lo = driverLo(idx);
+        const uint32_t hi = lo + DfgVertexVariadic::source(idx + !defaultp())->size() - 1;
+        return '[' + std::to_string(hi) + ':' + std::to_string(lo) + ']';
+    }
 };
 
 // === Concrete node types =====================================================
@@ -119,12 +256,8 @@ class DfgConst final : public DfgVertex {
     V3Hash selfHash() const override VL_MT_DISABLED;
 
 public:
-    DfgConst(DfgGraph& dfg, FileLine* flp, const V3Number& num)
-        : DfgVertex{dfg, dfgType(), flp, dtypeForWidth(num.width())}
-        , m_num{num} {}
-    DfgConst(DfgGraph& dfg, FileLine* flp, uint32_t width, uint32_t value = 0)
-        : DfgVertex{dfg, dfgType(), flp, dtypeForWidth(width)}
-        , m_num{flp, static_cast<int>(width), value} {}
+    inline DfgConst(DfgGraph& dfg, FileLine* flp, const V3Number& num);
+    inline DfgConst(DfgGraph& dfg, FileLine* flp, uint32_t width, uint32_t value = 0);
     ASTGEN_MEMBERS_DfgConst;
 
     V3Number& num() { return m_num; }
@@ -174,6 +307,7 @@ public:
 };
 
 // === DfgVertexUnary ===
+
 class DfgSel final : public DfgVertexUnary {
     // AstSel is ternary, but the 'widthp' is always constant and is hence redundant, and
     // 'lsbp' is very often constant. As AstSel is fairly common, we special case as a DfgSel for
@@ -194,6 +328,20 @@ public:
     void lsb(uint32_t value) { m_lsb = value; }
 
     const string srcName(size_t) const override { return "fromp"; }
+};
+
+class DfgUnitArray final : public DfgVertexUnary {
+    // This is a type adapter for modeling arrays. It's a single element array,
+    // with the value of the single element being the source operand.
+public:
+    DfgUnitArray(DfgGraph& dfg, FileLine* flp, AstNodeDType* dtypep)
+        : DfgVertexUnary{dfg, dfgType(), flp, dtypep} {
+        UASSERT_OBJ(this->dtypep(), flp, "Non array DfgUnitArray");
+        UASSERT_OBJ(this->size() == 1, flp, "DfgUnitArray must have a single element");
+    }
+    ASTGEN_MEMBERS_DfgUnitArray;
+
+    const string srcName(size_t) const override { return ""; }
 };
 
 // === DfgVertexVar ===
@@ -228,24 +376,41 @@ public:
     ASTGEN_MEMBERS_DfgVarPacked;
 };
 
+// === DfgVertexVariadic ===
+class DfgLogic final : public DfgVertexVariadic {
+    // Generic vertex representing a whole combinational process
+    AstNode* const m_nodep;  // The Ast logic represented by this vertex
+    const std::unique_ptr<const ControlFlowGraph> m_cfgp;
+    // Vertices this logic was synthesized into. Excluding variables
+    std::vector<DfgVertex*> m_synth;
+
+public:
+    DfgLogic(DfgGraph& dfg, AstAssignW* nodep)
+        : DfgVertexVariadic{dfg, dfgType(), nodep->fileline(), nullptr, 1u}
+        , m_nodep(nodep)
+        , m_cfgp{nullptr} {}
+
+    DfgLogic(DfgGraph& dfg, AstAlways* nodep, std::unique_ptr<const ControlFlowGraph> cfgp)
+        : DfgVertexVariadic{dfg, dfgType(), nodep->fileline(), nullptr, 1u}
+        , m_nodep(nodep)
+        , m_cfgp{std::move(cfgp)} {}
+
+    ASTGEN_MEMBERS_DfgLogic;
+
+    void addInput(DfgVertexVar* varp) { addSource()->relinkSource(varp); }
+
+    AstNode* nodep() const { return m_nodep; }
+    const ControlFlowGraph& cfg() const { return *m_cfgp; }
+    std::vector<DfgVertex*>& synth() { return m_synth; }
+    const std::vector<DfgVertex*>& synth() const { return m_synth; }
+
+    const string srcName(size_t) const override { return ""; }
+};
+
 // === DfgVertexSplice ===
 class DfgSpliceArray final : public DfgVertexSplice {
     friend class DfgVertex;
     friend class DfgVisitor;
-
-    struct DriverData final {
-        FileLine* m_flp;  // Location of this driver
-        uint32_t m_index;  // Array index driven by this driver (or low index of range)
-        DriverData() = delete;
-        DriverData(FileLine* flp, uint32_t index)
-            : m_flp{flp}
-            , m_index{index} {}
-    };
-
-    std::vector<DriverData> m_driverData;  // Additional data associated with each driver
-
-    bool selfEquals(const DfgVertex& that) const override VL_MT_DISABLED;
-    V3Hash selfHash() const override VL_MT_DISABLED;
 
 public:
     DfgSpliceArray(DfgGraph& dfg, FileLine* flp, AstNodeDType* dtypep)
@@ -253,47 +418,10 @@ public:
         UASSERT_OBJ(VN_IS(dtypep, UnpackArrayDType), flp, "Non array DfgSpliceArray");
     }
     ASTGEN_MEMBERS_DfgSpliceArray;
-
-    void addDriver(FileLine* flp, uint32_t index, DfgVertex* vtxp) {
-        m_driverData.emplace_back(flp, index);
-        DfgVertexVariadic::addSource()->relinkSource(vtxp);
-    }
-
-    void resetSources() {
-        m_driverData.clear();
-        DfgVertexVariadic::resetSources();
-    }
-
-    FileLine* driverFileLine(size_t i) const { return m_driverData.at(i).m_flp; }
-    uint32_t driverIndex(size_t i) const { return m_driverData.at(i).m_index; }
-
-    DfgVertex* driverAt(size_t idx) const {
-        const DfgEdge* const edgep = findSourceEdge([this, idx](const DfgEdge&, size_t i) {  //
-            return driverIndex(i) == idx;
-        });
-        return edgep ? edgep->sourcep() : nullptr;
-    }
-
-    const std::string srcName(size_t idx) const override {
-        return std::to_string(driverIndex(idx));
-    }
 };
 class DfgSplicePacked final : public DfgVertexSplice {
     friend class DfgVertex;
     friend class DfgVisitor;
-
-    struct DriverData final {
-        FileLine* m_flp;  // Location of this driver
-        uint32_t m_lsb;  // LSB of range driven by this driver
-        DriverData() = delete;
-        DriverData(FileLine* flp, uint32_t lsb)
-            : m_flp{flp}
-            , m_lsb{lsb} {}
-    };
-    std::vector<DriverData> m_driverData;  // Additional data associated with each driver
-
-    bool selfEquals(const DfgVertex& that) const override VL_MT_DISABLED;
-    V3Hash selfHash() const override VL_MT_DISABLED;
 
 public:
     DfgSplicePacked(DfgGraph& dfg, FileLine* flp, AstNodeDType* dtypep)
@@ -301,21 +429,6 @@ public:
         UASSERT_OBJ(!VN_IS(dtypep, UnpackArrayDType), flp, "Array DfgSplicePacked");
     }
     ASTGEN_MEMBERS_DfgSplicePacked;
-
-    void addDriver(FileLine* flp, uint32_t lsb, DfgVertex* vtxp) {
-        m_driverData.emplace_back(flp, lsb);
-        DfgVertexVariadic::addSource()->relinkSource(vtxp);
-    }
-
-    void resetSources() {
-        m_driverData.clear();
-        DfgVertexVariadic::resetSources();
-    }
-
-    FileLine* driverFileLine(size_t i) const { return m_driverData.at(i).m_flp; }
-    uint32_t driverLsb(size_t i) const { return m_driverData.at(i).m_lsb; }
-
-    const std::string srcName(size_t idx) const override { return std::to_string(driverLsb(idx)); }
 };
 
 #endif
