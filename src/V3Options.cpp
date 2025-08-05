@@ -1283,6 +1283,17 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc,
     DECL_OPTION("-decoration", CbCall, [this, fl]() { decorations(fl, "medium"); });
     DECL_OPTION("-decorations", CbVal, [this, fl](const char* optp) { decorations(fl, optp); });
     DECL_OPTION("-no-decoration", CbCall, [this, fl]() { decorations(fl, "none"); });
+    DECL_OPTION("-dfg-synthesize", CbVal, [this, fl](const char* valp) {
+        if (!std::strcmp(valp, "all")) {
+            m_dfgSynthesize.setTrueOrFalse(true);
+        } else if (!std::strcmp(valp, "none")) {
+            m_dfgSynthesize.setTrueOrFalse(false);
+        } else if (!std::strcmp(valp, "cyclic")) {
+            m_dfgSynthesize = VOptionBool{};
+        } else {
+            fl->v3error("Unknown --dfg-synthesize option specified: '" << valp << "'");
+        }
+    });
     DECL_OPTION("-diagnostics-sarif", OnOff, &m_diagnosticsSarif);
     DECL_OPTION("-diagnostics-sarif-output", CbVal, [this](const char* optp) {
         m_diagnosticsSarifOutput = optp;

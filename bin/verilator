@@ -347,6 +347,7 @@ detailed descriptions of these arguments.
      +define+<var>=<value>      Set preprocessor define
     --diagnostics-sarif         Enable SARIF diagnostics output
     --diagnostics-sarif-output <filename>  Set SARIF diagnostics output file
+    --dfg-synthesize <what>     Which always blocks to synthesize during optimization.
     --dpi-hdr-only              Only produce the DPI header file
     --dump-<srcfile>            Enable dumping everything in source file
     --dump-defines              Show preprocessor defines with -E

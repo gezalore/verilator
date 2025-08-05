@@ -223,6 +223,26 @@ private:
         : V3DfgSubContext{ctx, label, "Regularize"} {}
     ~V3DfgRegularizeContext() { addStat("temporaries introduced", m_temporariesIntroduced); }
 };
+class V3DfgSynthesisContext final : public V3DfgSubContext {
+    // Only V3DfgContext can create an instance
+    friend class V3DfgContext;
+
+public:
+    // STATE
+    VDouble0 m_nAlwaysSynthesized;  // Number of always blocks successfully synthesised
+    VDouble0 m_nAlwaysSynthFailed;  // Number of always blocks that filed to synthesise
+    V3DfgAstToDfgContext& m_ast2DfgContext;
+
+private:
+    V3DfgSynthesisContext(V3DfgContext& ctx, const std::string& label,
+                          V3DfgAstToDfgContext& a2dCtx)
+        : V3DfgSubContext{ctx, label, "Synthesis"}
+        , m_ast2DfgContext{a2dCtx} {}
+    ~V3DfgSynthesisContext() {
+        addStat("always blocks synthesized", m_nAlwaysSynthesized);
+        addStat("always blocks failed to synthesize", m_nAlwaysSynthFailed);
+    }
+};
 
 //////////////////////////////////////////////////////////////////////////////
 // Top level V3DfgContext
@@ -240,6 +260,7 @@ public:
 
     // Sub contexts - keep sorted by type
     V3DfgAstToDfgContext m_ast2DfgContext{*this, m_label};
+    V3DfgAstToDfgContext m_ast2DfgSynthContext{*this, m_label + " Synthesis,"};
     V3DfgBinToOneHotContext m_binToOneHotContext{*this, m_label};
     V3DfgBreakCyclesContext m_breakCyclesContext{*this, m_label};
     V3DfgCseContext m_cseContext0{*this, m_label + " 1st"};
@@ -248,6 +269,7 @@ public:
     V3DfgEliminateVarsContext m_eliminateVarsContext{*this, m_label};
     V3DfgPeepholeContext m_peepholeContext{*this, m_label};
     V3DfgRegularizeContext m_regularizeContext{*this, m_label};
+    V3DfgSynthesisContext m_synthesisContext{*this, m_label, m_ast2DfgSynthContext};
 
     // Node pattern collector
     V3DfgPatternStats m_patternStats;
