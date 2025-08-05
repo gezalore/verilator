@@ -932,6 +932,40 @@ class V3DfgPeephole final : public DfgVisitor {
                 }
             }
         }
+
+        // Sel from a partial temporary
+        if (DfgVarPacked* const varp = fromp->cast<DfgVarPacked>()) {
+            if (varp->tmpForp() && varp->srcp()) {
+                // Must be a splice, otherwise it would have been inlined
+                DfgSplicePacked* const splicep = varp->srcp()->as<DfgSplicePacked>();
+
+                const auto pair = splicep->sourceEdges();
+                for (size_t i = 0; i < pair.second; ++i) {
+                    UASSERT_OBJ(!splicep->driverIsUnresolved(i), splicep, "Unresovled driver");
+
+                    // Ignore default, we won't select into that for now ...
+                    if (splicep->driverIsDefault(i)) continue;
+
+                    DfgVertex* const driverp = pair.first[i].sourcep();
+                    const uint32_t dLsb = splicep->driverLsb(i);
+                    const uint32_t dMsb = dLsb + driverp->width() - 1;
+                    // If it does not cover the whole searched bit range, move on
+                    if (lsb < dLsb || dMsb < msb) continue;
+
+                    // Replace with sel from driver
+                    APPLYING(PUSH_SEL_THROUGH_SPLICE) {
+                        DfgSel* const replacementp = make<DfgSel>(vtxp, driverp, lsb - dLsb);
+                        replace(vtxp, replacementp);
+                        // Special case just for this pattern: delete temporary if became unsued
+                        if (!varp->hasSinks() && !varp->hasDfgRefs()) {
+                            addToWorkList(splicep);  // So it can be delete itself if unused
+                            VL_DO_DANGLING(varp->unlinkDelete(m_dfg), varp);  // Delete it
+                        }
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     //=========================================================================

@@ -24,7 +24,6 @@ test.compile(
     benchmarksim=1,
     v_flags2=[
         config_file, "+define+SIM_CYCLES=" + str(test.cycles), "--hierarchical", "--stats",
-        "-Wno-UNOPTFLAT",
         (f"-DWORKERS={HIER_BLOCK_THREADS}" if test.vltmt and HIER_BLOCK_THREADS > 1 else ""),
         (f"--hierarchical-threads {HIER_THREADS}" if test.vltmt and HIER_THREADS > 1 else "")
     ],

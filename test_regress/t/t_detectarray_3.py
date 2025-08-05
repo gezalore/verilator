@@ -11,7 +11,9 @@ import vltest_bootstrap
 
 test.scenarios('simulator')
 
-test.compile(verilator_flags2=["-Wno-UNOPTFLAT -Wno-WIDTH"])
+test.compile(verilator_flags2=[
+    "-Wno-UNOPTFLAT", "-Wno-WIDTH", "-fno-dfg-break-cycles", "--dfg-synthesize", "none"
+])
 
 test.execute()
 

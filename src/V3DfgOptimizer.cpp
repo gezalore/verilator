@@ -254,7 +254,17 @@ class DataflowOptimize final {
     void optimize(DfgGraph& dfg) {
         if (dumpDfgLevel() >= 8) dfg.dumpDotFilePrefixed(m_ctx.prefix() + "whole-input");
 
-        // Delete DfgAlways vertices, there is nothing else we can do about them
+        if (v3Global.opt.dfgSynthesize().isSetTrue()) {
+            // Synthesize every DfgAlways
+            V3DfgPasses::synthesizeAlwaysAll(dfg, m_ctx);
+            if (dumpDfgLevel() >= 8) dfg.dumpDotFilePrefixed(m_ctx.prefix() + "synth");
+        } else if (!v3Global.opt.dfgSynthesize().isSetFalse()) {
+            // Synthesize those DfgAlways that are likely beneficial
+            V3DfgPasses::synthesizeAlwaysAuto(dfg, m_ctx);
+            if (dumpDfgLevel() >= 8) dfg.dumpDotFilePrefixed(m_ctx.prefix() + "synth");
+        }
+
+        // Delete remaining DfgAlways vertices, there is nothing else we can do about them
         V3DfgPasses::removeAlwaysVertices(dfg);
         if (dumpDfgLevel() >= 8) dfg.dumpDotFilePrefixed(m_ctx.prefix() + "rmalways");
 
