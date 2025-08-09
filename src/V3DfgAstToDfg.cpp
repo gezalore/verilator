@@ -1516,8 +1516,8 @@ class AstToDfgSynthesize final {
         // There should be at most 2 successors
         UASSERT_OBJ(bb.outEdges().size() <= 2, predp, "More than 2 successor for BasicBlock");
         // Get the predictes based on the condition in the the terminator statement
-        DfgVertex* takenPredp = nullptr; // Predicate for taken branch
-        DfgVertex* untknPredp = nullptr; // Predicate for untaken branch - or nullptr if goto
+        DfgVertex* takenPredp = nullptr;  // Predicate for taken branch
+        DfgVertex* untknPredp = nullptr;  // Predicate for untaken branch - or nullptr if goto
         std::tie(takenPredp, untknPredp) = [&]() -> std::pair<DfgVertex*, DfgVertex*> {
             // Empty block -> implicit goto
             if (bb.stmtps().empty()) return {predp, nullptr};
@@ -1560,7 +1560,9 @@ class AstToDfgSynthesize final {
         // Assign predicates to successor edges
         for (const V3GraphEdge& edge : bb.outEdges()) {
             const ControlFlowGraphEdge& cfgEdge = *edge.as<ControlFlowGraphEdge>();
-            DfgVertex* const edgePredp = cfgEdge.kind() == ControlFlowGraphEdge::Kind::ConditionFalse ? untknPredp : takenPredp;
+            DfgVertex* const edgePredp
+                = cfgEdge.kind() == ControlFlowGraphEdge::Kind::ConditionFalse ? untknPredp
+                                                                               : takenPredp;
             UASSERT_OBJ(edgePredp, takenPredp, "Missing untaken pedicate");
             // Set user pointer of edge
             const_cast<ControlFlowGraphEdge&>(cfgEdge).userp(edgePredp);
@@ -1809,7 +1811,7 @@ class AstToDfgSynthesize final {
     static std::unordered_set<const DfgVertex*> gatherSubGraph(  //
         const std::unordered_set<const DfgVertex*>& inputs,  //
         const std::unordered_set<const DfgVertex*>& outputs,  //
-        const std::unordered_set<std::pair<const DfgVertex*, const DfgVertex*>>& ignored //
+        const std::unordered_set<std::pair<const DfgVertex*, const DfgVertex*>>& ignored  //
     ) {
         // Work queue for depth first traversal starting from this vertex
         std::vector<const DfgVertex*> queue;
@@ -1869,8 +1871,7 @@ public:
             // BAD
             // static int n = 7;
 
-            if (!n)  continue;
-
+            if (!n) continue;
 
             outputs.clear();
             inputs.clear();
@@ -1893,8 +1894,6 @@ public:
                     ignored.emplace(&source, &sink);
                 });
             });
-
-
 
             const bool dumpThisOne = dumpDfgLevel() >= 9 || n == 1;
 
@@ -1924,7 +1923,6 @@ public:
 
         dfg.dumpDotFilePrefixed(gatherSubGraph(inputs, outputs, ignored), "synthesized-bug-1");
 
-
         // Normalize and coalesce all output variable drivers
         for (DfgVertexVar* const varp : oVarps) {
             AstToDfgNormalizeDrivers::apply(dfg, *varp);
@@ -1933,7 +1931,6 @@ public:
         if (dumpDfgLevel() >= 9) dfg.dumpDotFilePrefixed(ctx.prefix() + "ast2dfg-synth-norm");
 
         dfg.dumpDotFilePrefixed(gatherSubGraph(inputs, outputs, ignored), "synthesized-bug-2");
-
 
         // Remove all unused vertices
         // V3DfgPasses::removeUnused(dfg);
