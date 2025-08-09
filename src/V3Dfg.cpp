@@ -419,22 +419,20 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
 }
 
 // Dump one DfgEdge in Graphviz format
-static void dumpDotEdge(std::ostream& os, const DfgEdge& edge, const string& headlabel) {
-    os << toDotId(*edge.sourcep()) << " -> " << toDotId(*edge.sinkp());
-    if (!headlabel.empty()) os << " [headlabel=\"" << headlabel << "\"]";
+static void dumpDotEdge(std::ostream& os, const DfgEdge& edge, size_t idx) {
+    if (!edge.sourcep() || !edge.sinkp()) return;
+    const DfgVertex& sink = *edge.sinkp();
+    os << toDotId(*edge.sourcep()) << " -> " << toDotId(sink);
+    if (sink.arity() > 1 || sink.is<DfgVertexSplice>()) {
+        os << " [headlabel=\"" << sink.srcName(idx) << "\"]";
+    }
     os << '\n';
 }
 
 // Dump one DfgVertex and all of its source DfgEdges in Graphviz format
 static void dumpDotVertexAndSourceEdges(std::ostream& os, const DfgVertex& vtx) {
     dumpDotVertex(os, vtx);
-    vtx.forEachSourceEdge([&](const DfgEdge& edge, size_t idx) {  //
-        if (edge.sourcep()) {
-            string headLabel;
-            if (vtx.arity() > 1 || vtx.is<DfgVertexSplice>()) headLabel = vtx.srcName(idx);
-            dumpDotEdge(os, edge, headLabel);
-        }
-    });
+    vtx.forEachSourceEdge([&](const DfgEdge& edge, size_t idx) { dumpDotEdge(os, edge, idx); });
 }
 
 void DfgGraph::dumpDot(std::ostream& os, const string& label) const {
@@ -445,8 +443,11 @@ void DfgGraph::dumpDot(std::ostream& os, const string& label) const {
     os << "\", labelloc=t, labeljust=l]\n";
     os << "graph [rankdir=LR]\n";
 
-    // Emit all vertices
-    forEachVertex([&](const DfgVertex& vtx) { dumpDotVertexAndSourceEdges(os, vtx); });
+    // Emit all vertices and edges
+    forEachVertex([&](const DfgVertex& vtx) {
+        dumpDotVertex(os, vtx);
+        vtx.forEachSourceEdge([&](const DfgEdge& e, size_t i) { dumpDotEdge(os, e, i); });
+    });
 
     // Footer
     os << "}\n";
@@ -467,7 +468,41 @@ void DfgGraph::dumpDotFilePrefixed(const string& label) const {
     dumpDotFile(v3Global.debugFilename(filename) + ".dot", label);
 }
 
-// LCOV_EXCL_START // Debug function for developer use only
+// LCOV_EXCL_START // Debug functions for developer use only
+
+void DfgGraph::dumpDotFilePrefixed(std::unordered_set<const DfgVertex*> vtxps,
+                                   const string& label) const {
+    const std::string suffix = label.empty() ? "" : ("-" + label);
+    const std::string filename = v3Global.debugFilename(name() + suffix + ".dot");
+
+    const std::unique_ptr<std::ofstream> osp{V3File::new_ofstream(filename)};
+    std::ofstream& os = *osp;
+    if (os.fail()) v3fatal("Can't write file: " << filename);
+
+    // Header
+    os << "digraph dfg {\n";
+    os << "graph [label=\"" << name();
+    if (!label.empty()) os << "-" << label;
+    os << "\", labelloc=t, labeljust=l]\n";
+    os << "graph [rankdir=LR]\n";
+
+    // Emit all vertices and edges that invovle a vertex from 'vtxps'
+    forEachVertex([&](const DfgVertex& vtx) {
+        if (!vtxps.count(&vtx)) return;
+        dumpDotVertex(os, vtx);
+        vtx.forEachSourceEdge([&](const DfgEdge& edge, size_t i) {
+            if (!vtxps.count(edge.sourcep())) return;
+            if (!vtxps.count(edge.sinkp())) return;
+            dumpDotEdge(os, edge, i);
+        });
+    });
+
+    // Footer
+    os << "}\n";
+
+    os.close();
+}
+
 void DfgGraph::dumpDotUpstreamCone(const string& fileName, const DfgVertex& vtx,
                                    const string& name) const {
     // Open output file
@@ -501,7 +536,8 @@ void DfgGraph::dumpDotUpstreamCone(const string& fileName, const DfgVertex& vtx,
         vtxp->forEachSource([&](const DfgVertex& src) { queue.push_back(&src); });
 
         // Emit this vertex and all of its source edges
-        dumpDotVertexAndSourceEdges(*os, *vtxp);
+        dumpDotVertex(*os, *vtxp);
+        vtxp->forEachSourceEdge([&](const DfgEdge& e, size_t i) { dumpDotEdge(*os, e, i); });
     }
 
     // Footer
@@ -674,6 +710,11 @@ DfgVertexVar* DfgVertex::getResultVar() {
         // Prefer those that already have module references
         if (resp->hasModRdRefs() != varp->hasModRdRefs()) {
             if (!resp->hasModRdRefs()) resp = varp;
+            return;
+        }
+        // Prefer real variabels over temporaries
+        if (!resp->tmpForp() != !varp->tmpForp()) {
+            if (resp->tmpForp()) resp = varp;
             return;
         }
         // Prefer the earlier one in source order

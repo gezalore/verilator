@@ -754,6 +754,11 @@ public:
     // Dump graph in Graphviz format into a new automatically numbered debug file. 'label' is
     // added to the name of the graph, which is included in the file name and the output.
     void dumpDotFilePrefixed(const string& label = "") const VL_MT_DISABLED;
+    // Dump given vertices and all edges involving these vertices of graph in Graphviz format
+    // into a new automatically numbered debug file. 'label' is  added to the name of the graph,
+    // which is included in the file name and the output.
+    void dumpDotFilePrefixed(std::unordered_set<const DfgVertex*> vtxps,
+                             const string& label = "") const VL_MT_DISABLED;
     // Dump upstream (source) logic cone starting from given vertex into a file with the given
     // 'filename'. 'name' is the name of the graph, which is included in the output.
     void dumpDotUpstreamCone(const string& filename, const DfgVertex& vtx,

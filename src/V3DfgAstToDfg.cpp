@@ -1806,47 +1806,140 @@ class AstToDfgSynthesize final {
         , m_ctx{ctx}
         , m_converter{dfg, ctx.m_ast2DfgContext, m_tmpCnt} {}
 
+    static std::unordered_set<const DfgVertex*> gatherSubGraph(  //
+        const std::unordered_set<const DfgVertex*>& inputs,  //
+        const std::unordered_set<const DfgVertex*>& outputs,  //
+        const std::unordered_set<std::pair<const DfgVertex*, const DfgVertex*>>& ignored //
+    ) {
+        // Work queue for depth first traversal starting from this vertex
+        std::vector<const DfgVertex*> queue;
+
+        // Start from all input vertices
+        for (const DfgVertex* const vtxp : inputs) queue.emplace_back(vtxp);
+
+        // Set of already visited vertices
+        std::unordered_set<const DfgVertex*> visited;
+
+        // Depth first traversal
+        while (!queue.empty()) {
+            // Pop next work item
+            const DfgVertex* const vtxp = queue.back();
+            queue.pop_back();
+
+            // Mark vertex as visited, move on if already visited
+            if (!visited.insert(vtxp).second) continue;
+
+            // If we reached an outoput, move on
+            if (outputs.count(vtxp)) continue;
+
+            // Enqueue all sinks of this vertex, except those reached via ignored edges
+            vtxp->forEachSink([&](const DfgVertex& sink) {
+                if (ignored.count({vtxp, &sink})) return;
+                queue.push_back(&sink);
+            });
+        }
+
+        return visited;
+    }
+
 public:
     static void synthesize(DfgGraph& dfg, const std::vector<DfgAlways*>& vtxps,
                            V3DfgSynthesisContext& ctx) {
         // Gather the output variables of the always blocks - so we can normalzie them at the end
-        std::vector<DfgVertexVar*> varps;
-        std::unordered_set<DfgVertexVar*> unique;
+        std::vector<DfgVertexVar*> oVarps;
+        std::unordered_set<const DfgVertex*> oUnique;
+
+        AstToDfgSynthesize instance{dfg, ctx};
+
+        std::unordered_set<const DfgVertex*> outputs;
+        std::unordered_set<const DfgVertex*> inputs;
+        std::unordered_set<std::pair<const DfgVertex*, const DfgVertex*>> ignored;
+
+        // Attempt to synthesize each always block
         for (DfgAlways* const vtxp : vtxps) {
+            // OK
+            // static int n = 2;
+            // static int n = 3;
+            // static int n = 5;
+            // static int n = 6;
+
+            // This One
+            static int n = 7;
+
+            // BAD
+            // static int n = 7;
+
+            if (!n)  continue;
+
+
+            outputs.clear();
+            inputs.clear();
+            ignored.clear();
+
             vtxp->forEachSink([&](DfgVertex& sink) {
                 UASSERT_OBJ(sink.is<DfgVertexSplice>(), vtxp,
                             "Output of DfgAlways should be a splice");
                 // Sink of the splice should be the variable.
                 DfgVertexVar* const varp = sink.singleSink()->as<DfgVertexVar>();
-                if (!unique.emplace(varp).second) return;
-                varps.emplace_back(varp);
+                outputs.emplace(varp);
+                if (!oUnique.emplace(varp).second) return;
+                oVarps.emplace_back(varp);
             });
-        }
 
-        // Attempt to synthesize each always block
-        AstToDfgSynthesize instance{dfg, ctx};
-        for (DfgAlways* const vtxp : vtxps) {
-            if (!instance.synthesizeAlways(*vtxp)) {
-                ++ctx.m_nAlwaysSynthFailed;
-                continue;
+            vtxp->forEachSource([&](const DfgVertex& source) {  //
+                inputs.emplace(&source);
+                source.forEachSink([&](const DfgVertex& sink) {
+                    if (&sink == vtxp) return;
+                    ignored.emplace(&source, &sink);
+                });
+            });
+
+
+
+            const bool dumpThisOne = dumpDfgLevel() >= 9 || n == 1;
+
+            if (dumpThisOne) {
+                const auto vtxps = gatherSubGraph(inputs, outputs, ignored);
+                dfg.dumpDotFilePrefixed(vtxps, "synthesized-in");
+                vtxp->cfg().dumpDotFilePrefixed("synthesized-cfg");
             }
-            // Delete the always block and vertex, now represented in regular DFG
-            vtxp->nodep()->unlinkFrBack()->deleteTree();
-            VL_DO_DANGLING(vtxp->unlinkDelete(dfg), vtxp);
-            ++ctx.m_nAlwaysSynthesized;
+
+            const bool success = instance.synthesizeAlways(*vtxp);
+            if (success) {
+                // Delete the always block and vertex, now represented in regular DFG
+                vtxp->nodep()->unlinkFrBack()->deleteTree();
+                VL_DO_DANGLING(vtxp->unlinkDelete(dfg), vtxp);
+                --n;
+                ++ctx.m_nAlwaysSynthesized;
+            } else {
+                ++ctx.m_nAlwaysSynthFailed;
+            }
+
+            if (dumpThisOne) {
+                const auto vtxps = gatherSubGraph(inputs, outputs, ignored);
+                dfg.dumpDotFilePrefixed(vtxps, success ? "synthesized-ok" : "synthesized-no");
+            }
         }
         if (dumpDfgLevel() >= 9) dfg.dumpDotFilePrefixed(ctx.prefix() + "ast2dfg-synth-conv");
 
+        dfg.dumpDotFilePrefixed(gatherSubGraph(inputs, outputs, ignored), "synthesized-bug-1");
+
+
         // Normalize and coalesce all output variable drivers
-        for (DfgVertexVar* const varp : varps) {
+        for (DfgVertexVar* const varp : oVarps) {
             AstToDfgNormalizeDrivers::apply(dfg, *varp);
             AstToDfgCoalesceDrivers::apply(dfg, *varp, ctx.m_ast2DfgContext);
         }
         if (dumpDfgLevel() >= 9) dfg.dumpDotFilePrefixed(ctx.prefix() + "ast2dfg-synth-norm");
 
+        dfg.dumpDotFilePrefixed(gatherSubGraph(inputs, outputs, ignored), "synthesized-bug-2");
+
+
         // Remove all unused vertices
-        V3DfgPasses::removeUnused(dfg);
+        // V3DfgPasses::removeUnused(dfg);
         if (dumpDfgLevel() >= 9) dfg.dumpDotFilePrefixed(ctx.prefix() + "ast2dfg-synth-prun");
+
+        dfg.dumpDotFilePrefixed(gatherSubGraph(inputs, outputs, ignored), "synthesized-bug-3");
     }
 };
 
