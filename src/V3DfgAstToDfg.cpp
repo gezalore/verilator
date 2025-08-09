@@ -1515,20 +1515,22 @@ class AstToDfgSynthesize final {
         UASSERT_OBJ(predp, predp, "Missing BasicBlock predicate");
         // There should be at most 2 successors
         UASSERT_OBJ(bb.outEdges().size() <= 2, predp, "More than 2 successor for BasicBlock");
-        // Get the predicate if the terminator statement is a "taken branch" (or implicit "goto")
-        DfgVertex* const takenPredp = [&]() -> DfgVertex* {
+        // Get the predictes based on the condition in the the terminator statement
+        DfgVertex* takenPredp = nullptr; // Predicate for taken branch
+        DfgVertex* untknPredp = nullptr; // Predicate for untaken branch - or nullptr if goto
+        std::tie(takenPredp, untknPredp) = [&]() -> std::pair<DfgVertex*, DfgVertex*> {
             // Empty block -> implicit goto
-            if (bb.stmtps().empty()) return predp;
+            if (bb.stmtps().empty()) return {predp, nullptr};
             // Last statement in block
             AstNode* const stmtp = bb.stmtps().back();
             // Regular statements -> implicit goto
-            if (!stmtp) return predp;
-            if (VN_IS(stmtp, Assign)) return predp;
+            if (!stmtp) return {predp, nullptr};
+            if (VN_IS(stmtp, Assign)) return {predp, nullptr};
             // Branches
             if (AstIf* const ifp = VN_CAST(stmtp, If)) {
-                // Convet condition
+                // Convet condition, give up if failed
                 DfgVertex* const condp = m_converter.convert(ifp->condp());
-                if (!condp) return nullptr;
+                if (!condp) return {nullptr, nullptr};
                 FileLine* const flp = condp->fileline();
                 AstNodeDType* const bitDTypep = DfgVertex::dtypeForWidth(1);
                 DfgVertex* const truthyp = [&]() -> DfgVertex* {
@@ -1540,26 +1542,26 @@ class AstToDfgSynthesize final {
                     neqp->rhsp(condp);
                     return neqp;
                 }();
-                // New predicate is 'predp & truthyp'
-                DfgAnd* const andp = new DfgAnd{m_dfg, flp, bitDTypep};
-                andp->lhsp(predp);
-                andp->rhsp(truthyp);
-                return andp;
+                // New predicats are 'predp & truthyp' and 'predp & ~truthyp'
+                DfgAnd* const takenp = new DfgAnd{m_dfg, flp, bitDTypep};
+                takenp->lhsp(predp);
+                takenp->rhsp(truthyp);
+                DfgNot* const falsyp = new DfgNot{m_dfg, flp, bitDTypep};
+                falsyp->srcp(truthyp);
+                DfgAnd* const untknp = new DfgAnd{m_dfg, flp, bitDTypep};
+                untknp->lhsp(predp);
+                untknp->rhsp(falsyp);
+                return {takenp, untknp};
             }
             // Unhandled
-            return nullptr;
+            return {nullptr, nullptr};
         }();
         if (!takenPredp) return false;
         // Assign predicates to successor edges
         for (const V3GraphEdge& edge : bb.outEdges()) {
             const ControlFlowGraphEdge& cfgEdge = *edge.as<ControlFlowGraphEdge>();
-            DfgVertex* edgePredp = takenPredp;
-            // If it's a not taken edge, invert the predicate
-            if (cfgEdge.kind() == ControlFlowGraphEdge::Kind::ConditionFalse) {
-                DfgNot* const notp = new DfgNot{m_dfg, edgePredp->fileline(), edgePredp->dtypep()};
-                notp->srcp(edgePredp);
-                edgePredp = notp;
-            }
+            DfgVertex* const edgePredp = cfgEdge.kind() == ControlFlowGraphEdge::Kind::ConditionFalse ? untknPredp : takenPredp;
+            UASSERT_OBJ(edgePredp, takenPredp, "Missing untaken pedicate");
             // Set user pointer of edge
             const_cast<ControlFlowGraphEdge&>(cfgEdge).userp(edgePredp);
         }

@@ -141,6 +141,19 @@ module t (
   //end
   //`signal(CONDITONAL_E, conditional_e);
 
+  //logic condigional_f;
+  //always_comb begin
+  //  if (rand_b[0]) begin
+  //    condigional_f = 1'h1;
+  //    if (rand_b[1]) begin
+  //      condigional_f = rand_a[0];
+  //    end
+  //  end else begin
+  //    condigional_f = 1'b0;
+  //  end
+  //end
+  //`signal(CONDITONAL_F, condigional_f);
+
   //logic [7:0] partial_conditional_a;
   //always_comb begin
   //  partial_conditional_a[1:0] = 2'd0;
@@ -212,8 +225,4 @@ module t (
   //  partial_temporary_a = partial_temporary_tmp;
   //end
   //`signal(PARTIAL_TEMPORARY, partial_temporary_a);
-
-
-
-
 endmodule
