@@ -104,7 +104,7 @@ class AstToDfgVisitor final : public VNVisitor {
             if (VN_IS(vrefp, VarXRef)) return true;
             if (vrefp->access().isReadOnly()) return false;
             Variable* const varp = getTarget(VN_AS(vrefp, VarRef));
-            if (!DfgGraph::isSupported(varp)) return true;
+            if (!V3Dfg::isSupported(varp)) return true;
             if (!varp->user3SetOnce()) resp->emplace_back(getVarVertex(varp));
             return false;
         });
@@ -126,7 +126,7 @@ class AstToDfgVisitor final : public VNVisitor {
             if (VN_IS(vrefp, VarXRef)) return true;
             if (vrefp->access().isWriteOnly()) return false;
             Variable* const varp = getTarget(VN_AS(vrefp, VarRef));
-            if (!DfgGraph::isSupported(varp)) return true;
+            if (!V3Dfg::isSupported(varp)) return true;
             if (!varp->user3SetOnce()) resp->emplace_back(getVarVertex(varp));
             return false;
         });
@@ -152,7 +152,7 @@ class AstToDfgVisitor final : public VNVisitor {
         std::unique_ptr<std::vector<DfgVertexVar*>> resp{new std::vector<DfgVertexVar*>{}};
         resp->reserve(varps->size());
         for (Variable* const varp : *varps) {
-            if (!DfgGraph::isSupported(varp)) {
+            if (!V3Dfg::isSupported(varp)) {
                 ++m_ctx.m_nonRepVar;
                 return nullptr;
             }

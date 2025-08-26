@@ -230,19 +230,19 @@ inline void setOperands(DfgSel* vtxp, DfgVertex* fromp, uint32_t lsb) {
 }
 
 inline void setOperands(DfgVertexUnary* vtxp, DfgVertex* src0p) {  //
-    vtxp->relinkSource<0>(src0p);
+    vtxp->src0p(src0p);
 }
 
 inline void setOperands(DfgVertexBinary* vtxp, DfgVertex* src0p, DfgVertex* src1p) {
-    vtxp->relinkSource<0>(src0p);
-    vtxp->relinkSource<1>(src1p);
+    vtxp->src0p(src0p);
+    vtxp->src1p(src1p);
 }
 
 inline void setOperands(DfgVertexTernary* vtxp, DfgVertex* src0p, DfgVertex* src1p,
                         DfgVertex* src2p) {
-    vtxp->relinkSource<0>(src0p);
-    vtxp->relinkSource<1>(src1p);
-    vtxp->relinkSource<2>(src2p);
+    vtxp->src0p(src0p);
+    vtxp->src1p(src1p);
+    vtxp->src2p(src2p);
 }
 
 // Get or create (and insert) vertex with given operands
@@ -265,19 +265,18 @@ inline void cache(CacheSel& cache, DfgSel* vtxp) {
 }
 
 inline void cache(CacheUnary& cache, DfgVertexUnary* vtxp) {
-    DfgVertexUnary*& entrypr = getEntry(cache, vtxp->dtypep(), vtxp->source<0>());
+    DfgVertexUnary*& entrypr = getEntry(cache, vtxp->dtypep(), vtxp->src0p());
     if (!entrypr) entrypr = vtxp;
 }
 
 inline void cache(CacheBinary& cache, DfgVertexBinary* vtxp) {
-    DfgVertexBinary*& entrypr
-        = getEntry(cache, vtxp->dtypep(), vtxp->source<0>(), vtxp->source<1>());
+    DfgVertexBinary*& entrypr = getEntry(cache, vtxp->dtypep(), vtxp->src0p(), vtxp->src1p());
     if (!entrypr) entrypr = vtxp;
 }
 
 inline void cache(CacheTernary& cache, DfgVertexTernary* vtxp) {
     DfgVertexTernary*& entrypr
-        = getEntry(cache, vtxp->dtypep(), vtxp->source<0>(), vtxp->source<1>(), vtxp->source<2>());
+        = getEntry(cache, vtxp->dtypep(), vtxp->src0p(), vtxp->src1p(), vtxp->src2p());
     if (!entrypr) entrypr = vtxp;
 }
 
@@ -288,18 +287,17 @@ inline void invalidateByValue(CacheSel& cache, const DfgSel* vtxp) {
 }
 
 inline void invalidateByValue(CacheUnary& cache, const DfgVertexUnary* vtxp) {
-    const auto it = find(cache, vtxp->dtypep(), vtxp->source<0>());
+    const auto it = find(cache, vtxp->dtypep(), vtxp->src0p());
     if (it != cache.end() && it->second == vtxp) cache.erase(it);
 }
 
 inline void invalidateByValue(CacheBinary& cache, const DfgVertexBinary* vtxp) {
-    const auto it = find(cache, vtxp->dtypep(), vtxp->source<0>(), vtxp->source<1>());
+    const auto it = find(cache, vtxp->dtypep(), vtxp->src0p(), vtxp->src1p());
     if (it != cache.end() && it->second == vtxp) cache.erase(it);
 }
 
 inline void invalidateByValue(CacheTernary& cache, const DfgVertexTernary* vtxp) {
-    const auto it
-        = find(cache, vtxp->dtypep(), vtxp->source<0>(), vtxp->source<1>(), vtxp->source<2>());
+    const auto it = find(cache, vtxp->dtypep(), vtxp->src0p(), vtxp->src1p(), vtxp->src2p());
     if (it != cache.end() && it->second == vtxp) cache.erase(it);
 }
 

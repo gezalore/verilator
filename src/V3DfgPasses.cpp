@@ -84,8 +84,7 @@ void V3DfgPasses::inlineVars(DfgGraph& dfg) {
     for (DfgVertexVar& vtx : dfg.varVertices()) {
         if (DfgVarPacked* const varp = vtx.cast<DfgVarPacked>()) {
             if (varp->hasSinks() && varp->isDrivenFullyByDfg()) {
-                DfgVertex* const driverp = varp->srcp();
-                varp->forEachSinkEdge([=](DfgEdge& edge) { edge.relinkSource(driverp); });
+                varp->replaceWith(varp->srcp());
             }
         }
     }
@@ -214,10 +213,15 @@ void V3DfgPasses::binToOneHot(DfgGraph& dfg, V3DfgBinToOneHotContext& ctx) {
         if (DfgVertex* const sinkp = vtxp->singleSink()) {
             if (sinkp->is<DfgNot>()) return useOk(sinkp, !inv);
         }
-        return !vtxp->findSink<DfgCond>([vtxp, inv](const DfgCond& sink) {
-            if (sink.condp() != vtxp) return false;
-            return inv ? sink.thenp()->is<DfgCond>() : sink.elsep()->is<DfgCond>();
+        bool condTree = false;
+        vtxp->forEachSink([&](const DfgVertex& sink) {
+            if (condTree) return;
+            const DfgCond* const condp = sink.cast<DfgCond>();
+            if (!condp) return;
+            if (condp->condp() != vtxp) return;
+            condTree = inv ? condp->thenp()->is<DfgCond>() : condp->elsep()->is<DfgCond>();
         });
+        return !condTree;
     };
 
     // Look at all comparison nodes and build the 'Val2Terms' map for each source vertex
@@ -306,7 +310,7 @@ void V3DfgPasses::binToOneHot(DfgGraph& dfg, V3DfgBinToOneHotContext& ctx) {
 
         // Required data types
         AstNodeDType* const idxDTypep = srcp->dtypep();
-        AstNodeDType* const bitDTypep = DfgGraph::dtypePacked(1);
+        AstNodeDType* const bitDTypep = V3Dfg::dtypePacked(1);
         AstUnpackArrayDType* const tabDTypep = new AstUnpackArrayDType{
             flp, bitDTypep, new AstRange{flp, static_cast<int>(nBits - 1), 0}};
         v3Global.rootp()->typeTablep()->addTypesp(tabDTypep);

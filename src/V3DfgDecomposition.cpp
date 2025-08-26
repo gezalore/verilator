@@ -176,10 +176,12 @@ class ExtractCyclicComponents final {
             // that is reachable from it into this component.
             if (const uint64_t target = VertexState{vtx}.component()) visitMergeSCCs(vtx, target);
         }
+
+        // FIXME: merge default with src branch
     }
 
     // Retrieve clone of vertex in the given component
-    DfgVertexVar& getClone(DfgVertexVar& vtx, uint64_t component) {
+    DfgVertexVar* getClone(DfgVertexVar& vtx, uint64_t component) {
         UASSERT_OBJ(VertexState{vtx}.component() != component, &vtx,
                     "Vertex is in that component");
         DfgVertexVar*& clonep = m_clones[&vtx][component];
@@ -201,7 +203,7 @@ class ExtractCyclicComponents final {
             clonep->setUser<uint64_t>(component);
             clonep->tmpForp(vtx.tmpForp());
         }
-        return *clonep;
+        return clonep;
     }
 
     // Fix edges that cross components
@@ -209,25 +211,62 @@ class ExtractCyclicComponents final {
         const uint64_t component = VertexState{vtx}.component();
 
         // Fix up sources in a different component
-        vtx.forEachSourceEdge([&](DfgEdge& edge, size_t) {
-            DfgVertex* const srcp = edge.sourcep();
-            if (!srcp) return;
-            const uint64_t sourceComponent = VertexState{*srcp}.component();
-            // Same component is OK
-            if (sourceComponent == component) return;
-            // Relink the source to write the clone
-            edge.unlinkSource();
-            getClone(vtx, sourceComponent).srcp(srcp);
-        });
+        DfgVertex* const srcp = vtx.srcp();
+        DfgVertex* const defp = vtx.defaultp();
+        const uint64_t srcComponent = srcp ? VertexState{*srcp}.component(): 0;
+        const uint64_t defComponent = defp ? VertexState{*defp}.component(): 0;
+        UASSERT_OBJ(!srcp || !defp || srcComponent == defComponent,
+                    &vtx, "DfgVertexVar 'srcp' and 'defaultp' are in different components");
+        if (srcp && srcComponent != component) {
+            // Relink the srcp to write the clone
+            getClone(vtx, srcComponent)->srcp(srcp);
+            vtx.srcp(nullptr);
+        }
+        if (defp && defComponent != component) {
+            // Relink the defaultp to write the clone
+            getClone(vtx, defComponent)->defaultp(defp);
+            vtx.defaultp(nullptr);
+        }
 
         // Fix up sinks in a different component
-        vtx.forEachSinkEdge([&](DfgEdge& edge) {
-            const uint64_t sinkComponent = VertexState{*edge.sinkp()}.component();
+        std::vector<DfgVertex*> sinkps;
+        vtx.forEachSink([&](DfgVertex& sink) { sinkps.emplace_back(&sink); });
+        for (DfgVertex* const sinkp : sinkps) {
+            const uint64_t sinkComponent = VertexState{*sinkp}.component();
             // Same component is OK
-            if (sinkComponent == component) return;
-            // Relink the sink to read the clone
-            edge.relinkSource(&getClone(vtx, sinkComponent));
-        });
+            if (sinkComponent == component) continue;
+
+            DfgVertex* const clonep = getClone(vtx, sinkComponent);
+
+            if (DfgVertexVar* const p = sinkp->cast<DfgVertexVar>()) {
+                if (p->srcp() == &vtx) p->srcp(clonep);
+                if (p->defaultp() == &vtx) p->defaultp(clonep);
+                continue;
+            }
+            if (DfgVertexUnary* const p = sinkp->cast<DfgVertexUnary>()) {
+                if (p->src0p() == &vtx) p->src0p(clonep);
+                continue;
+            }
+            if (DfgVertexBinary* const p = sinkp->cast<DfgVertexBinary>()) {
+                if (p->src0p() == &vtx) p->src0p(clonep);
+                if (p->src1p() == &vtx) p->src1p(clonep);
+                continue;
+            }
+            if (DfgVertexTernary* const p = sinkp->cast<DfgVertexTernary>()) {
+                if (p->src0p() == &vtx) p->src0p(clonep);
+                if (p->src1p() == &vtx) p->src1p(clonep);
+                if (p->src2p() == &vtx) p->src2p(clonep);
+                continue;
+            }
+            if (DfgVertexVariadic* const p = sinkp->cast<DfgVertexVariadic>()) {
+                size_t n = p->srcsSize();
+                for (size_t i = 0; i < n; ++i) {
+                    if (p->srcp(i) == &vtx) p->srcp(i, clonep);
+                }
+                continue;
+            }
+            vtx.v3fatalSrc("Unknown vertex type " << vtx.typeName());  // LCOV_EXCL_LINE
+        }
     }
 
     template <typename Vertex>
@@ -246,12 +285,8 @@ class ExtractCyclicComponents final {
         // - Edges only cross components at variable boundaries
         // - Variable vertex sources are all connected.
         dfg.forEachVertex([&](DfgVertex& vtx) {
+            if (vtx.is<DfgVarPacked>()) return;
             const uint64_t component = VertexState{vtx}.component();
-            vtx.forEachSource([&](DfgVertex& src) {
-                if (src.is<DfgVertexVar>()) return;  // OK to cross at variables
-                UASSERT_OBJ(component == VertexState{src}.component(), &vtx,
-                            "Edge crossing components without variable involvement");
-            });
             vtx.forEachSink([&](DfgVertex& snk) {
                 if (snk.is<DfgVertexVar>()) return;  // OK to cross at variables
                 UASSERT_OBJ(component == VertexState{snk}.component(), &vtx,

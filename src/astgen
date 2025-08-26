@@ -87,15 +87,24 @@ class Node:
     # No more changes to the hierarchy are allowed once this was called
     def complete(self, typeId=0, ordIdx=0):
         assert not self.isCompleted
+
         # Sort sub-classes and convert to tuple, which marks completion
         self._subClasses = tuple(
-            sorted(self._subClasses, key=lambda _: (bool(_._subClasses), _.name)))  # pylint: disable=protected-access
-
+            sorted(self._subClasses, key=lambda _: (bool(_._subClasses), _.name)))
+        # Sort sub-classes and convert to tuple, which marks completion
         self._ordIdx = ordIdx
         ordIdx = ordIdx + 1
 
         if self.isRoot:
             self._arity = 0
+        elif self.name == "VertexNullary":
+            self._arity = 0
+        elif self.name == "VertexUnary":
+            self._arity = 1
+        elif self.name == "VertexBinary":
+            self._arity = 2
+        elif self.name == "VertexTernary":
+            self._arity = 3
         else:
             self._arity = max(self._arity, self._superClass.arity)
 
@@ -1169,6 +1178,9 @@ def write_dfg_macros(filename):
                                 "    ").format(**fmt).replace("\n", " \\\n"))
 
         for node in DfgVertexList:
+            if node.isRoot:
+                continue
+
             fh.write("#define ASTGEN_MEMBERS_Dfg{t} \\\n".format(t=node.name))
 
             if node.isLeaf:
@@ -1180,25 +1192,51 @@ def write_dfg_macros(filename):
                           t=node.name,
                           s=node.superClass.name)
 
-            for n in range(1, node.arity + 1):
-                name, _, _, _ = node.getOp(n)
-                emitBlock('''\
-                DfgVertex* {name}() const {{ return source<{n}>(); }}
-                void {name}(DfgVertex* vtxp) {{ relinkSource<{n}>(vtxp); }}
-                ''',
-                          name=name,
-                          n=n - 1)
+            if not node.superClass.isRoot:
+                fh.write("private: \\\n")
+                for n in range(node.arity):
+                    emitBlock('''\
+                    using Dfg{s}::src{n}p;
+                    ''',
+                              s=node.superClass.name,
+                              n=n)
+                fh.write("public: \\\n")
 
-            operandNames = tuple(node.getOp(n)[0] for n in range(1, node.arity + 1))
-            if operandNames:
+            if node.arity == 1:
+                # Exception from Ast, all unaries use "srcp"
                 emitBlock('''\
-                          const std::string srcName(size_t idx) const override {{
-                              static const char* names[{a}] = {{ {ns} }};
-                              return names[idx];
-                          }}
-                          ''',
-                          a=node.arity,
-                          ns=", ".join(map(lambda _: '"' + _ + '"', operandNames)))
+                DfgVertex* srcp() const {{ return src0p(); }}
+                void srcp(DfgVertex* vtxp) {{ src0p(vtxp); }}
+                ''')
+            else:
+                for n in range(node.arity):
+                    op = node.getOp(n + 1)
+                    if op is None:
+                        continue
+                    name, _, _, _ = op
+                    emitBlock('''\
+                    DfgVertex* {name}() const {{ return src{n}p(); }}
+                    void {name}(DfgVertex* vtxp) {{ src{n}p(vtxp); }}
+                    ''',
+                              name=name,
+                              n=n)
+
+            if node.arity > 1:
+                operandNames = []
+                for n in range(node.arity):
+                    op = node.getOp(n + 1)
+                    if op is not None:
+                        operandNames.append(op[0])
+                if operandNames:
+                    emitBlock('''\
+                              std::string srcName(size_t idx) const override final {{
+                                  static const char* names[{a}] = {{ {ns} }};
+                                  return names[idx];
+                              }}
+                              ''',
+                              a=node.arity,
+                              ns=", ".join(map(lambda _: '"' + _ + '"', operandNames)))
+
             fh.write("    static_assert(true, \"\")\n")  # Swallowing the semicolon
 
 
@@ -1215,6 +1253,8 @@ def write_dfg_auto_classes(filename):
 
             emitBlock('''\
                       class Dfg{t} final : public Dfg{s} {{
+                          bool selfEquals(const DfgVertex&) const final {{ return true; }}
+                          V3Hash selfHash() const final {{ return V3Hash{{}}; }}
                       public:
                           Dfg{t}(DfgGraph& dfg, FileLine* flp, AstNodeDType* dtypep)
                               : Dfg{s}{{dfg, dfgType(), flp, dtypep}} {{}}
@@ -1275,12 +1315,16 @@ def write_dfg_ast_to_dfg(filename):
             fh.write("        m_foundUnhandled = true;\n")
             fh.write("        ++m_ctx.m_conv.nonRepNode;\n")
             fh.write("        return;\n")
-            fh.write("    }\n\n")
-            fh.write("    m_logicp->synth().emplace_back(vtxp);")
-            for i in range(node.arity):
-                fh.write(
-                    "    vtxp->relinkSource<{i}>(nodep->op{j}p()->user2u().to<DfgVertex*>());\n".
-                    format(i=i, j=i + 1))
+            fh.write("    }\n")
+            fh.write("    m_logicp->synth().emplace_back(vtxp);\n\n")
+            if node.arity == 1:
+                fh.write("    vtxp->srcp(nodep->op1p()->user2u().to<DfgVertex*>());\n")
+            else:
+                for i in range(node.arity):
+                    name, _, _, _ = node.getOp(i + 1)
+                    fh.write(
+                        "    vtxp->{n}(nodep->op{j}p()->user2u().to<DfgVertex*>());\n".
+                        format(n=name, j=i + 1))
             fh.write("\n")
             fh.write("    nodep->user2p(vtxp);\n")
             fh.write("}\n")
@@ -1294,10 +1338,16 @@ def write_dfg_dfg_to_ast(filename):
                 continue
 
             fh.write("void visit(Dfg{t}* vtxp) override {{\n".format(t=node.name))
-            for i in range(node.arity):
+            if node.arity == 1:
                 fh.write(
-                    "    AstNodeExpr* const op{j}p = convertDfgVertexToAstNodeExpr(vtxp->source<{i}>());\n"
-                    .format(i=i, j=i + 1))
+                    "    AstNodeExpr* const op1p = convertDfgVertexToAstNodeExpr(vtxp->srcp());\n")
+
+            else:
+                for i in range(node.arity):
+                    name, _, _, _ = node.getOp(i + 1)
+                    fh.write(
+                        "    AstNodeExpr* const op{j}p = convertDfgVertexToAstNodeExpr(vtxp->{n}());\n"
+                        .format(n=name, j=i + 1))
             fh.write("    m_resultp = makeNode<Ast{t}>(vtxp".format(t=node.name))
             for i in range(node.arity):
                 fh.write(", op{j}p".format(j=i + 1))
@@ -1355,14 +1405,6 @@ check_types(AstNodeList, "Ast", "Node")
 # Set up the root DfgVertex type and some other hand-written base types.
 # These are standalone so we don't need to parse the sources for this.
 DfgVertices["Vertex"] = Node("Vertex", None)
-DfgVertices["VertexUnary"] = Node("VertexUnary", DfgVertices["Vertex"])
-DfgVertices["Vertex"].addSubClass(DfgVertices["VertexUnary"])
-DfgVertices["VertexBinary"] = Node("VertexBinary", DfgVertices["Vertex"])
-DfgVertices["Vertex"].addSubClass(DfgVertices["VertexBinary"])
-DfgVertices["VertexTernary"] = Node("VertexTernary", DfgVertices["Vertex"])
-DfgVertices["Vertex"].addSubClass(DfgVertices["VertexTernary"])
-DfgVertices["VertexVariadic"] = Node("VertexVariadic", DfgVertices["Vertex"])
-DfgVertices["Vertex"].addSubClass(DfgVertices["VertexVariadic"])
 
 # AstNodeExpr that are not representable in Dfg
 DfgIgnored = (
@@ -1424,6 +1466,7 @@ DfgIgnored = (
     "ReplicateN",
     "SubstrN",
     "ToLowerN",
+    "ToStringN",
     "ToUpperN",
     # Effectful
     "PostAdd",

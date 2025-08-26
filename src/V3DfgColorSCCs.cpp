@@ -73,8 +73,10 @@ class ColorStronglyConnectedComponents final {
                                    || m_stack.back()->getUser<VertexState>().index < rootIndex;
             // We also need a separate component for vertices that drive themselves (which can
             // happen for input like 'assign a = a'), as we want to extract them (they are cyclic).
-            const bool drivesSelf = vtx.findSink<DfgVertex>([&vtx](const DfgVertex& sink) {  //
-                return &vtx == &sink;
+            bool drivesSelf = false;
+            vtx.forEachSink([&](const DfgVertex& sink) {  //
+                if (drivesSelf) return;
+                drivesSelf = &vtx == &sink;
             });
 
             if (!isTrivial || drivesSelf) {
@@ -107,7 +109,7 @@ class ColorStronglyConnectedComponents final {
         for (DfgVertexVar& vtx : m_dfg.varVertices()) {
             VertexState& vtxState = vtx.user<VertexState>();
             // If it has no input or no outputs, it cannot be part of a non-trivial SCC.
-            if (vtx.arity() == 0 || !vtx.hasSinks()) {
+            if ((!vtx.srcp() && !vtx.defaultp()) || !vtx.hasSinks()) {
                 UDEBUGONLY(UASSERT_OBJ(vtxState.index == UNASSIGNED || vtxState.component == 0,
                                        &vtx, "Non circular variable must be in a trivial SCC"););
                 vtxState.index = 0;
