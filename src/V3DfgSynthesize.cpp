@@ -163,7 +163,7 @@ class AstToDfgConverter final : public VNVisitor {
                 }
 
                 // Create new one
-                DfgVertexVar* const newp = createTmp(m_dfg, *m_logicp, tgtp, "SynthAssign");
+                DfgVertexVar* const newp = createTmp(*m_logicp, tgtp, "SynthAssign");
                 m_updatesp->emplace_back(tgtp, newp);
 
                 // Create the Splice driver for the new temporary
@@ -396,16 +396,25 @@ class AstToDfgConverter final : public VNVisitor {
 public:
     // PUBLIC METHODS
 
+    // Create temporay variable capable of holding the given type
+    DfgVertexVar* createTmp(DfgLogic& logic, FileLine* flp, AstNodeDType* dtypep,
+                            const std::string& prefix, size_t tmpCount) {
+        const std::string name = m_dfg.makeUniqueName(prefix, tmpCount);
+        DfgVertexVar* const vtxp = m_dfg.makeNewVar(flp, name, dtypep, logic.scopep());
+        logic.synth().emplace_back(vtxp);
+        vtxp->varp()->isInternal(true);
+        return vtxp;
+    }
+
     // Create a new temporary variable capable of holding 'varp'
-    static DfgVertexVar* createTmp(DfgGraph& dfg, DfgLogic& logic, Variable* varp,
-                                   const std::string& prefix) {
+    DfgVertexVar* createTmp(DfgLogic& logic, Variable* varp, const std::string& prefix) {
         AstVar* const astVarp = T_Scoped ? reinterpret_cast<AstVarScope*>(varp)->varp()
                                          : reinterpret_cast<AstVar*>(varp);
         const std::string prfx = prefix + "_" + astVarp->name();
-        const std::string name = dfg.makeUniqueName(prfx, astVarp->user3Inc());
+        const std::string name = m_dfg.makeUniqueName(prfx, astVarp->user3Inc());
+        FileLine* const flp = astVarp->fileline();
         AstNodeDType* const dtypep = V3Dfg::toDfgDType(astVarp->dtypep());
-        AstScope* const scp = T_Scoped ? reinterpret_cast<AstVarScope*>(varp)->scopep() : nullptr;
-        DfgVertexVar* const vtxp = dfg.makeNewVar(astVarp->fileline(), name, dtypep, scp);
+        DfgVertexVar* const vtxp = m_dfg.makeNewVar(flp, name, dtypep, logic.scopep());
         logic.synth().emplace_back(vtxp);
         vtxp->varp()->isInternal(true);
         vtxp->tmpForp(varp);
@@ -511,13 +520,15 @@ class AstToDfgSynthesize final {
     DfgGraph& m_dfg;  // The graph being built
     V3DfgSynthesisContext& m_ctx;  // The context for stats
     AstToDfgConverter<T_Scoped> m_converter;  // The convert instance to use for each construct
+    size_t m_nBranchCond = 0; // Sequence numbers for temporaries
+    size_t m_nPathPred = 0; // Sequence numbers for temporaries
 
     // STATE - for current DfgLogic being synthesized
     DfgLogic* m_logicp = nullptr;  // Current logic vertex we are synthesizing
     CfgBlockMap<SymTab> m_bbToISymTab;  // Map from CfgBlock -> input symbol table
     CfgBlockMap<SymTab> m_bbToOSymTab;  // Map from CfgBlock -> output symbol table
-    CfgBlockMap<DfgVertex*> m_bbToCondp;  // Map from CfgBlock ->  terminating branch condition
-    CfgEdgeMap<DfgVertex*> m_edgeToPredicatep;  // Map CfgGraphEdge -> path predicate to get there
+    CfgBlockMap<DfgVertexVar*> m_bbToCondp;  // Map from CfgBlock ->  terminating branch condition
+    CfgEdgeMap<DfgVertexVar*> m_edgeToPredicatep;  // Map CfgGraphEdge -> path predicate to there
     CfgDominatorTree m_domTree;  // The dominator tree of the current CFG
 
     // STATE - Some debug aid
@@ -873,10 +884,8 @@ class AstToDfgSynthesize final {
     }
 
     // Join variable drivers across a control flow confluence (insert muxes ...)
-    DfgVertexVar* joinDrivers(Variable* varp, DfgVertex* predicatep,  //
+    DfgVertexVar* joinDrivers(Variable* varp, DfgVertexVar* predicatep,  //
                               DfgVertexVar* thenp, DfgVertexVar* elsep) {
-        UASSERT_OBJ(!predicatep->is<DfgConst>(), predicatep, "joinDrivers with cons predicate");
-
         AstNode* const thenVarp = thenp->tmpForp() ? thenp->tmpForp() : thenp->nodep();
         AstNode* const elseVarp = elsep->tmpForp() ? elsep->tmpForp() : elsep->nodep();
         UASSERT_OBJ(thenVarp == elseVarp, varp, "Attempting to join unrelated variables");
@@ -916,7 +925,7 @@ class AstToDfgSynthesize final {
         FileLine* const flp = predicatep->fileline();
 
         // Create a fresh temporary for the joined value
-        DfgVertexVar* const joinp = m_converter.createTmp(m_dfg, *m_logicp, varp, "SynthJoin");
+        DfgVertexVar* const joinp = m_converter.createTmp(*m_logicp, varp, "SynthJoin");
         DfgVertexSplice* const joinSplicep = make<DfgSplicePacked>(flp, joinp->dtypep());
         joinp->srcp(joinSplicep);
 
@@ -984,7 +993,7 @@ class AstToDfgSynthesize final {
     }
 
     // Merge 'thenSymTab' into 'elseSymTab' using the given predicate to join values
-    bool joinSymbolTables(SymTab& elseSymTab, DfgVertex* predicatep, const SymTab& thenSymTab) {
+    bool joinSymbolTables(SymTab& elseSymTab, DfgVertexVar* predicatep, const SymTab& thenSymTab) {
         // Give up if something is not assigned on all paths ... Latch?
         if (thenSymTab.size() != elseSymTab.size()) {
             ++m_ctx.m_synt.nonSynLatch;
@@ -1013,7 +1022,7 @@ class AstToDfgSynthesize final {
 
     // Given two joining control flow edges, compute how to join their symbols.
     // Returns the predicaete to join over, and the 'then' and 'else' blocks.
-    std::tuple<DfgVertex*, const CfgBlock*, const CfgBlock*>  //
+    std::tuple<DfgVertexVar*, const CfgBlock*, const CfgBlock*>  //
     howToJoin(const CfgEdge* const ap, const CfgEdge* const bp) {
         // Find the closest common dominator of the two paths
         const CfgBlock* const domp = m_domTree.closestCommonDominator(ap->srcp(), bp->srcp());
@@ -1080,7 +1089,7 @@ class AstToDfgSynthesize final {
 
         // We also have a simpler job if there are 2 predecessors
         if (bb.isTwoWayJoin()) {
-            DfgVertex* predicatep = nullptr;
+            DfgVertexVar* predicatep = nullptr;
             const CfgBlock* thenp = nullptr;
             const CfgBlock* elsep = nullptr;
             std::tie(predicatep, thenp, elsep)
@@ -1096,10 +1105,10 @@ class AstToDfgSynthesize final {
         // Gather predecessors
         struct Predecessor final {
             const CfgBlock* m_bbp;  // Predeccessor block
-            DfgVertex* m_predicatep;  // Predicate predecessor reached this block with
+            DfgVertexVar* m_predicatep;  // Predicate predecessor reached this block with
             const SymTab* m_oSymTabp;  // Output symbol table or predecessor
             Predecessor() = delete;
-            Predecessor(const CfgBlock* bbp, DfgVertex* predicatep, const SymTab* oSymTabp)
+            Predecessor(const CfgBlock* bbp, DfgVertexVar* predicatep, const SymTab* oSymTabp)
                 : m_bbp{bbp}
                 , m_predicatep{predicatep}
                 , m_oSymTabp{oSymTabp} {}
@@ -1110,7 +1119,7 @@ class AstToDfgSynthesize final {
             for (const V3GraphEdge& edge : bb.inEdges()) {
                 const CfgEdge& cfgEdge = static_cast<const CfgEdge&>(edge);
                 const CfgBlock* const predecessorp = cfgEdge.srcp();
-                DfgVertex* const predicatep = m_edgeToPredicatep[cfgEdge];
+                DfgVertexVar* const predicatep = m_edgeToPredicatep[cfgEdge];
                 const SymTab* const oSymTabp = &m_bbToOSymTab[predecessorp];
                 res.emplace_back(predecessorp, predicatep, oSymTabp);
             }
@@ -1126,7 +1135,7 @@ class AstToDfgSynthesize final {
         joined = *predecessors[0].m_oSymTabp;
         // Join over all other predecessors
         for (size_t i = 1; i < predecessors.size(); ++i) {
-            DfgVertex* const predicatep = predecessors[i].m_predicatep;
+            DfgVertexVar* const predicatep = predecessors[i].m_predicatep;
             const SymTab& oSymTab = *predecessors[i].m_oSymTabp;
             if (!joinSymbolTables(joined, predicatep, oSymTab)) return false;
         }
@@ -1294,23 +1303,20 @@ class AstToDfgSynthesize final {
             if (AstIf* const ifp = VN_CAST(stmtp, If)) {
                 UASSERT_OBJ(ifp == stmtps.back(), ifp, "Branch should be last statement");
                 // Convert condition, give up if failed
-                DfgVertex* const condp = m_converter.convert(*m_logicp, ifp->condp());
+                DfgVertex* condp = m_converter.convert(*m_logicp, ifp->condp());
                 if (!condp) {
                     ++m_ctx.m_synt.nonSynConv;
                     return false;
                 }
-                //
-                if (condp->width() == 1) {
-                    // Single bit condition can be use directly
-                    condpr = condp;
-                } else {
-                    // Multi bit condition: use 'condp != 0'
+                // Single bit condition can be use directly, otherwise: use 'condp != 0'
+                if (condp->width() != 1) {
                     FileLine* const flp = condp->fileline();
                     DfgNeq* const neqp = make<DfgNeq>(flp, V3Dfg::dtypePacked(1));
                     neqp->lhsp(make<DfgConst>(flp, condp->width(), 0U));
                     neqp->rhsp(condp);
-                    condpr = neqp;
+                    condp = neqp;
                 }
+                condpr = condp;
                 continue;
             }
 
@@ -1345,30 +1351,50 @@ class AstToDfgSynthesize final {
             return resp;
         }();
 
+        size_t n = m_nPathPred++; // Sequence number for temporaries
+        AstNodeDType* const dtypep = predp->dtypep();
+
+        const auto mkTmp = [&](FileLine* flp, const char* name, DfgVertex* srcp) {
+            std::string prefix;
+            prefix += "_BB";
+            prefix += std::to_string(bb.id());
+            prefix += "_";
+            prefix += name;
+            DfgVertexVar* const tmpp = m_converter.createTmp(*m_logicp, flp, dtypep, prefix, n);
+            tmpp->srcp(srcp);
+            return tmpp;
+        };
+
+        // Assign it to a variable in case it's used multiple times
+        DfgVertexVar* const pInp = mkTmp(predp->fileline(), "PathIn", predp);
+
         // For uncondional branches, the successor predicate edge is the same
         if (!bb.isBranch()) {
-            m_edgeToPredicatep[bb.takenEdgep()] = predp;
+            m_edgeToPredicatep[bb.takenEdgep()] = mkTmp(pInp->fileline(), "Goto", pInp);
             return;
         }
 
         // For branches, we need to factor in the branch condition
         DfgVertex* const condp = m_bbToCondp[bb];
         FileLine* const flp = condp->fileline();
-        AstNodeDType* const dtypep = condp->dtypep();  // Single bit
 
         // Predicate for taken branch: 'predp & condp'
-        DfgAnd* const takenPredp = make<DfgAnd>(flp, dtypep);
-        takenPredp->lhsp(predp);
-        takenPredp->rhsp(condp);
-        m_edgeToPredicatep[bb.takenEdgep()] = takenPredp;
+        {
+            DfgAnd* const takenPredp = make<DfgAnd>(flp, dtypep);
+            takenPredp->lhsp(pInp);
+            takenPredp->rhsp(condp);
+            m_edgeToPredicatep[bb.takenEdgep()] = mkTmp(flp, "Taken", takenPredp);
+        }
 
         // Predicate for untaken branch: 'predp & ~condp'
-        DfgAnd* const untknPredp = make<DfgAnd>(flp, dtypep);
-        untknPredp->lhsp(predp);
-        DfgNot* const notp = make<DfgNot>(flp, dtypep);
-        notp->srcp(condp);
-        untknPredp->rhsp(notp);
-        m_edgeToPredicatep[bb.untknEdgep()] = untknPredp;
+        {
+            DfgAnd* const untknPredp = make<DfgAnd>(flp, dtypep);
+            untknPredp->lhsp(pInp);
+            DfgNot* const notp = make<DfgNot>(flp, dtypep);
+            notp->srcp(condp);
+            untknPredp->rhsp(notp);
+            m_edgeToPredicatep[bb.untknEdgep()] = mkTmp(flp, "Untkn", untknPredp);
+        }
     }
 
     // Add the synthesized values as drivers to the output variables of the current DfgLogic
@@ -1461,13 +1487,13 @@ class AstToDfgSynthesize final {
             }
             // Initialize maps needed for non-trivial CFGs
             m_domTree = CfgDominatorTree{cfg};
-            m_edgeToPredicatep = cfg.makeEdgeMap<DfgVertex*>();
+            m_edgeToPredicatep = cfg.makeEdgeMap<DfgVertexVar*>();
         }
 
         // Initialize CfgMaps
         m_bbToISymTab = cfg.makeBlockMap<SymTab>();
         m_bbToOSymTab = cfg.makeBlockMap<SymTab>();
-        m_bbToCondp = cfg.makeBlockMap<DfgVertex*>();
+        m_bbToCondp = cfg.makeBlockMap<DfgVertexVar*>();
 
         // Synthesize all blocks
         for (const V3GraphVertex& vtx : cfg.vertices()) {
@@ -1475,11 +1501,22 @@ class AstToDfgSynthesize final {
             // Prepare the input symbol table of this block (enter, or join predecessor blocks)
             if (!createInputSymbolTable(bb)) return false;
             // Synthesize this block
-            if (!synthesizeBasicBlock(m_bbToOSymTab[bb],  //
-                                      m_bbToCondp[bb],  //
-                                      bb.stmtps(),  //
-                                      m_bbToISymTab[bb])) {
+            DfgVertex* condp = nullptr;
+            if (!synthesizeBasicBlock(m_bbToOSymTab[bb], condp, bb.stmtps(), m_bbToISymTab[bb])) {
                 return false;
+            }
+            // Create a temporary for the branch condition as it might be used multiple times
+            if (condp) {
+                FileLine* const flp = condp->fileline();
+                AstNodeDType* const dtypep = condp->dtypep();
+                std::string prefix;
+                prefix += "_BB";
+                prefix += std::to_string(bb.id());
+                prefix += "_Cond";
+                const size_t n = m_nBranchCond++;
+                DfgVertexVar* const vp = m_converter.createTmp(*m_logicp, flp, dtypep, prefix, n);
+                vp->srcp(condp);
+                m_bbToCondp[bb] = vp;
             }
             // Set the path predicates on the successor edges
             assignPathPredicates(bb);
@@ -1699,6 +1736,14 @@ class AstToDfgSynthesize final {
         UINFO(5, "Step 6: Remove all unused vertices");
         V3DfgPasses::removeUnused(m_dfg);
         debugDump("synth-rmunused");
+
+        // No operation vertex should have multiple sinks. Cyclic decomoposition
+        // depends on this and it can easily be ensured by using temporaries
+        if (v3Global.opt.debugCheck()) {
+            for (DfgVertex& vtx: m_dfg.opVertices()) {
+                UASSERT_OBJ(!vtx.hasMultipleSinks(), &vtx, "Operation has multiple sinks");
+            }
+        }
     }
 
     // CONSTRUCTOR

@@ -502,6 +502,7 @@ public:
 class DfgLogic final : public DfgVertexVariadic {
     // Generic vertex representing a whole combinational process
     AstNode* const m_nodep;  // The Ast logic represented by this vertex
+    AstScope* const m_scopep;  // The AstScope m_nodep is under, iff scoped
     const std::unique_ptr<CfgGraph> m_cfgp;
     // Vertices this logic was synthesized into. Excluding variables
     std::vector<DfgVertex*> m_synth;
@@ -511,14 +512,16 @@ class DfgLogic final : public DfgVertexVariadic {
     V3Hash selfHash() const final { V3ERROR_NA_RETURN(V3Hash{}); }
 
 public:
-    DfgLogic(DfgGraph& dfg, AstAssignW* nodep)
+    DfgLogic(DfgGraph& dfg, AstAssignW* nodep, AstScope* scopep)
         : DfgVertexVariadic{dfg, dfgType(), nodep->fileline(), nullptr}
         , m_nodep{nodep}
+        , m_scopep{scopep}
         , m_cfgp{nullptr} {}
 
-    DfgLogic(DfgGraph& dfg, AstAlways* nodep, std::unique_ptr<CfgGraph> cfgp)
+    DfgLogic(DfgGraph& dfg, AstAlways* nodep, AstScope* scopep, std::unique_ptr<CfgGraph> cfgp)
         : DfgVertexVariadic{dfg, dfgType(), nodep->fileline(), nullptr}
         , m_nodep{nodep}
+        , m_scopep{scopep}
         , m_cfgp{std::move(cfgp)} {}
 
     ASTGEN_MEMBERS_DfgLogic;
@@ -526,6 +529,7 @@ public:
     void addInput(DfgVertexVar* varp) { addSource()->relinkSource(varp); }
 
     AstNode* nodep() const { return m_nodep; }
+    AstScope* scopep() const { return m_scopep; }
     CfgGraph& cfg() { return *m_cfgp; }
     const CfgGraph& cfg() const { return *m_cfgp; }
     std::vector<DfgVertex*>& synth() { return m_synth; }

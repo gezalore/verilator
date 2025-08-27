@@ -46,6 +46,7 @@ class AstToDfgVisitor final : public VNVisitor {
     // STATE
     DfgGraph& m_dfg;  // The graph being built
     V3DfgAstToDfgContext& m_ctx;  // The context for stats
+    AstScope* m_scopep = nullptr; // The current scope, iff T_Scoped
 
     // METHODS
     static Variable* getTarget(const AstVarRef* refp) {
@@ -188,7 +189,7 @@ class AstToDfgVisitor final : public VNVisitor {
         const std::unique_ptr<std::vector<DfgVertexVar*>> iVarpsp = gatherRead(nodep);
         if (!iVarpsp) return false;
         // Create the DfgLogic
-        DfgLogic* const logicp = new DfgLogic{m_dfg, nodep};
+        DfgLogic* const logicp = new DfgLogic{m_dfg, nodep, m_scopep};
         // Connect it up
         connect(*logicp, *iVarpsp, *oVarpsp);
         // Done
@@ -218,7 +219,7 @@ class AstToDfgVisitor final : public VNVisitor {
         const std::unique_ptr<std::vector<DfgVertexVar*>> iVarpsp = gatherLive(*cfgp);
         if (!iVarpsp) return false;
         // Create the DfgLogic
-        DfgLogic* const logicp = new DfgLogic{m_dfg, nodep, std::move(cfgp)};
+        DfgLogic* const logicp = new DfgLogic{m_dfg, nodep, m_scopep, std::move(cfgp)};
         // Connect it up
         connect(*logicp, *iVarpsp, *oVarpsp);
         // Done
@@ -234,7 +235,11 @@ class AstToDfgVisitor final : public VNVisitor {
     void visit(AstNetlist* nodep) override { iterateAndNextNull(nodep->modulesp()); }
     void visit(AstModule* nodep) override { iterateAndNextNull(nodep->stmtsp()); }
     void visit(AstTopScope* nodep) override { iterate(nodep->scopep()); }
-    void visit(AstScope* nodep) override { iterateChildren(nodep); }
+    void visit(AstScope* nodep) override {
+        VL_RESTORER(m_scopep);
+        m_scopep = nodep;
+        iterateChildren(nodep);
+    }
     void visit(AstActive* nodep) override {
         if (nodep->hasCombo()) {
             iterateChildren(nodep);
