@@ -155,7 +155,7 @@ protected:
     }
     DfgVertexVar(DfgGraph& dfg, VDfgType type, AstVarScope* vscp)
         : DfgVertexVar{dfg, type, vscp->varp(), vscp} {
-                    // Increment reference count
+        // Increment reference count
         vscp->user1(vscp->user1() + 0x10);
         UASSERT_OBJ((vscp->user1() >> 4) > 0, vscp, "Reference count overflow");
     }
@@ -189,7 +189,7 @@ public:
         } else {
             m_srcs[1].unlinkSource();
         }
-     }
+    }
 
     // The Ast variable this vertex representess
     AstVar* varp() const { return m_varp; }
@@ -240,7 +240,7 @@ public:
         return false;
     }
 
-    std::string srcName(size_t idx) const override final { return idx ? "defaultp" : "srcp" ; }
+    std::string srcName(size_t idx) const override final { return idx ? "defaultp" : "srcp"; }
 };
 class DfgVertexVariadic VL_NOT_FINAL : public DfgVertex {
     std::deque<DfgEdge> m_srcs{};
@@ -381,7 +381,6 @@ public:
 
     std::string srcName(size_t idx) const override { return idx ? "lsbp" : "fromp"; }
 };
-
 
 // === DfgVertexNullary ===
 class DfgConst final : public DfgVertexNullary {

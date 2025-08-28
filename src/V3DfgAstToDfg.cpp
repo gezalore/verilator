@@ -46,7 +46,7 @@ class AstToDfgVisitor final : public VNVisitor {
     // STATE
     DfgGraph& m_dfg;  // The graph being built
     V3DfgAstToDfgContext& m_ctx;  // The context for stats
-    AstScope* m_scopep = nullptr; // The current scope, iff T_Scoped
+    AstScope* m_scopep = nullptr;  // The current scope, iff T_Scoped
 
     // METHODS
     static Variable* getTarget(const AstVarRef* refp) {

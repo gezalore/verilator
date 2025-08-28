@@ -68,7 +68,7 @@ class TraceDriver final : public DfgVisitor {
     const bool m_aggressive;  // Trace aggressively, creating intermediate ops
     uint32_t m_lsb = 0;  // LSB to extract from the currently visited Vertex
     uint32_t m_msb = 0;  // MSB to extract from the currently visited Vertex
-    DfgVertex* m_defaultp = nullptr; // When tracing a variable, this is its 'defaultp', if any
+    DfgVertex* m_defaultp = nullptr;  // When tracing a variable, this is its 'defaultp', if any
     // Result of tracing the currently visited Vertex. Use SET_RESULT below!
     DfgVertex* m_resp = nullptr;
     std::vector<DfgVertex*> m_newVtxps;  // New vertices created during the traversal

@@ -209,7 +209,9 @@ class V3DfgPeephole final : public DfgVisitor {
     DfgConst* makeI32(FileLine* flp, uint32_t val) { return new DfgConst{m_dfg, flp, 32, val}; }
 
     // Create a DfgConst vertex with the given width and value zero
-    DfgConst* makeZero(FileLine* flp, uint32_t width) { return new DfgConst{m_dfg, flp, width, 0}; }
+    DfgConst* makeZero(FileLine* flp, uint32_t width) {
+        return new DfgConst{m_dfg, flp, width, 0};
+    }
 
     // Create a new vertex of the given type
     template <typename Vertex, typename... Operands>

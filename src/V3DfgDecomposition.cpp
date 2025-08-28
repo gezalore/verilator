@@ -172,7 +172,7 @@ class ExtractCyclicComponents final {
         // holds because no operation vertex can have multiple sinks at this
         // point (constants have no inputs, so theyare not in an SCC).
         if (m_doExpensiveChecks) {
-            for (DfgVertex& vtx: m_dfg.opVertices()) {
+            for (DfgVertex& vtx : m_dfg.opVertices()) {
                 UASSERT_OBJ(!vtx.hasMultipleSinks(), &vtx, "Operation has multiple sinks");
             }
         }

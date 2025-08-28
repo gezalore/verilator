@@ -91,7 +91,8 @@ test.file_grep(test.obj_dir + "/obj_opt/Vopt__stats.txt",
                r'DFG pre inline Synthesis, synt / always blocks synthesized\s+(\d+)$',
                nAlwaysSynthesized + nAlwaysReverted)
 test.file_grep(test.obj_dir + "/obj_opt/Vopt__stats.txt",
-               r'DFG pre inline Synthesis, synt / reverted \(multidrive\)\s+(\d)$', nAlwaysReverted)
+               r'DFG pre inline Synthesis, synt / reverted \(multidrive\)\s+(\d)$',
+               nAlwaysReverted)
 
 # Execute test to check equivalence
 test.execute(executable=test.obj_dir + "/obj_opt/Vopt")

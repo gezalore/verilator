@@ -1322,9 +1322,8 @@ def write_dfg_ast_to_dfg(filename):
             else:
                 for i in range(node.arity):
                     name, _, _, _ = node.getOp(i + 1)
-                    fh.write(
-                        "    vtxp->{n}(nodep->op{j}p()->user2u().to<DfgVertex*>());\n".
-                        format(n=name, j=i + 1))
+                    fh.write("    vtxp->{n}(nodep->op{j}p()->user2u().to<DfgVertex*>());\n".format(
+                        n=name, j=i + 1))
             fh.write("\n")
             fh.write("    nodep->user2p(vtxp);\n")
             fh.write("}\n")

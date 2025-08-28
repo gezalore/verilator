@@ -100,7 +100,7 @@ class DfgToAstVisitor final : DfgVisitor {
     V3DfgDfgToAstContext& m_ctx;  // The context for stats
     AstNodeExpr* m_resultp = nullptr;  // The result node of the current traversal
     AstAlways* m_alwaysp = nullptr;  // Process to add assignments to, if have a default driver
-    Container* m_containerp = nullptr; // The AstNodeModule or AstScope to insert assignments into
+    Container* m_containerp = nullptr;  // The AstNodeModule or AstScope to insert assignments into
 
     // METHODS
 
@@ -272,7 +272,6 @@ class DfgToAstVisitor final : DfgVisitor {
             // Render variable assignments
             FileLine* const flp = vtx.driverFileLine() ? vtx.driverFileLine() : vtx.fileline();
             AstVarRef* const lhsp = new AstVarRef{flp, getNode(&vtx), VAccess::WRITE};
-
 
             VL_RESTORER(m_containerp);
             if VL_CONSTEXPR_CXX17 (T_Scoped) {

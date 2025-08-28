@@ -656,7 +656,8 @@ void DfgVertex::forEachSource(std::function<void(DfgVertex&)> f) {
     }
     if (DfgVertexVariadic* const thisp = cast<DfgVertexVariadic>()) {
         size_t n = thisp->srcsSize();
-        for (size_t i = 0; i < n; ++i) if (thisp->srcp(i)) f(*thisp->srcp(i));
+        for (size_t i = 0; i < n; ++i)
+            if (thisp->srcp(i)) f(*thisp->srcp(i));
         return;
     }
     v3fatalSrc("Unknown vertex type " << typeName());  // LCOV_EXCL_LINE
@@ -686,7 +687,8 @@ void DfgVertex::forEachSource(std::function<void(const DfgVertex&)> f) const {
     }
     if (const DfgVertexVariadic* const thisp = cast<DfgVertexVariadic>()) {
         size_t n = thisp->srcsSize();
-        for (size_t i = 0; i < n; ++i) if (thisp->srcp(i)) f(*thisp->srcp(i));
+        for (size_t i = 0; i < n; ++i)
+            if (thisp->srcp(i)) f(*thisp->srcp(i));
         return;
     }
     v3fatalSrc("Unknown vertex type " << typeName());  // LCOV_EXCL_LINE

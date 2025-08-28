@@ -526,7 +526,8 @@ void DfgGraph::dumpDot(std::ostream& os, const std::string& label,
         }
         if (const DfgVertexVariadic* const currp = vtx.cast<DfgVertexVariadic>()) {
             size_t n = currp->srcsSize();
-            for (size_t i = 0; i < n; ++i) if (currp->srcp(i)) dumpDotEdge(currp->srcp(i), i);
+            for (size_t i = 0; i < n; ++i)
+                if (currp->srcp(i)) dumpDotEdge(currp->srcp(i), i);
             return;
         }
         vtx.v3fatalSrc("Unknown vertex type " << vtx.typeName());  // LCOV_EXCL_LINE

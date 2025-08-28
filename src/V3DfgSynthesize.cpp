@@ -77,7 +77,7 @@ class AstToDfgConverter final : public VNVisitor {
     bool m_foundUnhandled = false;  // Found node not implemented as DFG or not implemented 'visit'
     bool m_converting = false;  // We are trying to convert some logic at the moment
 
-    size_t m_nUnpack = 0; // Sequence numbers for temporaries
+    size_t m_nUnpack = 0;  // Sequence numbers for temporaries
 
     // METHODS
     static Variable* getTarget(const AstVarRef* refp) {
@@ -532,8 +532,8 @@ class AstToDfgSynthesize final {
     DfgGraph& m_dfg;  // The graph being built
     V3DfgSynthesisContext& m_ctx;  // The context for stats
     AstToDfgConverter<T_Scoped> m_converter;  // The convert instance to use for each construct
-    size_t m_nBranchCond = 0; // Sequence numbers for temporaries
-    size_t m_nPathPred = 0; // Sequence numbers for temporaries
+    size_t m_nBranchCond = 0;  // Sequence numbers for temporaries
+    size_t m_nPathPred = 0;  // Sequence numbers for temporaries
 
     // STATE - for current DfgLogic being synthesized
     DfgLogic* m_logicp = nullptr;  // Current logic vertex we are synthesizing
@@ -924,7 +924,7 @@ class AstToDfgSynthesize final {
 
         // Gather drivers of 'thenp' - only if 'thenp' is not an input to the synthesized block
         DfgVertex* const tDefaultp = thenp->defaultp();
-        std::vector<Driver> tDrivers  = gatherDrivers(thenp->srcp()->as<DfgVertexSplice>());
+        std::vector<Driver> tDrivers = gatherDrivers(thenp->srcp()->as<DfgVertexSplice>());
 
         // Gather drivers of 'elsep' - only if 'thenp' is not an input to the synthesized block
         DfgVertex* const eDefaultp = elsep->defaultp();
@@ -1155,7 +1155,8 @@ class AstToDfgSynthesize final {
         return true;
     }
 
-    std::vector<Driver> computePropagatedDrivers(const std::vector<Driver>& newDrivers, DfgVertexVar* oldp) {
+    std::vector<Driver> computePropagatedDrivers(const std::vector<Driver>& newDrivers,
+                                                 DfgVertexVar* oldp) {
         // Gather drivers of 'oldp' - they are in incresing range order with no overlaps
         std::vector<Driver> oldDrivers = gatherDrivers(oldp->srcp()->as<DfgVertexSplice>());
         UASSERT_OBJ(!oldDrivers.empty(), oldp, "Should have a proper driver");
@@ -1373,7 +1374,7 @@ class AstToDfgSynthesize final {
             return resp;
         }();
 
-        size_t n = m_nPathPred++; // Sequence number for temporaries
+        size_t n = m_nPathPred++;  // Sequence number for temporaries
         AstNodeDType* const dtypep = predp->dtypep();
 
         const auto mkTmp = [&](FileLine* flp, const char* name, DfgVertex* srcp) {
@@ -1785,7 +1786,7 @@ class AstToDfgSynthesize final {
         // No operation vertex should have multiple sinks. Cyclic decomoposition
         // depends on this and it can easily be ensured by using temporaries
         if (v3Global.opt.debugCheck()) {
-            for (DfgVertex& vtx: m_dfg.opVertices()) {
+            for (DfgVertex& vtx : m_dfg.opVertices()) {
                 UASSERT_OBJ(!vtx.hasMultipleSinks(), &vtx, "Operation has multiple sinks");
             }
         }
