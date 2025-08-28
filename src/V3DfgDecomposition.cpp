@@ -245,12 +245,23 @@ class ExtractCyclicComponents final {
     void fixEdges(DfgVertexVar& vtx) {
         const uint64_t component = VertexState{vtx}.component();
 
-        // We made sure sources are the same component
-        UASSERT_OBJ(!vtx.srcp() || VertexState{*vtx.srcp()}.component() == component,
-                    &vtx, "'srcp' in different componetn");
-        UASSERT_OBJ(!vtx.defaultp() || VertexState{*vtx.defaultp()}.component() == component,
-                    &vtx, "'srcp' in different componetn");
-
+        // Fix up srcp and dstp (they must be the same component, or variable)
+        if (DfgVertex* const sp = vtx.srcp()) {
+            const uint64_t srcComponent = VertexState{*sp}.component();
+            if (srcComponent != component) {
+                UASSERT_OBJ(sp->is<DfgVertexVar>(), &vtx, "'srcp' in different component");
+                getClone(vtx, srcComponent)->srcp(sp);
+                vtx.srcp(nullptr);
+            }
+        }
+        if (DfgVertex* const dp = vtx.defaultp()) {
+            const uint64_t defaultComponent = VertexState{*dp}.component();
+            if (defaultComponent != component) {
+                UASSERT_OBJ(dp->is<DfgVertexVar>(), &vtx, "'defaultp' in different component");
+                getClone(vtx, defaultComponent)->defaultp(dp);
+                vtx.defaultp(nullptr);
+            }
+        }
         // Fix up sinks in a different component to read the clone
         std::vector<DfgVertex*> sinkps;
         vtx.forEachSink([&](DfgVertex& sink) { sinkps.emplace_back(&sink); });

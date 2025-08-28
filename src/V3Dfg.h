@@ -640,18 +640,18 @@ void DfgVertex::forEachSource(std::function<void(DfgVertex&)> f) {
     }
     if (is<DfgVertexNullary>()) return;
     if (DfgVertexUnary* const thisp = cast<DfgVertexUnary>()) {
-        f(*thisp->src0p());
+        if (thisp->src0p()) f(*thisp->src0p());
         return;
     }
     if (DfgVertexBinary* const thisp = cast<DfgVertexBinary>()) {
-        f(*thisp->src0p());
-        f(*thisp->src1p());
+        if (thisp->src0p()) f(*thisp->src0p());
+        if (thisp->src1p()) f(*thisp->src1p());
         return;
     }
     if (DfgVertexTernary* const thisp = cast<DfgVertexTernary>()) {
-        f(*thisp->src0p());
-        f(*thisp->src1p());
-        f(*thisp->src2p());
+        if (thisp->src0p()) f(*thisp->src0p());
+        if (thisp->src1p()) f(*thisp->src1p());
+        if (thisp->src2p()) f(*thisp->src2p());
         return;
     }
     if (DfgVertexVariadic* const thisp = cast<DfgVertexVariadic>()) {
