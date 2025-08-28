@@ -77,6 +77,8 @@ class AstToDfgConverter final : public VNVisitor {
     bool m_foundUnhandled = false;  // Found node not implemented as DFG or not implemented 'visit'
     bool m_converting = false;  // We are trying to convert some logic at the moment
 
+    size_t m_nUnpack = 0; // Sequence numbers for temporaries
+
     // METHODS
     static Variable* getTarget(const AstVarRef* refp) {
         // TODO: remove the useless reinterpret_casts when C++17 'if constexpr' actually works
@@ -267,15 +269,24 @@ class AstToDfgConverter final : public VNVisitor {
                 , m_rhsp{rhsp} {}
         };
 
+        // Simplify the LHS, to get rid of things like SEL(CONCAT(_, _), _)
+        lhsp = VN_AS(V3Const::constifyExpensiveEdit(lhsp), NodeExpr);
+
+        // Assigning compound expressions to a concatenated LHS requires a temporary
+        // to avoid multiple use of the expression
+        if (VN_IS(lhsp, Concat) && !vtxp->is<DfgVertexVar>() && !vtxp->is<DfgConst>()) {
+            const size_t n = ++m_nUnpack;
+            DfgVertexVar* const tmpp = createTmp(*m_logicp, flp, vtxp->dtypep(), "Unpack", n);
+            tmpp->srcp(vtxp);
+            vtxp = tmpp;
+        }
+
         // Convert each concatenation LHS separately, gather all assignments
         // we need to do into 'assignments', return true if all LValues
         // converted successfully.
         std::vector<Assignment> assignments;
         const std::function<bool(AstNodeExpr*, uint32_t)> convertAllLValues
             = [&](AstNodeExpr* subp, uint32_t lsb) -> bool {
-            // Simplify the LHS, to get rid of things like SEL(CONCAT(_, _), _)
-            subp = VN_AS(V3Const::constifyExpensiveEdit(subp), NodeExpr);
-
             // Concatenation on the LHS, convert each part
             if (AstConcat* const concatp = VN_CAST(subp, Concat)) {
                 AstNodeExpr* const cRhsp = concatp->rhsp();
