@@ -72,6 +72,11 @@ void V3DfgPasses::typeCheck(const DfgGraph& dfg) {
             CHECK(v.srcp()->dtype() == v.dtype().elemDtype(), "Input should be the element type");
             return;
         }
+        case VDfgType::Rd: {
+            CHECK(vtx.inputp(0)->dtype() == vtx.dtype(), "Input should be same type");
+            return;
+        }
+
         case VDfgType::Sel: {
             const DfgSel& v = *vtx.as<DfgSel>();
             CHECK(v.isPacked(), "Should be Packed type");

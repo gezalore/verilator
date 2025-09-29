@@ -182,6 +182,41 @@ public:
 };
 
 //------------------------------------------------------------------------------
+// Ast vertices - represent variable references in code not represented in Dfg
+
+class DfgVertexAst final : public DfgVertexUnary {
+    // Vertex repreresenting the consuption of a value in a part of the
+    // module/netlist not direclty represented in Dfg.
+    AstVarRef* const m_exprp; // The RValue reference consuming the value
+
+public:
+    DfgRd(DfgGraph& dfg, AstVarRef* exprp)
+        : DfgVertexUnary{dfg, dfgType(), exprp->fileline(), *DfgDataType::fromAst(exprp->dtypep())}
+        , m_exprp{exprp} {
+    }
+    ASTGEN_MEMBERS_DfgRd;
+    // FIXME: maybe call it DfgAstRd
+    AstVarRef* exprp() const { return m_exprp; }
+};
+
+
+class DfgRd final : public DfgVertexUnary {
+    // Vertex repreresenting the consuption of a value in a part of the
+    // module/netlist not direclty represented in Dfg.
+    AstVarRef* const m_exprp; // The RValue reference consuming the value
+
+public:
+    DfgRd(DfgGraph& dfg, AstVarRef* exprp)
+        : DfgVertexUnary{dfg, dfgType(), exprp->fileline(), *DfgDataType::fromAst(exprp->dtypep())}
+        , m_exprp{exprp} {
+    }
+    ASTGEN_MEMBERS_DfgRd;
+    // FIXME: maybe call it DfgAstRd
+    AstVarRef* exprp() const { return m_exprp; }
+};
+
+
+//------------------------------------------------------------------------------
 // Nullary vertices - 0 inputs
 
 class DfgVertexNullary VL_NOT_FINAL : public DfgVertex {

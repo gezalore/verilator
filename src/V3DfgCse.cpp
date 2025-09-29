@@ -52,7 +52,9 @@ class V3DfgCse final {
         // Special vertices
         case VDfgType::Const:
         case VDfgType::VarArray:
-        case VDfgType::VarPacked: vtx.v3fatalSrc("Hash should have been pre-computed");
+        case VDfgType::VarPacked:
+        case VDfgType::Rd:
+            vtx.v3fatalSrc("Hash should have been pre-computed");
 
         // Vertices with internal information
         case VDfgType::Sel: return V3Hash{vtx.as<DfgSel>()->lsb()};
@@ -164,6 +166,9 @@ class V3DfgCse final {
         case VDfgType::VarArray:
         case VDfgType::VarPacked:
             return false;  // CSE does not combine variables
+
+        case VDfgType::Rd:
+            return false; // Can't combine Ast reads
 
         // Vertices with internal information
         case VDfgType::Sel: return a.as<DfgSel>()->lsb() == b.as<DfgSel>()->lsb();

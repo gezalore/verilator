@@ -72,9 +72,15 @@ class AstToDfgVisitor final : public VNVisitor {
     }
 
     // Mark variables referenced under node
-    static void markReferenced(const AstNode* nodep) {
-        nodep->foreach([](const AstVarRef* refp) {
+    void markReferenced(AstNode* nodep) {
+        nodep->foreach([&](AstVarRef* refp) {
             Variable* const tgtp = getTarget(refp);
+
+            if (refp->access().isReadOrRW()) {
+                DfgRd* const rdp = new DfgRd{m_dfg, refp};
+                rdp->srcp(getVarVertex(tgtp));
+            }
+
             // Mark as read from non-DFG logic
             if (refp->access().isReadOrRW()) DfgVertexVar::setHasModRdRefs(tgtp);
             // Mark as written from non-DFG logic

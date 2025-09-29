@@ -49,6 +49,7 @@ void V3DfgPasses::removeUnused(DfgGraph& dfg) {
     // Add all unused operation vertices to the work list
     for (DfgVertex& vtx : dfg.opVertices()) {
         if (vtx.hasSinks()) continue;
+        if (vtx.is<DfgRd>()) continue;
         // This vertex is unused. Add to work list.
         workList.push_front(vtx);
     }

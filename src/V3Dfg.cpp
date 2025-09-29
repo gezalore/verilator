@@ -392,6 +392,23 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         return;
     }
 
+    if (const DfgModRd* modRdp = vtx.cast<DfgModRd>()) {
+        os << toDotId(vtx);
+        std::stringstream ss;
+        V3EmitV::debugVerilogForTree(modRdp->exprp(), ss);
+        std::string str = ss.str();
+        str = VString::quoteBackslash(str);
+        str = VString::quoteAny(str, '"', '\\');
+        str = VString::replaceSubstr(str, "\n", "\\l");
+        os << " [label=\"" << vtx.typeName() << '\n';
+        os << str;
+        os << "\\n" << cvtToHex(&vtx);
+        os << "\"\n";
+        os << ", shape=house, orientation=90, style=filled, fillcolor=darkorange1, nojustify=true";
+        os << "]\n";
+        return;
+    }
+
     os << toDotId(vtx);
     os << " [label=\"" << vtx.typeName() << '\n';
     os << cvtToHex(&vtx) << '\n';
