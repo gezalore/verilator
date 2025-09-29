@@ -55,26 +55,22 @@ class LinkIncVisitor final : public VNVisitor {
     // STATE
     AstNodeFTask* m_ftaskp = nullptr;  // Function or task we're inside
     AstNodeModule* m_modp = nullptr;  // Module we're inside
-    int m_modIncrementsNum = 0;  // Var name counter
+    size_t m_tmpNameCnt = 0;  // Var name counter
     AstNode* m_insStmtp = nullptr;  // Where to insert statement
     bool m_unsupportedHere = false;  // Used to detect where it's not supported yet
 
     // METHODS
-    void insertOnTop(AstNode* newp) {
+    void insertOnTop(AstVar* newp) {
         // Add the thing directly under the current TFunc/Module
-        AstNode* stmtsp = nullptr;
         if (m_ftaskp) {
-            stmtsp = m_ftaskp->stmtsp();
-        } else if (m_modp) {
-            stmtsp = m_modp->stmtsp();
+            m_ftaskp->stmtsp()->addHereThisAsNext(newp);
+            return;
         }
-        UASSERT_OBJ(stmtsp, newp, "Variable not under FTASK/MODULE");
-        newp->addNext(stmtsp->unlinkFrBackWithNext());
-        if (m_ftaskp) {
-            m_ftaskp->addStmtsp(newp);
-        } else if (m_modp) {
-            m_modp->addStmtsp(newp);
+        if (m_modp) {
+            m_modp->stmtsp()->addHereThisAsNext(newp);
+            return;
         }
+        newp->v3fatalSrc("Variable not under FTASK/MODULE");
     }
     void insertBeforeStmt(AstNode* nodep, AstNode* newp) {
         // Return node that must be visited, if any
@@ -87,9 +83,9 @@ class LinkIncVisitor final : public VNVisitor {
     void visit(AstNodeModule* nodep) override {
         if (nodep->dead()) return;
         VL_RESTORER(m_modp);
-        VL_RESTORER(m_modIncrementsNum);
+        VL_RESTORER(m_tmpNameCnt);
         m_modp = nodep;
-        m_modIncrementsNum = 0;
+        m_tmpNameCnt = 0;
         iterateChildren(nodep);
     }
     void visit(AstNodeFTask* nodep) override {
@@ -175,16 +171,9 @@ class LinkIncVisitor final : public VNVisitor {
     }
     void visit(AstStmtExpr* nodep) override {
         AstNodeExpr* const exprp = nodep->exprp();
-        if (VN_IS(exprp, PostAdd) || VN_IS(exprp, PostSub) || VN_IS(exprp, PreAdd) || VN_IS(exprp, PreSub)) {
-            // Repalce this StmtExpr with the expression, visiting it will turn it into a NodeStmt
-            nodep->replaceWith(exprp->unlinkFrBack());
-            VL_DO_DANGLING(pushDeletep(nodep), nodep);
-            m_insStmtp = nullptr;
-            iterate(exprp);
-            m_insStmtp = nullptr;
-            return;
-        }
-        visit(static_cast<AstNodeStmt*>(nodep));
+        m_insStmtp = nodep;
+        iterateChildren(nodep);
+        m_insStmtp = nullptr;  // Next thing should be new statement
     }
     void visit(AstNodeStmt* nodep) override {
         m_insStmtp = nodep;
@@ -204,20 +193,8 @@ class LinkIncVisitor final : public VNVisitor {
     void visit(AstCond* nodep) override { unsupported_visit(nodep); }
     void visit(AstPropSpec* nodep) override { unsupported_visit(nodep); }
     void prepost_visit(AstNodeTriop* nodep) {
-        // Check if we are underneath a statement
-        AstSelBit* const selbitp = VN_CAST(nodep->thsp(), SelBit);
-        if (!m_insStmtp && selbitp && VN_IS(selbitp->fromp(), NodeVarRef)
-            && !selbitp->bitp()->isPure()) {
-            prepost_stmt_sel_visit(nodep);
-        } else {
-            // Purity check was deferred at creation in verilog.y, check now
-            nodep->thsp()->purityCheck();
-            if (!m_insStmtp) {
-                prepost_stmt_visit(nodep);
-            } else {
-                prepost_expr_visit(nodep);
-            }
-        }
+        UASSERT_OBJ(m_insStmtp, nodep, "Should always be under statement");
+        prepost_expr_visit(nodep);
     }
     void prepost_stmt_sel_visit(AstNodeTriop* nodep) {
         // Special case array[something]++, see comments at file top
@@ -235,7 +212,7 @@ class LinkIncVisitor final : public VNVisitor {
 
         // Prepare a temporary variable
         FileLine* const fl = nodep->fileline();
-        const string name = "__VincIndex"s + cvtToStr(++m_modIncrementsNum);
+        const string name = "__VincIndex"s + cvtToStr(++m_tmpNameCnt);
         AstVar* const varp = new AstVar{
             fl, VVarType::BLOCKTEMP, name, VFlagChildDType{},
             new AstRefDType{fl, AstRefDType::FlagTypeOfExpr{}, rdBitp->cloneTree(true)}};
@@ -289,11 +266,7 @@ class LinkIncVisitor final : public VNVisitor {
         VL_DO_DANGLING(nodep->deleteTree(), nodep);
     }
     void prepost_expr_visit(AstNodeTriop* nodep) {
-        iterateChildren(nodep);
-        if (m_unsupportedHere) {
-            nodep->v3warn(E_UNSUPPORTED, "Unsupported: Incrementation in this context.");
-            return;
-        }
+
         AstNodeExpr* const readp = nodep->rhsp();
         AstNodeExpr* const writep = nodep->thsp()->unlinkFrBack();
 
@@ -303,7 +276,7 @@ class LinkIncVisitor final : public VNVisitor {
 
         // Prepare a temporary variable
         FileLine* const fl = nodep->fileline();
-        const string name = "__Vincrement"s + cvtToStr(++m_modIncrementsNum);
+        const string name = "__Vincrement"s + cvtToStr(++m_tmpNameCnt);
         AstVar* const varp = new AstVar{
             fl, VVarType::BLOCKTEMP, name, VFlagChildDType{},
             new AstRefDType{fl, AstRefDType::FlagTypeOfExpr{}, readp->cloneTree(true)}};
@@ -342,10 +315,69 @@ class LinkIncVisitor final : public VNVisitor {
         nodep->replaceWith(new AstVarRef{readp->fileline(), varp, VAccess::READ});
         VL_DO_DANGLING(nodep->deleteTree(), nodep);
     }
-    void visit(AstPreAdd* nodep) override { prepost_visit(nodep); }
-    void visit(AstPostAdd* nodep) override { prepost_visit(nodep); }
-    void visit(AstPreSub* nodep) override { prepost_visit(nodep); }
-    void visit(AstPostSub* nodep) override { prepost_visit(nodep); }
+
+    // If 'rValp' is a consant return it if unlinked, or return a clone.
+    // Otherwise return a read reference to a temporary that captures the value.
+    AstNodeExpr* captureRValue(AstNodeExpr* rValp, const char* prefixp) {
+        // No need to save it if constant
+        if (VN_IS(rValp, Const)) return rValp->backp() ? rValp->cloneTree(false) : rValp;
+
+        // Create a temporary variable
+        FileLine* const flp = rValp->fileline();
+        AstVar* const varp = new AstVar{
+            flp, VVarType::BLOCKTEMP, prefixp + std::to_string(++m_tmpNameCnt), VFlagChildDType{},
+            new AstRefDType{flp, AstRefDType::FlagTypeOfExpr{}, rValp->cloneTree(true)}};
+        // Add it to the enclosing FTask/Module
+        if (m_ftaskp) {
+            m_ftaskp->stmtsp()->addHereThisAsNext(varp);
+            varp->funcLocal(true);
+        } else if (m_modp) {
+            m_modp->stmtsp()->addHereThisAsNext(varp);
+        } else {
+            varp->v3fatalSrc("Variable not under FTASK/MODULE");
+        }
+
+        // Create an assignment to it, and insert it before the enclosing statement
+        AstNodeExpr* const capp = rValp->backp() ? rValp->cloneTreePure(false) : rValp;
+        AstAssign* const assp = new AstAssign{flp, new AstVarRef{flp, varp, VAccess::WRITE}, capp};
+        m_insStmtp->addHereThisAsNext(assp);
+
+        // Return a reference to it
+        return new AstVarRef{flp, varp, VAccess::READ};
+    }
+
+    void captureReferencedRValues(AstNodeExpr* lValp) {
+        // TODO: for now, we only support what we used to before, do more when
+        // LinkInc moves after V3Width, otherwise it's a PITA to do it here
+        if (AstSelBit* const nodep = VN_CAST(lValp, SelBit)) {
+            nodep->bitp(captureRValue(nodep->bitp()->unlinkFrBack(), "__VIncDecIndex"));
+            captureReferencedRValues(nodep->fromp());
+            return;
+        }
+    }
+
+    void visit(AstIncDec* nodep) override {
+        {
+            VL_RESTORER(m_insStmtp); // In case there is an ExprStmt under ...
+            iterateChildren(nodep);
+        }
+        if (m_unsupportedHere) {
+            nodep->v3warn(E_UNSUPPORTED, "Unsupported: Incrementation in this context.");
+            return;
+        }
+        UASSERT_OBJ(m_insStmtp, nodep, "Should always be under statement");
+
+        // Capture any RValues referenced in the operand
+        captureReferencedRValues(nodep->lvalp());
+
+        // Get the value we should use to get the result
+        AstNodeExpr* const resp = captureRValue(nodep, "__VIncDecPreValue");
+
+
+        // Replace with the value
+        nodep->replaceWith(resp);
+        VL_DO_DANGLING(pushDeletep(nodep), nodep);
+     }
     void visit(AstGenFor* nodep) override { iterateChildren(nodep); }
     void visit(AstNode* nodep) override { iterateChildren(nodep); }
 

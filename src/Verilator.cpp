@@ -166,6 +166,9 @@ static void process() {
         // Convert return/continue/disable to jumps
         V3LinkJump::linkJump(v3Global.rootp());
         // Convert --/++ to normal operations. Must be after LinkJump.
+        // TODO: this should be after V3Width so the type-checker can give more
+        // legible errors, and so LValues are normalized, but then need to
+        // teach it to V3Simulate for GenFor.
         V3LinkInc::linkIncrements(v3Global.rootp());
         V3Error::abortIfErrors();
 

@@ -255,20 +255,11 @@ class LinkLValueVisitor final : public VNVisitor {
         iterateAndNextNull(nodep->rhsp());
         iterateAndNextNull(nodep->thsp());
     }
-    // cppcheck-suppress constParameterPointer
-    void prepost_visit(AstNodeTriop* nodep) {
+    void visit(AstIncDec* nodep) override  {
         VL_RESTORER(m_setRefLvalue);
-        m_setRefLvalue = VAccess::NOCHANGE;
-        iterateAndNextNull(nodep->lhsp());
-        iterateAndNextNull(nodep->rhsp());
-        m_setRefLvalue = VAccess::WRITE;
-        iterateAndNextNull(nodep->thsp());
+        m_setRefLvalue = VAccess::WRITE; // Inaccurate, but required by LinkInc rewrite
+        iterateAndNextNull(nodep->lvalp());
     }
-    void visit(AstPreAdd* nodep) override { prepost_visit(nodep); }
-    void visit(AstPostAdd* nodep) override { prepost_visit(nodep); }
-    void visit(AstPreSub* nodep) override { prepost_visit(nodep); }
-    void visit(AstPostSub* nodep) override { prepost_visit(nodep); }
-
     // Nodes that change LValue state
     void visit(AstSel* nodep) override {
         VL_RESTORER(m_setRefLvalue);

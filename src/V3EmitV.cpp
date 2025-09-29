@@ -675,6 +675,18 @@ class EmitVBaseVisitorConst VL_NOT_FINAL : public VNVisitorConst {
         }
         puts(")");
     }
+    void visit(AstIncDec* nodep) override {
+        putfs(nodep, "(");
+        const char* const op = nodep->isInc() ? "++" : "--";
+        if (nodep->isPre()) {
+            puts(op);
+            iterateAndNextConstNull(nodep->lvalp());
+        } else {
+            iterateAndNextConstNull(nodep->lvalp());
+            puts(op);
+        }
+        puts(")");
+    }
     void visit(AstInitArray* nodep) override {
         putfs(nodep, "'{");
         int comma = 0;

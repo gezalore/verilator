@@ -1462,10 +1462,7 @@ DfgIgnored = (
     "ToStringN",
     "ToUpperN",
     # Effectful
-    "PostAdd",
-    "PostSub",
-    "PreAdd",
-    "PreSub",
+    "IncDec",
     # Only used after DFG
     "ShiftLOvr",
     "ShiftROvr",
