@@ -255,9 +255,9 @@ class LinkLValueVisitor final : public VNVisitor {
         iterateAndNextNull(nodep->rhsp());
         iterateAndNextNull(nodep->thsp());
     }
-    void visit(AstIncDec* nodep) override  {
+    void visit(AstIncDec* nodep) override {
         VL_RESTORER(m_setRefLvalue);
-        m_setRefLvalue = VAccess::WRITE; // Inaccurate, but required by LinkInc rewrite
+        m_setRefLvalue = VAccess::WRITE;  // Inaccurate, but required by LinkInc rewrite
         iterateAndNextNull(nodep->lvalp());
     }
     // Nodes that change LValue state

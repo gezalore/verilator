@@ -358,7 +358,7 @@ class LinkIncVisitor final : public VNVisitor {
 
     void visit(AstIncDec* nodep) override {
         {
-            VL_RESTORER(m_insStmtp); // In case there is an ExprStmt under ...
+            VL_RESTORER(m_insStmtp);  // In case there is an ExprStmt under ...
             iterateChildren(nodep);
         }
         if (m_unsupportedHere) {
@@ -373,11 +373,10 @@ class LinkIncVisitor final : public VNVisitor {
         // Get the value we should use to get the result
         AstNodeExpr* const resp = captureRValue(nodep, "__VIncDecPreValue");
 
-
         // Replace with the value
         nodep->replaceWith(resp);
         VL_DO_DANGLING(pushDeletep(nodep), nodep);
-     }
+    }
     void visit(AstGenFor* nodep) override { iterateChildren(nodep); }
     void visit(AstNode* nodep) override { iterateChildren(nodep); }
 
