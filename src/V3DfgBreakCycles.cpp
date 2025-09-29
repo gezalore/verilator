@@ -689,20 +689,27 @@ public:
         if (aggressive && !resultp) {
             static int n = 0;
             UINFO(0, "n: " << n);
-            dfg.dumpDotFilePrefixed("trace-failed-" + std::to_string(n++), [&](const DfgVertex& vtx) {
-                if (traceDriver.m_vst.count(&vtx)) return true;
-                if (vtx.isArray()) return true;
-                if (vtx.is<DfgArraySel>()) return true;
-                if (vtx.foreachSink([&](const DfgVertex& snk) {
-                     return traceDriver.m_vst.count(&snk)
-                            || snk.foreachSink([&](const DfgVertex& snk) { return traceDriver.m_vst.count(&snk); } );
-                    } )) return true;
-                if (vtx.foreachSource([&](const DfgVertex& snk) {
-                     return traceDriver.m_vst.count(&snk)
-                            || snk.foreachSource([&](const DfgVertex& snk) { return traceDriver.m_vst.count(&snk); } );
-                    } )) return true;
-                return false;
-            });
+            dfg.dumpDotFilePrefixed(
+                "trace-failed-" + std::to_string(n++), [&](const DfgVertex& vtx) {
+                    if (traceDriver.m_vst.count(&vtx)) return true;
+                    if (vtx.isArray()) return true;
+                    if (vtx.is<DfgArraySel>()) return true;
+                    if (vtx.foreachSink([&](const DfgVertex& snk) {
+                            return traceDriver.m_vst.count(&snk)
+                                   || snk.foreachSink([&](const DfgVertex& snk) {
+                                          return traceDriver.m_vst.count(&snk);
+                                      });
+                        }))
+                        return true;
+                    if (vtx.foreachSource([&](const DfgVertex& snk) {
+                            return traceDriver.m_vst.count(&snk)
+                                   || snk.foreachSource([&](const DfgVertex& snk) {
+                                          return traceDriver.m_vst.count(&snk);
+                                      });
+                        }))
+                        return true;
+                    return false;
+                });
         }
         // Delete unused newly created vertices (these can be created if a
         // partial trace succeded, but an eventual one falied). Because new
@@ -985,7 +992,6 @@ class IndependentBits final : public DfgVisitor {
             MASK(vtxp).setAllBits1();
         }
     }
-
 
 #undef MASK
 
