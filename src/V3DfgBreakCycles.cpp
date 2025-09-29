@@ -238,7 +238,7 @@ class TraceDriver final : public DfgVisitor {
     }
 
     template <typename Vertex>
-    DfgVertex* traceAddSub(Vertex* vtxp) {
+    DfgVertex* traceAddSubMul(Vertex* vtxp) {
         static_assert(std::is_base_of<DfgVertexBinary, Vertex>::value,
                       "Should only call on DfgVertexBinary");
         if (DfgVertex* const rp = trace(vtxp->rhsp(), m_msb, 0)) {
@@ -517,11 +517,15 @@ class TraceDriver final : public DfgVisitor {
     }
     void visit(DfgAdd* vtxp) override {
         if (!m_aggressive) return;
-        SET_RESULT(traceAddSub(vtxp));
+        SET_RESULT(traceAddSubMul(vtxp));
     }
     void visit(DfgSub* vtxp) override {
         if (!m_aggressive) return;
-        SET_RESULT(traceAddSub(vtxp));
+        SET_RESULT(traceAddSubMul(vtxp));
+    }
+    void visit(DfgMul* vtxp) override {
+        if (!m_aggressive) return;
+        SET_RESULT(traceAddSubMul(vtxp));
     }
     void visit(DfgEq* vtxp) override {
         if (!m_aggressive) return;
@@ -635,6 +639,22 @@ class TraceDriver final : public DfgVisitor {
         }
     }
 
+    void visit(DfgMux* vtxp) override {
+        if (!m_aggressive) return;
+        if (DfgVertex* const fromp = trace(vtxp->fromp(), vtxp->fromp()->width() - 1, 0)) {
+            if (DfgVertex* const lsbp = trace(vtxp->lsbp(), vtxp->lsbp()->width() - 1, 0)) {
+                DfgMux* const muxp = make<DfgMux>(vtxp, vtxp->width());
+                muxp->fromp(fromp);
+                muxp->lsbp(lsbp);
+                DfgSel* const selp = make<DfgSel>(vtxp, m_msb - m_lsb + 1);
+                selp->fromp(muxp);
+                selp->lsb(m_lsb);
+                SET_RESULT(selp);
+                return;
+            }
+        }
+    }
+
 #undef SET_RESULT
 
     // CONSTRUCTOR
@@ -666,6 +686,24 @@ public:
         TraceDriver traceDriver{dfg, vtx2Scc, vtx2Scc[vtx], aggressive};
         // Find the out-of-component driver of the given vertex
         DfgVertex* const resultp = traceDriver.trace(&vtx, lsb + width - 1, lsb);
+        if (aggressive && !resultp) {
+            static int n = 0;
+            UINFO(0, "n: " << n);
+            dfg.dumpDotFilePrefixed("trace-failed-" + std::to_string(n++), [&](const DfgVertex& vtx) {
+                if (traceDriver.m_vst.count(&vtx)) return true;
+                if (vtx.isArray()) return true;
+                if (vtx.is<DfgArraySel>()) return true;
+                if (vtx.foreachSink([&](const DfgVertex& snk) {
+                     return traceDriver.m_vst.count(&snk)
+                            || snk.foreachSink([&](const DfgVertex& snk) { return traceDriver.m_vst.count(&snk); } );
+                    } )) return true;
+                if (vtx.foreachSource([&](const DfgVertex& snk) {
+                     return traceDriver.m_vst.count(&snk)
+                            || snk.foreachSource([&](const DfgVertex& snk) { return traceDriver.m_vst.count(&snk); } );
+                    } )) return true;
+                return false;
+            });
+        }
         // Delete unused newly created vertices (these can be created if a
         // partial trace succeded, but an eventual one falied). Because new
         // vertices should be created depth first, it is enough to do a single
@@ -850,6 +888,12 @@ class IndependentBits final : public DfgVisitor {
         floodTowardsMsb(m);
     }
 
+    void visit(DfgMul* vtxp) override {
+        V3Number& m = MASK(vtxp);
+        m.opOr(MASK(vtxp->lhsp()), MASK(vtxp->rhsp()));
+        floodTowardsMsb(m);
+    }
+
     void visit(DfgEq* vtxp) override {
         const bool independent = MASK(vtxp->lhsp()).isEqZero() && MASK(vtxp->rhsp()).isEqZero();
         MASK(vtxp).setBit(0, independent ? '0' : '1');
@@ -930,6 +974,18 @@ class IndependentBits final : public DfgVisitor {
             MASK(vtxp).opOr(MASK(vtxp->thenp()), MASK(vtxp->elsep()));
         }
     }
+
+    void visit(DfgMux* vtxp) override {
+        V3Number& m = MASK(vtxp);
+        if (!MASK(vtxp->lsbp()).isEqZero()) {
+            MASK(vtxp).setAllBits1();
+        } else if (MASK(vtxp->fromp()).isEqZero()) {
+            MASK(vtxp).setAllBits0();
+        } else {
+            MASK(vtxp).setAllBits1();
+        }
+    }
+
 
 #undef MASK
 
@@ -1321,6 +1377,14 @@ V3DfgPasses::breakCycles(const DfgGraph& dfg, V3DfgContext& ctx) {
     // Just shorthand for code below
     DfgGraph& res = *resultp;
     dump(9, res, "clone");
+
+    if (dumpDfgLevel() >= 9) {
+        Vtx2Scc vtx2Scc = res.makeUserMap<uint64_t>();
+        V3DfgPasses::colorStronglyConnectedComponents(res, vtx2Scc);
+        res.dumpDotFilePrefixed(ctx.prefix() + "breakCycles-initial", [&](const DfgVertex& vtx) {
+            return vtx2Scc[vtx];  //
+        });
+    }
 
     // How many improvements have we made
     size_t nImprovements = 0;
