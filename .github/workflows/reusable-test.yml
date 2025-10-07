@@ -28,7 +28,6 @@ on:
         type: number
 
 env:
-  CI_OS_NAME: linux
   CCACHE_COMPRESS: 1
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_LIMIT_MULTIPLE: 0.95
@@ -46,7 +45,6 @@ jobs:
     runs-on: ${{ inputs.os }}
     name: Test
     env:
-      CI_BUILD_STAGE_NAME: test
       CI_RUNS_ON: ${{ inputs.os }}
       CI_RELOC: ${{inputs.reloc }}
       CC: ${{ inputs.cc }}
@@ -78,14 +76,14 @@ jobs:
             ${{ env.CACHE_KEY }}-
 
       - name: Install test dependencies
-        run: ./ci/ci-install.bash
+        run: ./ci/ci-install.bash test
 
       - name: Test
         id: run-test
         continue-on-error: true
         env:
           TESTS: ${{ inputs.suite }}
-        run: ./ci/ci-script.bash
+        run: ./ci/ci-test.bash
 
       - name: Combine code coverage data
         if: ${{ inputs.dev-gcov }}

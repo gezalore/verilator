@@ -19,6 +19,8 @@ set -x
 
 cd $(dirname "$0")/..
 
+readonly CI_STAGE=$1
+
 # Avoid occasional cpan failures "Issued certificate has expired."
 export PERL_LWP_SSL_VERIFY_HOSTNAME=0
 echo "check_certificate = off" >> ~/.wgetrc
@@ -27,102 +29,62 @@ fatal() {
   echo "ERROR: $(basename "$0"): $1" >&2; exit 1;
 }
 
-if [ "$CI_OS_NAME" = "linux" ]; then
-  MAKE=make
-elif [ "$CI_OS_NAME" = "osx" ]; then
-  MAKE=make
-elif [ "$CI_OS_NAME" = "freebsd" ]; then
-  MAKE=gmake
-else
-  fatal "Unknown os: '$CI_OS_NAME'"
-fi
+MAKE=make
 
-if [ "$CI_OS_NAME" = "linux" ]; then
+if [[ "$CI_RUNS_ON" == ubuntu-* ]]; then
   # Avoid slow "processing triggers for man db"
-  echo "path-exclude /usr/share/doc/*"  | sudo tee -a /etc/dpkg/dpkg.cfg.d/01_nodoc
-  echo "path-exclude /usr/share/man/*"  | sudo tee -a /etc/dpkg/dpkg.cfg.d/01_nodoc
-  echo "path-exclude /usr/share/info/*" | sudo tee -a /etc/dpkg/dpkg.cfg.d/01_nodoc
+  echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null
+  sudo dpkg-reconfigure man-db
 fi
 
-install-vcddiff() {
+if [[ "$CI_STAGE" == "build" ]]; then
+  ##############################################################################
+  # Dependencies of jobs in the 'build' stage, i.e.: packages required to
+  # build Verilator
+
+  if [[ "$CI_RUNS_ON" == ubuntu-* ]]; then
+    APT_PACKAGES="ccache libfl-dev libsystemc libsystemc-dev mold bear help2man"
+    # Some conflict of libunwind version on 22.04, can live without
+    if [[ ! "$CI_RUNS_ON" =~ "ubuntu-22.04" ]]; then
+      APT_PACKAGES="${APT_PACKAGES} libgoogle-perftools-dev"
+    fi
+    # Try twice, as sometimes the hosted runners fail to connect
+    sudo apt update                  || sleep 30 && sudo apt update
+    sudo apt install ${APT_PACKAGES} || sleep 30 && sudo apt install ${APT_PACKAGES}
+  elif [[ "$CI_RUNS_ON" == macos-* ]]; then
+    brew update
+    brew install ccache perl gperftools autoconf bison flex help2man
+  else
+    fatal "Unknown os: '$CI_RUNS_ON'"
+  fi
+elif [[ "$CI_STAGE" == "test" ]]; then
+  ##############################################################################
+  # Dependencies of jobs in the 'test' stage, i.e.: packages required to
+  # run the tests
+
+  if [[ "$CI_RUNS_ON" = ubuntu-* ]]; then
+    # python3-clang and moRequired for test_regress/t/t_dist_attributes.py
+    APT_PACKAGES="ccache libfl-dev libsystemc libsystemc-dev mold bear gdb gtkwave lcov jq z3 python3-clang"
+    # Try twice, as sometimes the hosted runners fail to connect
+    sudo apt update                  || sleep 30 && sudo apt update
+    sudo apt install ${APT_PACKAGES} || sleep 30 && sudo apt install ${APT_PACKAGES}
+  elif [[ "$CI_RUNS_ON" = macos-* ]]; then
+    brew update
+    # brew cask install gtkwave # fst2vcd hangs at launch, so don't bother
+    brew install ccache perl jq z3
+  else
+    fatal "Unknown os: '$CI_RUNS_ON'"
+  fi
+  # Install vcddiff
   TMP_DIR="$(mktemp -d)"
   git clone https://github.com/veripool/vcddiff "$TMP_DIR"
   git -C "${TMP_DIR}" checkout dca845020668887fd13498c772939814d9264fd5
   "$MAKE" -C "${TMP_DIR}"
   sudo cp "${TMP_DIR}/vcddiff" /usr/local/bin
-}
-
-if [ "$CI_BUILD_STAGE_NAME" = "build" ]; then
-  ##############################################################################
-  # Dependencies of jobs in the 'build' stage, i.e.: packages required to
-  # build Verilator
-
-  if [ "$CI_OS_NAME" = "linux" ]; then
-    sudo apt-get update ||
-    sudo apt-get update
-    sudo apt-get install ccache help2man libfl-dev ||
-    sudo apt-get install ccache help2man libfl-dev
-    if [[ ! "$CI_RUNS_ON" =~ "ubuntu-22.04" ]]; then
-      # Some conflict of libunwind verison on 22.04, can live without it for now
-      sudo apt-get install libgoogle-perftools-dev ||
-      sudo apt-get install libgoogle-perftools-dev
-    fi
-    if [[ "$CI_RUNS_ON" =~ "ubuntu-20.04" ]] || [[ "$CI_RUNS_ON" =~ "ubuntu-22.04" ]] || [[ "$CI_RUNS_ON" =~ "ubuntu-24.04" ]]; then
-      sudo apt-get install libsystemc libsystemc-dev ||
-      sudo apt-get install libsystemc libsystemc-dev
-    fi
-    if [[ "$CI_RUNS_ON" =~ "ubuntu-22.04" ]] || [[ "$CI_RUNS_ON" =~ "ubuntu-24.04" ]]; then
-      sudo apt-get install bear mold ||
-      sudo apt-get install bear mold
-    fi
-  elif [ "$CI_OS_NAME" = "osx" ]; then
-    brew update
-    brew install ccache perl gperftools autoconf bison flex help2man
-  elif [ "$CI_OS_NAME" = "freebsd" ]; then
-    sudo pkg install -y autoconf bison ccache gmake perl5
-  else
-    fatal "Unknown os: '$CI_OS_NAME'"
-  fi
-
-  if [ -n "$CCACHE_DIR" ]; then
-    mkdir -p "$CCACHE_DIR"
-  fi
-elif [ "$CI_BUILD_STAGE_NAME" = "test" ]; then
-  ##############################################################################
-  # Dependencies of jobs in the 'test' stage, i.e.: packages required to
-  # run the tests
-
-  if [ "$CI_OS_NAME" = "linux" ]; then
-    sudo apt-get update ||
-    sudo apt-get update
-    # libfl-dev needed for internal coverage's test runs
-    sudo apt-get install gdb gtkwave lcov libfl-dev ccache jq z3 ||
-    sudo apt-get install gdb gtkwave lcov libfl-dev ccache jq z3
-    # Required for test_regress/t/t_dist_attributes.py
-    if [[ "$CI_RUNS_ON" =~ "ubuntu-22.04" ]] || [[ "$CI_RUNS_ON" =~ "ubuntu-24.04" ]]; then
-      sudo apt-get install python3-clang mold ||
-      sudo apt-get install python3-clang mold
-    fi
-    if [[ "$CI_RUNS_ON" =~ "ubuntu-20.04" ]] || [[ "$CI_RUNS_ON" =~ "ubuntu-22.04" ]] || [[ "$CI_RUNS_ON" =~ "ubuntu-24.04" ]]; then
-      sudo apt-get install libsystemc-dev ||
-      sudo apt-get install libsystemc-dev
-    fi
-  elif [ "$CI_OS_NAME" = "osx" ]; then
-    brew update
-    # brew cask install gtkwave # fst2vcd hangs at launch, so don't bother
-    brew install ccache perl jq z3
-  elif [ "$CI_OS_NAME" = "freebsd" ]; then
-    # fst2vcd fails with "Could not open '<input file>', exiting."
-    sudo pkg install -y ccache gmake perl5 python3 jq z3
-  else
-    fatal "Unknown os: '$CI_OS_NAME'"
-  fi
-  # Common installs
-  install-vcddiff
   # Workaround -fsanitize=address crash
   sudo sysctl -w vm.mmap_rnd_bits=28
 else
   ##############################################################################
-  # Unknown build stage
-  fatal "Unknown build stage: '$CI_BUILD_STAGE_NAME'"
+  # Unknown stage
+  fatal "Unknown stage: '$CI_STAGE'"
 fi

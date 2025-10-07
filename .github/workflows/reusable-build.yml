@@ -17,9 +17,6 @@ on:
       cc: # 'clang' or 'gcc'
         required: true
         type: string
-      os-name: # 'linux' or 'osx'
-        required: true
-        type: string
       dev-asan:
         required: true
         type: number
@@ -32,7 +29,6 @@ on:
         value: ${{ jobs.build.outputs.archive }}
 
 env:
-  CI_OS_NAME: ${{ inputs.os-name }}
   CCACHE_COMPRESS: 1
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_LIMIT_MULTIPLE: 0.95
@@ -52,7 +48,6 @@ jobs:
     outputs:
       archive: ${{ steps.create-archive.outputs.archive }}
     env:
-      CI_BUILD_STAGE_NAME: build
       CI_DEV_ASAN: ${{ inputs.dev-asan }}
       CI_DEV_GCOV: ${{ inputs.dev-gcov }}
       CI_RUNS_ON: ${{ inputs.os }}
@@ -79,10 +74,10 @@ jobs:
             ${{ env.CACHE_KEY }}-
 
       - name: Install packages for build
-        run: ./ci/ci-install.bash
+        run: ./ci/ci-install.bash build
 
       - name: Build
-        run: ./ci/ci-script.bash
+        run: ./ci/ci-build.bash
 
       - name: Create repository archive
         id: create-archive
