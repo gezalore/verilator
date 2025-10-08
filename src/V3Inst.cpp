@@ -72,16 +72,16 @@ class InstVisitor final : public VNVisitor {
             } else if (nodep->modVarp()->isWritable()) {
                 AstNodeExpr* const rhsp = new AstVarXRef{exprp->fileline(), nodep->modVarp(),
                                                          m_cellp->name(), VAccess::READ};
-                AstAssignW* const assp = new AstAssignW{exprp->fileline(), exprp, rhsp};
+                AstAlways* const assp = AstAlways::newCAssign(exprp->fileline(), exprp, rhsp);
                 m_cellp->addNextHere(assp);
             } else if (nodep->modVarp()->isNonOutput()) {
                 // Don't bother moving constants now,
                 // we'll be pushing the const down to the cell soon enough.
-                AstNode* const assp
-                    = new AstAssignW{exprp->fileline(),
-                                     new AstVarXRef{exprp->fileline(), nodep->modVarp(),
-                                                    m_cellp->name(), VAccess::WRITE},
-                                     exprp};
+                AstAlways* const assp
+                    = AstAlways::newCAssign(exprp->fileline(),
+                                            new AstVarXRef{exprp->fileline(), nodep->modVarp(),
+                                                           m_cellp->name(), VAccess::WRITE},
+                                            exprp);
                 m_cellp->addNextHere(assp);
                 UINFOTREE(9, assp, "", "_new");
             } else if (nodep->modVarp()->isIfaceRef()
@@ -595,8 +595,8 @@ class InstStatic final {
     }
 
 public:
-    static AstAssignW* pinReconnectSimple(AstPin* pinp, AstCell* cellp, bool forTristate,
-                                          bool alwaysCvt) {
+    static AstAlways* pinReconnectSimple(AstPin* pinp, AstCell* cellp, bool forTristate,
+                                         bool alwaysCvt) {
         // If a pin connection is "simple" leave it as-is
         // Else create a intermediate wire to perform the interconnect
         // Return the new assignment, if one was made
@@ -622,7 +622,7 @@ public:
         const AstNodeDType* const connDTypep
             = connectRefp ? connectRefp->varp()->dtypep()->skipRefp() : nullptr;
         const AstBasicDType* const connBasicp = VN_CAST(connDTypep, BasicDType);
-        AstAssignW* assignp = nullptr;
+        AstAlways* cassignp = nullptr;
         //
         if (!alwaysCvt && connectRefp && connDTypep->sameTree(pinDTypep)
             && !connectRefp->varp()->isSc()) {  // Need the signal as a 'shell' to convert types
@@ -668,27 +668,27 @@ public:
                 rhsp = extendOrSel(pinp->fileline(), rhsp, pinVarp);
                 pinp->exprp(new AstVarRef{newvarp->fileline(), newvarp, VAccess::WRITE});
                 AstNodeExpr* const rhsSelp = extendOrSel(pinp->fileline(), rhsp, pinexprp);
-                assignp = new AstAssignW{pinp->fileline(), pinexprp, rhsSelp};
+                cassignp = AstAlways::newCAssign(pinp->fileline(), pinexprp, rhsSelp);
             } else {
                 // V3 width should have range/extended to make the widths correct
-                assignp = new AstAssignW{pinp->fileline(),
-                                         new AstVarRef{pinp->fileline(), newvarp, VAccess::WRITE},
-                                         pinexprp};
+                cassignp = AstAlways::newCAssign(
+                    pinp->fileline(), new AstVarRef{pinp->fileline(), newvarp, VAccess::WRITE},
+                    pinexprp);
                 pinp->exprp(new AstVarRef{pinexprp->fileline(), newvarp, VAccess::READ});
             }
-            if (assignp) cellp->addNextHere(assignp);
+            if (cassignp) cellp->addNextHere(cassignp);
             // UINFOTREE(1, pinp, "", "out");
             // UINFOTREE(1, assignp, "", "aout");
         }
-        return assignp;
+        return cassignp;
     }
 };
 
 //######################################################################
 // Inst class functions
 
-AstAssignW* V3Inst::pinReconnectSimple(AstPin* pinp, AstCell* cellp, bool forTristate,
-                                       bool alwaysCvt) {
+AstAlways* V3Inst::pinReconnectSimple(AstPin* pinp, AstCell* cellp, bool forTristate,
+                                      bool alwaysCvt) {
     return InstStatic::pinReconnectSimple(pinp, cellp, forTristate, alwaysCvt);
 }
 

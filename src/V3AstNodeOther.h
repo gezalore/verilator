@@ -2651,7 +2651,9 @@ public:
         this->sentreep(sentreep);
     }
     ASTGEN_MEMBERS_AstAlways;
-    //
+    // Factory method to create a new continuous assignment
+    inline static AstAlways* newCAssign(FileLine* const flp, AstNodeExpr* lhsp,
+                                        AstNodeExpr* const rhsp, AstDelay* delayp = nullptr);
     void dump(std::ostream& str) const override;
     void dumpJson(std::ostream& str) const override;
     VAlwaysKwd keyword() const { return m_keyword; }

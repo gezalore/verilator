@@ -169,6 +169,7 @@ class EmitVBaseVisitorConst VL_NOT_FINAL : public VNVisitorConst {
     void visit(AstInitialAutomatic* nodep) override { iterateChildrenConst(nodep); }
     void visit(AstInitialStatic* nodep) override { iterateChildrenConst(nodep); }
     void visit(AstAlways* nodep) override {
+        // FIXME: ASSIGN
         putfs(nodep, "always ");
         if (m_sentreep) {
             iterateAndNextConstNull(m_sentreep);
@@ -210,13 +211,6 @@ class EmitVBaseVisitorConst VL_NOT_FINAL : public VNVisitorConst {
             putfs(nodep, " = ");
             iterateConst(itemp);
         }
-        if (!m_suppressSemi) puts(";\n");
-    }
-    void visit(AstAssignW* nodep) override {
-        putfs(nodep, "assign ");
-        iterateAndNextConstNull(nodep->lhsp());
-        putbs(" = ");
-        iterateAndNextConstNull(nodep->rhsp());
         if (!m_suppressSemi) puts(";\n");
     }
     void visit(AstRelease* nodep) override {

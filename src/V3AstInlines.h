@@ -77,6 +77,11 @@ int AstNodeArrayDType::lo() const VL_MT_STABLE { return rangep()->loConst(); }
 int AstNodeArrayDType::elementsConst() const VL_MT_STABLE { return rangep()->elementsConst(); }
 VNumRange AstNodeArrayDType::declRange() const VL_MT_STABLE { return VNumRange{left(), right()}; }
 
+AstAlways* AstAlways::newCAssign(FileLine* const flp, AstNodeExpr* lhsp, AstNodeExpr* const rhsp,
+                                 AstDelay* delayp) {
+    return new AstAlways{flp, VAlwaysKwd::ASSIGN, nullptr, new AstAssign{flp, lhsp, rhsp, delayp}};
+}
+
 AstFuncRef::AstFuncRef(FileLine* fl, AstFunc* taskp, AstNodeExpr* pinsp)
     : ASTGEN_SUPER_FuncRef(fl, taskp->name(), pinsp) {
     this->taskp(taskp);

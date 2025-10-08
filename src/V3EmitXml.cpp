@@ -100,10 +100,6 @@ class EmitXmlFileVisitor final : public VNVisitorConst {
     }
 
     // VISITORS
-    void visit(AstAssignW* nodep) override {
-        outputTag(nodep, "contassign");  // IEEE: vpiContAssign
-        outputChildrenEnd(nodep, "contassign");
-    }
     void visit(AstCell* nodep) override {
         outputTag(nodep, "instance");  // IEEE: vpiInstance
         puts(" defName=");

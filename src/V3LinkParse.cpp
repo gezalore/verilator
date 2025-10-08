@@ -391,7 +391,8 @@ class LinkParseVisitor final : public VNVisitor {
             }  // 2. Under modules/class, it's an initial value to be loaded at time 0 via an
                // AstInitial
             else if (m_valueModp) {
-                // Making an AstAssign (vs AstAssignW) to a wire is an error, suppress it
+                // Making an AstAssign (vs continuous assignment) to a wire is an error,
+                // but using AstAssign in the initializer is OK, so suppress it.
                 FileLine* const newfl = new FileLine{fl};
                 newfl->warnOff(V3ErrorCode::PROCASSWIRE, true);
                 newfl->warnOff(V3ErrorCode::E_CONSTWRITTEN, true);

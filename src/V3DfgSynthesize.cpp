@@ -1481,8 +1481,7 @@ class AstToDfgSynthesize final {
                 return false;  // OK, continue.
             }
 
-            // TODO: computePropagatedDrivers cannot handle arrays, should
-            // never happen with AssignW
+            // TODO: computePropagatedDrivers cannot handle arrays
             if (!resp->isPacked()) {
                 ++m_ctx.m_synt.nonSynArray;
                 return true;  // Not OK, give up
@@ -1497,37 +1496,6 @@ class AstToDfgSynthesize final {
             unresolvedp->addDriver(splicep);
             return false;  // OK, continue
         });
-    }
-
-    // Synthesize the given AstAssignW. Returns true on success.
-    bool synthesizeAssignW(AstAssignW* nodep) {
-        ++m_ctx.m_synt.inputAssign;
-
-        // Construct an equivalent AstAssign
-        AstNodeExpr* const lhsp = nodep->lhsp()->cloneTree(false);
-        AstNodeExpr* const rhsp = nodep->rhsp()->cloneTree(false);
-        AstAssign* const assignp = new AstAssign{nodep->fileline(), lhsp, rhsp};
-
-        // The input and output symbol tables
-        SymTab iSymTab;
-        SymTab oSymTab;
-
-        // Initialzie input symbol table
-        initializeEntrySymbolTable(iSymTab);
-
-        // Synthesize as if it was in a single CfgBlock CFG
-        DfgVertex* condp = nullptr;
-        const bool success = synthesizeBasicBlock(oSymTab, condp, {assignp}, iSymTab);
-        UASSERT_OBJ(!condp, nodep, "Conditional AstAssignW ???");
-        // Delete auxiliary AstAssign
-        VL_DO_DANGLING(assignp->deleteTree(), assignp);
-        if (!success) return false;
-
-        // Check exernal writes are observed correctly
-        if (!checkExtWrites()) return false;
-
-        // Add resolved output variable drivers
-        return addSynthesizedOutput(oSymTab);
     }
 
     // Synthesize the given AstAlways. Returns true on success.
@@ -1596,12 +1564,6 @@ class AstToDfgSynthesize final {
     bool synthesize(DfgLogic& vtx) {
         VL_RESTORER(m_logicp);
         m_logicp = &vtx;
-
-        if (AstAssignW* const nodep = VN_CAST(vtx.nodep(), AssignW)) {
-            if (!synthesizeAssignW(nodep)) return false;
-            ++m_ctx.m_synt.synthAssign;
-            return true;
-        }
 
         if (!synthesizeCfg(vtx.cfg())) return false;
         ++m_ctx.m_synt.synthAlways;
@@ -1908,12 +1870,12 @@ static void dfgSelectLogicForSynthesis(DfgGraph& dfg) {
         });
     }
 
-    // Synthesize all AssignW and simple blocks driving exactly one variable
+    // Synthesize all continuous assignments and simple blocks driving exactly one variable
     // This is approximately the old default behaviour of Dfg
     for (DfgVertex& vtx : dfg.opVertices()) {
         DfgLogic* const logicp = vtx.cast<DfgLogic>();
         if (!logicp) continue;
-        if (VN_IS(logicp->nodep(), AssignW)) {
+        if (logicp->nodep()->keyword() == VAlwaysKwd::ASSIGN) {
             worklist.push_front(*logicp);
             continue;
         }

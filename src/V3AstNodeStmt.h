@@ -1099,6 +1099,7 @@ public:
 
 // === AstNodeAssign ===
 class AstAssign final : public AstNodeAssign {
+    // @astgen op4 := strengthSpecp : Optional[AstStrengthSpec]
 public:
     AstAssign(FileLine* fl, AstNodeExpr* lhsp, AstNodeExpr* rhsp,
               AstNode* timingControlp = nullptr)

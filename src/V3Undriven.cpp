@@ -491,17 +491,12 @@ class UndrivenVisitor final : public VNVisitorConst {
 
     void visit(AstAssign* nodep) override {
         VL_RESTORER(m_inProcAssign);
-        m_inProcAssign = true;
+        m_inProcAssign = !m_inContAssign;
         iterateChildrenConst(nodep);
     }
     void visit(AstAssignDly* nodep) override {
         VL_RESTORER(m_inProcAssign);
         m_inProcAssign = true;
-        iterateChildrenConst(nodep);
-    }
-    void visit(AstAssignW* nodep) override {
-        VL_RESTORER(m_inContAssign);
-        m_inContAssign = true;
         iterateChildrenConst(nodep);
     }
     void visit(AstInitialStatic* nodep) override {
@@ -512,14 +507,11 @@ class UndrivenVisitor final : public VNVisitorConst {
     void visit(AstAlways* nodep) override {
         VL_RESTORER(m_alwaysp);
         VL_RESTORER(m_alwaysCombp);
+        VL_RESTORER(m_inContAssign);
         AstNode::user2ClearTree();
         m_alwaysp = nodep;
-        if (nodep->keyword() == VAlwaysKwd::ALWAYS_COMB) {
-            UINFO(9, "   " << nodep);
-            m_alwaysCombp = nodep;
-        } else {
-            m_alwaysCombp = nullptr;
-        }
+        m_alwaysCombp = nodep->keyword() == VAlwaysKwd::ALWAYS_COMB ? nodep : nullptr;
+        m_inContAssign = nodep->keyword() == VAlwaysKwd::ASSIGN;
         iterateChildrenConst(nodep);
         if (nodep->keyword() == VAlwaysKwd::ALWAYS_COMB) UINFO(9, "   Done " << nodep);
     }

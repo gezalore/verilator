@@ -1629,10 +1629,9 @@ class TristateVisitor final : public TristateBaseVisitor {
             } else if (inDeclProcessing) {  // Not an input that was a converted tristate
                 // Input only may have driver in underneath module which would stomp
                 // the input value.  So make a temporary connection.
-                const AstAssignW* const reAssignp
-                    = V3Inst::pinReconnectSimple(nodep, m_cellp, true, true);
-                UINFO(5, "Input pin buffering: " << reAssignp);
-                m_tgraph.setTristate(reAssignp->lhsp());
+                const AstAlways* const ap = V3Inst::pinReconnectSimple(nodep, m_cellp, true, true);
+                UINFO(5, "Input pin buffering: " << ap->stmtsp());
+                m_tgraph.setTristate(VN_AS(ap->stmtsp(), Assign)->lhsp());
             }
 
             // pinReconnectSimple needs to presume input or output behavior; we need both
@@ -1660,7 +1659,7 @@ class TristateVisitor final : public TristateBaseVisitor {
             UINFOTREE(9, enpinp, "", "pin-ena");
 
             // Create new output pin
-            const AstAssignW* outAssignp = nullptr;  // If reconnected, the related assignment
+            const AstAssign* outAssignp = nullptr;  // If reconnected, the related assignment
             AstPin* outpinp = nullptr;
             AstVar* const outModVarp = m_varAux(nodep->modVarp()).outVarp;
             if (!outModVarp) {
@@ -1689,8 +1688,9 @@ class TristateVisitor final : public TristateBaseVisitor {
                     TristatePinVisitor{outexprp, m_tgraph, true};
                 }
                 UINFOTREE(9, outpinp, "", "pin-opr");
-                outAssignp = V3Inst::pinReconnectSimple(outpinp, m_cellp,
-                                                        true);  // Note may change outpinp->exprp()
+                // Note may change outpinp->exprp()
+                const AstAlways* const ap  = V3Inst::pinReconnectSimple(outpinp, m_cellp, true);
+                outAssignp = ap ? VN_AS(ap->stmtsp(), Assign) : nullptr;
                 UINFOTREE(9, outpinp, "", "pin-out");
                 UINFOTREE(9, outAssignp, "", "pin-oas");
                 // Must still iterate the outAssignp, as need to build output equation

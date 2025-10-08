@@ -156,15 +156,17 @@ class DfgToAstVisitor final : DfgVisitor {
         AstNodeExpr* const rhsp = convertDfgVertexToAstNodeExpr(driverp);
         // Update LHS locations to reflect the location of the original driver
         lhsp->foreach([&](AstNode* nodep) { nodep->fileline(flp); });
+        // Create assignment
+        AstAssign* const assignp = new AstAssign{flp, lhsp, rhsp};
 
         // If using a process, add Assign there
         if (m_alwaysp) {
-            m_alwaysp->addStmtsp(new AstAssign{flp, lhsp, rhsp});
+            m_alwaysp->addStmtsp(assignp);
             return;
         }
 
-        // Otherwise create an AssignW
-        m_containerp->addStmtsp(new AstAssignW{flp, lhsp, rhsp});
+        // Otherwise create a continuous assignment
+        m_containerp->addStmtsp(new AstAlways{flp, VAlwaysKwd::ASSIGN, nullptr, assignp});
     }
 
     void convertDriver(FileLine* flp, AstNodeExpr* lhsp, DfgVertex* driverp) {

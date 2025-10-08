@@ -103,7 +103,7 @@ AstNode* V3ParseGrammar::createSupplyExpr(FileLine* fileline, const string& name
     AstStrengthSpec* strengthSpecp
         = new AstStrengthSpec{fileline, VStrength::SUPPLY, VStrength::SUPPLY};
     assignp->strengthSpecp(strengthSpecp);
-    return assignp;
+    return new AstAlways{fileline, VAlwaysKwd::ASSIGN, nullptr, assignp};
 }
 
 AstRange* V3ParseGrammar::scrubRange(AstNodeRange* nrangep) {
