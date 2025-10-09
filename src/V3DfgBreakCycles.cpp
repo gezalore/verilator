@@ -80,6 +80,7 @@ class TraceDriver final : public DfgVisitor {
     std::vector<Visited> m_stack;  // Stack of currently visited vertices
     // Denotes if a 'Visited' entry appear in m_stack
     std::unordered_map<Visited, bool, Visited::Hash, Visited::Equal> m_visited;
+    bool m_trueCycle = false;  // Found a true combinational cycle
 
 #ifdef VL_DEBUG
     std::ofstream m_lineCoverageFile;  // Line coverage file, just for testing
@@ -168,6 +169,9 @@ class TraceDriver final : public DfgVisitor {
             // run mulitple times and report the same error again. There will
             // be an UNOPTFLAT issued during scheduling anyway, and the true
             // cycle might still settle at run-time.
+
+            // Record there is a true combinational cycle
+            m_trueCycle = true;
 
             // Stop trace
             return nullptr;
@@ -655,15 +659,16 @@ class TraceDriver final : public DfgVisitor {
     }
 
 public:
-    // Given a Vertex that is part of an SCC denoted by vtx2Scc,
-    // return a vertex that is equivalent to 'vtxp[lsb +: width]', but is not
-    // part of the same SCC. Returns nullptr if such a vertex cannot be
-    // computed. This can add new vertices to the graph. The 'aggressive' flag
-    // enables creating many intermediate operations. This should only be set
-    // if it is reasonably certain the tracing will succeed, otherwise we can
-    // waste a lot of compute.
-    static DfgVertex* apply(DfgGraph& dfg, Vtx2Scc& vtx2Scc, DfgVertex& vtx, uint32_t lsb,
-                            uint32_t width, bool aggressive) {
+    // Given a Vertex that is part of an SCC denoted by vtx2Scc, return a
+    // vertex that is equivalent to 'vtxp[lsb +: width]', but is not part of
+    // the same SCC. Returns nullptr if such a vertex cannot be computed. This
+    // can add new vertices to the graph. The 'aggressive' flag enables
+    // creating many intermediate operations. This should only be set if it is
+    // reasonably certain the tracing will succeed, otherwise we can waste a
+    // lot of compute. Also returns a bool flag which is true iff a true
+    // combinational cycle was encountered.
+    static std::pair<DfgVertex*, bool> apply(DfgGraph& dfg, Vtx2Scc& vtx2Scc, DfgVertex& vtx,
+                                             uint32_t lsb, uint32_t width, bool aggressive) {
         TraceDriver traceDriver{dfg, vtx2Scc, vtx2Scc[vtx], aggressive};
         // Find the out-of-component driver of the given vertex
         DfgVertex* const resultp = traceDriver.trace(&vtx, lsb + width - 1, lsb);
@@ -680,7 +685,7 @@ public:
             VL_DO_DANGLING(newp->unlinkDelete(dfg), newp);
         }
         // Return the result
-        return resultp;
+        return {resultp, traceDriver.m_trueCycle};
     }
 };
 
@@ -1020,6 +1025,7 @@ class FixUpSelDrivers final {
     DfgGraph& m_dfg;  // The graph being processed
     Vtx2Scc& m_vtx2Scc;  // The Vertex to SCC map
     size_t m_nImprovements = 0;  // Number of improvements mde
+    bool m_trueCycle = false;  // Found a true combinational cycle
 
     void fixUpSelSinks(DfgVertex& vtx) {
         const uint64_t component = m_vtx2Scc[vtx];
@@ -1030,8 +1036,11 @@ class FixUpSelDrivers final {
             DfgSel* const selp = sink.cast<DfgSel>();
             if (!selp) return false;
             // Try to find the driver of the selected bits outside the cycle
-            DfgVertex* const fixp
+            const auto pair
                 = TraceDriver::apply(m_dfg, m_vtx2Scc, vtx, selp->lsb(), selp->width(), false);
+            if (pair.second) m_trueCycle = true;
+            if (m_trueCycle) return true;
+            DfgVertex* const fixp = pair.first;
             if (!fixp) return false;
             // Found an out-of-cycle driver. We can replace this sel with that.
             selp->replaceWith(fixp);
@@ -1050,8 +1059,10 @@ class FixUpSelDrivers final {
             DfgArraySel* const asp = sink.cast<DfgArraySel>();
             if (!asp) return false;
             // First, try to fix up the whole word
-            DfgVertex* const fixp
-                = TraceDriver::apply(m_dfg, m_vtx2Scc, *asp, 0, asp->width(), false);
+            const auto pair = TraceDriver::apply(m_dfg, m_vtx2Scc, *asp, 0, asp->width(), false);
+            if (pair.second) m_trueCycle = true;
+            if (m_trueCycle) return true;
+            DfgVertex* const fixp = pair.first;
             if (fixp) {
                 // Found an out-of-cycle driver for the whole ArraySel
                 asp->replaceWith(fixp);
@@ -1061,6 +1072,7 @@ class FixUpSelDrivers final {
             }
             // Attempt to fix up piece-wise at Sels applied to the ArraySel
             fixUpSelSinks(*asp);
+            if (m_trueCycle) return true;
             // Remove if became unused
             if (!asp->hasSinks()) asp->unlinkDelete(m_dfg);
             return false;
@@ -1082,12 +1094,13 @@ class FixUpSelDrivers final {
     }
 
 public:
-    // Attempt to push Sel form Var through to the driving
-    // expression of the selected bits. This can fix things like
-    // 'a[1:0] = foo', 'a[2] = a[1]', which are somewhat common.
-    // Returns the number of drivers fixed up.
-    static size_t apply(DfgGraph& dfg, Vtx2Scc& vtx2Scc, DfgVertexVar& var) {
-        return FixUpSelDrivers{dfg, vtx2Scc, var}.m_nImprovements;
+    // Attempt to push Sel form Var through to the driving expression of the
+    // selected bits. This can fix things like 'a[1:0] = foo', 'a[2] = a[1]',
+    // which are somewhat common. Returns the number of drivers fixed up, and
+    // a bool flag indicating iff a true combinational cycles is found.
+    static std::pair<size_t, bool> apply(DfgGraph& dfg, Vtx2Scc& vtx2Scc, DfgVertexVar& var) {
+        const FixUpSelDrivers inst{dfg, vtx2Scc, var};
+        return {inst.m_nImprovements, inst.m_trueCycle};
     }
 };
 
@@ -1095,6 +1108,7 @@ class FixUpIndependentRanges final {
     DfgGraph& m_dfg;  // The graph being processed
     Vtx2Scc& m_vtx2Scc;  // The Vertex to SCC map
     size_t m_nImprovements = 0;  // Number of improvements mde
+    bool m_trueCycle = false;  // Found a true combinational cycle
 
     // Returns a bitmask set if that bit of 'vtx' is used (has a sink)
     static V3Number computeUsedBits(DfgVertex& vtx) {
@@ -1140,7 +1154,9 @@ class FixUpIndependentRanges final {
             DfgVertex* termp = nullptr;
             // If the range is not self-dependent, attempt to trace its driver
             if (isIndependent) {
-                termp = TraceDriver::apply(m_dfg, m_vtx2Scc, vtx, lsb, width, true);
+                const auto pair = TraceDriver::apply(m_dfg, m_vtx2Scc, vtx, lsb, width, true);
+                if (pair.second) m_trueCycle = true;
+                termp = pair.first;
                 if (termp) {
                     ++m_nImprovements;
                 } else {
@@ -1287,10 +1303,11 @@ class FixUpIndependentRanges final {
 
 public:
     // Similar to FixUpSelDrivers, but first comptute which bits of the
-    // variable are self dependent, and fix up those that are independent
-    // but used.
-    static size_t apply(DfgGraph& dfg, Vtx2Scc& vtx2Scc, DfgVertexVar& var) {
-        return FixUpIndependentRanges{dfg, vtx2Scc, var}.m_nImprovements;
+    // variable are self dependent, and fix up those that are independent but
+    // used.
+    static std::pair<size_t, bool> apply(DfgGraph& dfg, Vtx2Scc& vtx2Scc, DfgVertexVar& var) {
+        const FixUpIndependentRanges inst{dfg, vtx2Scc, var};
+        return {inst.m_nImprovements, inst.m_trueCycle};
     }
 };
 
@@ -1326,6 +1343,8 @@ V3DfgPasses::breakCycles(const DfgGraph& dfg, V3DfgContext& ctx) {
     // How many improvements have we made
     size_t nImprovements = 0;
     size_t prevNImprovements;
+    // Set when found a true combinational cycle
+    bool trueCycle = false;
 
     // Iterate while an improvement can be made and the graph is still cyclic
     do {
@@ -1351,14 +1370,20 @@ V3DfgPasses::breakCycles(const DfgGraph& dfg, V3DfgContext& ctx) {
             // If Variable is not part of a cycle, move on
             if (!vtx2Scc[vtx]) continue;
 
-            const size_t nFixed = FixUpSelDrivers::apply(res, vtx2Scc, vtx);
-            if (nFixed) {
+            const auto pair = FixUpSelDrivers::apply(res, vtx2Scc, vtx);
+            if (pair.second) {
+                trueCycle = true;
+                break;
+            }
+            if (const size_t nFixed = pair.first) {
                 nImprovements += nFixed;
                 ctx.m_breakCyclesContext.m_nImprovements += nFixed;
                 dump(9, res, "FixUpSelDrivers");
             }
         }
 
+        // Give up if found a true cycle,
+        if (trueCycle) break;
         // If we managed to fix something, try again with the earlier methods
         if (nImprovements != prevNImprovements) continue;
 
@@ -1367,13 +1392,20 @@ V3DfgPasses::breakCycles(const DfgGraph& dfg, V3DfgContext& ctx) {
             // If Variable is not part of a cycle, move on
             if (!vtx2Scc[vtx]) continue;
 
-            const size_t nFixed = FixUpIndependentRanges::apply(res, vtx2Scc, vtx);
-            if (nFixed) {
+            const auto pair = FixUpIndependentRanges::apply(res, vtx2Scc, vtx);
+            if (pair.second) {
+                trueCycle = true;
+                break;
+            }
+            if (const size_t nFixed = pair.first) {
                 nImprovements += nFixed;
                 ctx.m_breakCyclesContext.m_nImprovements += nFixed;
                 dump(9, res, "FixUpIndependentRanges");
             }
         }
+
+        // Give up if found a true cycle,
+        if (trueCycle) break;
     } while (nImprovements != prevNImprovements);
 
     if (dumpDfgLevel() >= 9) {
@@ -1382,6 +1414,14 @@ V3DfgPasses::breakCycles(const DfgGraph& dfg, V3DfgContext& ctx) {
         res.dumpDotFilePrefixed(ctx.prefix() + "breakCycles-remaining", [&](const DfgVertex& vtx) {
             return vtx2Scc[vtx];  //
         });
+    }
+
+    // If a true cycle is found, abandon any improvements and use the original graph
+    if (trueCycle) {
+        UINFO(7, "Graph conains true cycle");
+        dump(7, res, "result-truecycle");
+        ++ctx.m_breakCyclesContext.m_nTrueCycle;
+        return {nullptr, false};
     }
 
     // If an improvement was made, return the still cyclic improved graph

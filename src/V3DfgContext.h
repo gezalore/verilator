@@ -108,7 +108,8 @@ public:
     // STATE
     VDouble0 m_nFixed;  // Number of graphs that became acyclic
     VDouble0 m_nImproved;  // Number of graphs that were imporoved but still cyclic
-    VDouble0 m_nUnchanged;  // Number of graphs that were left unchanged
+    VDouble0 m_nUnchanged;  // Number of graphs that were left unchanged - but not true cycles
+    VDouble0 m_nTrueCycle;  // Number of graphs that contain a true cycle
     VDouble0 m_nTrivial;  // Number of graphs that were not changed
     VDouble0 m_nImprovements;  // Number of changes made to graphs
 
@@ -119,6 +120,7 @@ private:
         addStat("made acyclic", m_nFixed);
         addStat("improved", m_nImproved);
         addStat("left unchanged", m_nUnchanged);
+        addStat("true cycle", m_nTrueCycle);
         addStat("trivial", m_nTrivial);
         addStat("changes applied", m_nImprovements);
     }

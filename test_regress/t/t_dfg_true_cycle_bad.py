@@ -11,6 +11,11 @@ import vltest_bootstrap
 
 test.scenarios('vlt')
 
-test.lint(fails=True, expect_filename=test.golden_filename)
+test.lint(verilator_flags2=["--stats", "-Wno-fatal", "--no-skip-identical"],
+          expect_filename=test.golden_filename)
+
+test.file_grep(test.stats, r'DFG pre inline BreakCycles, true cycle\s+(\d+)', 1)
+test.file_grep(test.stats, r'DFG post inline BreakCycles, true cycle\s+(\d+)', 1)
+test.file_grep(test.stats, r'DFG scoped BreakCycles, true cycle\s+(\d+)', 1)
 
 test.passes()
