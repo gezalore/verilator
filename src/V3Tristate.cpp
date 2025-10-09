@@ -513,9 +513,12 @@ public:
 //         } else if (AstConst* const constp = VN_CAST(nodep, Const)) {
 //             return getNonZConstp(constp);
 //         } else if (AstExtend* const extendp = VN_CAST(nodep, Extend)) {
-//             // Extend inserts 0 at the beginning. 0 in __en variable means that this bit equals z,
-//             // so in order to preserve the value of the original AstExtend node we should insert 1
-//             // instead of 0. To extend __en expression we have to negate its lhsp() and then negate
+//             // Extend inserts 0 at the beginning. 0 in __en variable means that this bit equals
+//             z,
+//             // so in order to preserve the value of the original AstExtend node we should insert
+//             1
+//             // instead of 0. To extend __en expression we have to negate its lhsp() and then
+//             negate
 //             // whole extend.
 
 //             // Unlink lhsp before copying to save unnecessary copy of lhsp
@@ -655,11 +658,13 @@ public:
 //         }
 //     }
 
-//     void aggregateTriSameStrength(AstNodeModule* nodep, AstVar* const varp, AstVar* const envarp,
+//     void aggregateTriSameStrength(AstNodeModule* nodep, AstVar* const varp, AstVar* const
+//     envarp,
 //                                   RefStrengthVec::iterator beginStrength,
 //                                   RefStrengthVec::iterator endStrength) {
 //         // For each driver separate variables (normal and __en) are created and initialized with
-//         // values. In case of normal variable, the original expression is reused. Their values are
+//         // values. In case of normal variable, the original expression is reused. Their values
+//         are
 //         // aggregated using | to form one expression, which are assigned to varp end envarp.
 //         AstNodeExpr* orp = nullptr;
 //         AstNodeExpr* enp = nullptr;
@@ -678,7 +683,8 @@ public:
 //             // create a new var for this drivers enable signal
 //             AstVar* const newEnLhsp
 //                 = new AstVar{varp->fileline(), VVarType::MODULETEMP,
-//                              varp->name() + "__en" + cvtToStr(m_unique++), envarp};  // 2-state ok
+//                              varp->name() + "__en" + cvtToStr(m_unique++), envarp};  // 2-state
+//                              ok
 //             UINFO(9, "       newenlhsp " << newEnLhsp);
 //             nodep->addStmtsp(newEnLhsp);
 
@@ -690,14 +696,15 @@ public:
 
 //             // now append this driver to the driver logic.
 //             AstNodeExpr* const ref1p = new AstVarRef{refp->fileline(), newLhsp, VAccess::READ};
-//             AstNodeExpr* const ref2p = new AstVarRef{refp->fileline(), newEnLhsp, VAccess::READ};
-//             AstNodeExpr* const andp = new AstAnd{refp->fileline(), ref1p, ref2p};
+//             AstNodeExpr* const ref2p = new AstVarRef{refp->fileline(), newEnLhsp,
+//             VAccess::READ}; AstNodeExpr* const andp = new AstAnd{refp->fileline(), ref1p,
+//             ref2p};
 
 //             // or this to the others
 //             orp = (!orp) ? andp : new AstOr{refp->fileline(), orp, andp};
 
-//             AstNodeExpr* const ref3p = new AstVarRef{refp->fileline(), newEnLhsp, VAccess::READ};
-//             enp = (!enp) ? ref3p : new AstOr{ref3p->fileline(), enp, ref3p};
+//             AstNodeExpr* const ref3p = new AstVarRef{refp->fileline(), newEnLhsp,
+//             VAccess::READ}; enp = (!enp) ? ref3p : new AstOr{ref3p->fileline(), enp, ref3p};
 //         }
 //         AstNode* const assp = new AstAssignW{
 //             varp->fileline(), new AstVarRef{varp->fileline(), varp, VAccess::WRITE}, orp};
@@ -710,7 +717,8 @@ public:
 //         nodep->addStmtsp(enAssp);
 //     }
 
-//     void insertTristatesSignal(AstNodeModule* nodep, AstVar* const invarp, RefStrengthVec* refsp) {
+//     void insertTristatesSignal(AstNodeModule* nodep, AstVar* const invarp, RefStrengthVec*
+//     refsp) {
 //         UINFO(8, "  TRISTATE EXPANDING:" << invarp);
 //         ++m_statTriSigs;
 //         m_tgraph.didProcess(invarp);
@@ -740,7 +748,8 @@ public:
 //             // Create an output enable port (__en)
 //             // May already be created if have foo === 1'bz somewhere
 //             envarp
-//                 = getCreateEnVarp(invarp, isTopInout);  // direction will be sen in visit(AstPin*)
+//                 = getCreateEnVarp(invarp, isTopInout);  // direction will be sen in
+//                 visit(AstPin*)
 //             //
 //             outvarp->user1p(envarp);
 //             m_varAux(outvarp).pullp = m_varAux(invarp).pullp;  // AstPull* propagation
@@ -763,7 +772,8 @@ public:
 //                 endStrength++;
 
 //             FileLine* const fl = beginStrength->m_varrefp->fileline();
-//             const string strengthVarName = lhsp->name() + "__" + beginStrength->m_strength.ascii();
+//             const string strengthVarName = lhsp->name() + "__" +
+//             beginStrength->m_strength.ascii();
 
 //             // var__strength variable
 //             AstVar* varStrengthp = new AstVar{fl, VVarType::MODULETEMP, strengthVarName,
@@ -772,7 +782,8 @@ public:
 //             nodep->addStmtsp(varStrengthp);
 
 //             // var__strength__en variable
-//             AstVar* enVarStrengthp = new AstVar{fl, VVarType::MODULETEMP, strengthVarName + "__en",
+//             AstVar* enVarStrengthp = new AstVar{fl, VVarType::MODULETEMP, strengthVarName +
+//             "__en",
 //                                                 invarp};  // 2-state ok;
 //             UINFO(9, "       newenstrength " << enVarStrengthp);
 //             nodep->addStmtsp(enVarStrengthp);
@@ -782,8 +793,8 @@ public:
 
 //             AstNodeExpr* exprCurrentStrengthp;
 //             if (enp) {
-//                 // If weaker driver should be overwritten by a stronger, replace its value with z
-//                 exprCurrentStrengthp
+//                 // If weaker driver should be overwritten by a stronger, replace its value with
+//                 z exprCurrentStrengthp
 //                     = new AstAnd{fl, new AstVarRef{fl, varStrengthp, VAccess::READ},
 //                                  new AstNot{fl, enp->cloneTreePure(false)}};
 //             } else {
@@ -807,7 +818,8 @@ public:
 //             AstNodeExpr* undrivenp;
 //             if (envarp) {
 //                 undrivenp = new AstNot{envarp->fileline(),
-//                                        new AstVarRef{envarp->fileline(), envarp, VAccess::READ}};
+//                                        new AstVarRef{envarp->fileline(), envarp,
+//                                        VAccess::READ}};
 //             } else {
 //                 if (enp) {
 //                     undrivenp = new AstNot{enp->fileline(), enp};
@@ -823,7 +835,8 @@ public:
 
 //         if (envarp) {
 //             AstAssignW* const enAssp = new AstAssignW{
-//                 enp->fileline(), new AstVarRef{envarp->fileline(), envarp, VAccess::WRITE}, enp};
+//                 enp->fileline(), new AstVarRef{envarp->fileline(), envarp, VAccess::WRITE},
+//                 enp};
 //             UINFOTREE(9, enAssp, "", "enAssp");
 //             nodep->addStmtsp(enAssp);
 //         }
@@ -904,7 +917,8 @@ public:
 //     }
 
 //     bool isAssignmentNotStrongerThanStrength(AstAssignW* assignp, uint8_t strength) {
-//         // If the value of the RHS is known and has all bits equal, only strength corresponding to
+//         // If the value of the RHS is known and has all bits equal, only strength corresponding
+//         to
 //         // its value is taken into account. In opposite case, both strengths are compared.
 //         const uint8_t strength0 = getStrength(assignp, 0);
 //         const uint8_t strength1 = getStrength(assignp, 1);
@@ -913,7 +927,8 @@ public:
 //                || (strength1 <= strength && assignmentOfValueOnAllBits(assignp, 1));
 //     }
 
-//     AstNodeExpr* newMergeExpr(AstNodeExpr* const lhsp, AstNodeExpr* const rhsp, FileLine* const fl,
+//     AstNodeExpr* newMergeExpr(AstNodeExpr* const lhsp, AstNodeExpr* const rhsp, FileLine* const
+//     fl,
 //                               bool isWor) {
 //         AstNodeExpr* expr = nullptr;
 //         if (isWor)
@@ -942,7 +957,8 @@ public:
 //                                                 assignWpi->rhsp()->cloneTreePure(false), fl,
 //                                                 varp->isWor());
 //                         } else {
-//                             wExp = newMergeExpr(wExp, assignWpi->rhsp()->cloneTreePure(false), fl,
+//                             wExp = newMergeExpr(wExp, assignWpi->rhsp()->cloneTreePure(false),
+//                             fl,
 //                                                 varp->isWor());
 //                         }
 //                         VL_DO_DANGLING((assignWpi->unlinkFrBack()->deleteTree()), assignWpi);
@@ -960,12 +976,15 @@ public:
 
 //     void removeNotStrongerAssignments(Assigns& assigns, AstAssignW* strongestp,
 //                                       uint8_t greatestKnownStrength) {
-//         // Weaker assignments are these assignments that can't change the final value of the net.
-//         // They can be safely removed. Assignments of the same strength are also removed, because
+//         // Weaker assignments are these assignments that can't change the final value of the
+//         net.
+//         // They can be safely removed. Assignments of the same strength are also removed,
+//         because
 //         // duplicates aren't needed. One problem is with 2 assignments of different values and
 //         // equal strengths. It should result in assignment of x value, but these values aren't
 //         // supported now.
-//         auto removedIt = std::remove_if(assigns.begin(), assigns.end(), [&](AstAssignW* assignp) {
+//         auto removedIt = std::remove_if(assigns.begin(), assigns.end(), [&](AstAssignW* assignp)
+//         {
 //             if (assignp == strongestp) return false;
 //             if (isAssignmentNotStrongerThanStrength(assignp, greatestKnownStrength)) {
 //                 // Vertices corresponding to nodes from removed assignment's subtree have to be
@@ -1011,7 +1030,8 @@ public:
 //     void removeAssignmentsNotStrongerThanNonTristate() {
 //         // Similar function as removeAssignmentsNotStrongerThanUniformConstant, but here the
 //         // assignments that have strength not stronger than the strongest assignment with
-//         // non-tristate RHS are removed. Strengths are compared according to their smaller values,
+//         // non-tristate RHS are removed. Strengths are compared according to their smaller
+//         values,
 //         // because the values of RHSs are unknown. (Assignments not stronger than strongest
 //         // constant are already removed.)
 //         for (auto& varpAssigns : m_assigns) {
@@ -1047,7 +1067,8 @@ public:
 //         } else {
 //             // Detect any Z consts and convert them to 0's with an enable that is also 0.
 //             if (m_alhs && nodep->user1p()) {
-//                 // A pin with 1'b0 or similar connection results in an assign with constant on LHS
+//                 // A pin with 1'b0 or similar connection results in an assign with constant on
+//                 LHS
 //                 // due to the pinReconnectSimple call in visit AstPin.
 //                 // We can ignore the output override by making a temporary
 //                 AstVar* const varp = getCreateUnconnVarp(nodep, nodep->dtypep());
@@ -1082,7 +1103,8 @@ public:
 //         } else {
 //             if (m_alhs && nodep->user1p()) {
 //                 nodep->v3warn(E_UNSUPPORTED,
-//                               "Unsupported LHS tristate construct: " << nodep->prettyTypeName());
+//                               "Unsupported LHS tristate construct: " <<
+//                               nodep->prettyTypeName());
 //                 return;
 //             }
 //             iterateChildren(nodep);
@@ -1140,8 +1162,8 @@ public:
 //             if (m_alhs) {
 //                 UINFO(9, dbgState() << nodep);
 //                 if (nodep->user1p()) {
-//                     // Form a "deposit" instruction.  Would be nicer if we made this a new AST type
-//                     AstNodeExpr* const newp
+//                     // Form a "deposit" instruction.  Would be nicer if we made this a new AST
+//                     type AstNodeExpr* const newp
 //                         = newEnableDeposit(nodep, VN_AS(nodep->user1p(), NodeExpr));
 //                     nodep->fromp()->user1p(newp);  // Push to varref (etc)
 //                     UINFOTREE(9, newp, "", "assign-sel");
@@ -1158,7 +1180,8 @@ public:
 //                 if (nodep->fromp()->user1p()) {  // SEL(VARREF, lsb)
 //                     AstNodeExpr* const en1p = getEnp(nodep->fromp());
 //                     AstNodeExpr* const enp
-//                         = new AstSel{nodep->fileline(), en1p, nodep->lsbp()->cloneTreePure(true),
+//                         = new AstSel{nodep->fileline(), en1p,
+//                         nodep->lsbp()->cloneTreePure(true),
 //                                      nodep->widthConst()};
 //                     UINFO(9, "       newsel " << enp);
 //                     nodep->user1p(enp);  // propagate up SEL(fromp->enable, value)
@@ -1185,7 +1208,8 @@ public:
 //                     // Each half of the concat gets a select of the enable expression
 //                     AstNodeExpr* const enp = VN_AS(nodep->user1p(), NodeExpr);
 //                     nodep->user1p(nullptr);
-//                     nodep->lhsp()->user1p(new AstSel{nodep->fileline(), enp->cloneTreePure(true),
+//                     nodep->lhsp()->user1p(new AstSel{nodep->fileline(),
+//                     enp->cloneTreePure(true),
 //                                                      nodep->rhsp()->width(),
 //                                                      nodep->lhsp()->width()});
 //                     nodep->rhsp()->user1p(
@@ -1225,7 +1249,8 @@ public:
 //             UINFOTREE(9, nodep->backp(), "", "bufif");
 //             if (m_alhs) {
 //                 nodep->v3warn(E_UNSUPPORTED,
-//                               "Unsupported LHS tristate construct: " << nodep->prettyTypeName());
+//                               "Unsupported LHS tristate construct: " <<
+//                               nodep->prettyTypeName());
 //                 return;
 //             }
 //             m_tgraph.didProcess(nodep);
@@ -1256,7 +1281,8 @@ public:
 //         } else {
 //             if (m_alhs && nodep->user1p()) {
 //                 nodep->v3warn(E_UNSUPPORTED,
-//                               "Unsupported LHS tristate construct: " << nodep->prettyTypeName());
+//                               "Unsupported LHS tristate construct: " <<
+//                               nodep->prettyTypeName());
 //                 return;
 //             }
 //             // ANDs and Z's have issues. Earlier optimizations convert
@@ -1419,7 +1445,8 @@ public:
 //                 constp->unlinkFrBack();
 //                 AstNodeExpr* const rhsp = nodep->rhsp()->unlinkFrBack();
 //                 AstNodeExpr* newp = new AstLogAnd{fl,
-//                                                   new AstEq{fl, newAllZerosOrOnes(constp, false),
+//                                                   new AstEq{fl, newAllZerosOrOnes(constp,
+//                                                   false),
 //                                                             VN_AS(rhsp->user1p(), NodeExpr)},
 //                                                   // Keep the caseeq if there are X's present
 //                                                   new AstEqCase{fl, constp, rhsp}};
@@ -1479,8 +1506,8 @@ public:
 //                 // do so at present, we only compare if there is a z in the equation. Otherwise
 //                 // we'd need to attach an enable to every signal, then optimize them away later
 //                 // when we determine the signal has no tristate
-//                 const AstVarRef* const varrefp = VN_CAST(nodep->lhsp(), VarRef);  // Input variable
-//                 if (!varrefp) {
+//                 const AstVarRef* const varrefp = VN_CAST(nodep->lhsp(), VarRef);  // Input
+//                 variable if (!varrefp) {
 //                     nodep->v3warn(E_UNSUPPORTED, "Unsupported LHS tristate construct: "
 //                                                      << nodep->prettyTypeName());
 //                     return;
@@ -1629,8 +1656,8 @@ public:
 //             } else if (inDeclProcessing) {  // Not an input that was a converted tristate
 //                 // Input only may have driver in underneath module which would stomp
 //                 // the input value.  So make a temporary connection.
-//                 const AstAlways* const ap = V3Inst::pinReconnectSimple(nodep, m_cellp, true, true);
-//                 UINFO(5, "Input pin buffering: " << ap->stmtsp());
+//                 const AstAlways* const ap = V3Inst::pinReconnectSimple(nodep, m_cellp, true,
+//                 true); UINFO(5, "Input pin buffering: " << ap->stmtsp());
 //                 m_tgraph.setTristate(VN_AS(ap->stmtsp(), Assign)->lhsp());
 //             }
 
@@ -1670,7 +1697,8 @@ public:
 //                 }
 //             } else {
 //                 AstNodeExpr* const outexprp = VN_AS(nodep->exprp(), NodeExpr)
-//                                                   ->cloneTreePure(false);  // Note has lvalue() set
+//                                                   ->cloneTreePure(false);  // Note has lvalue()
+//                                                   set
 //                 outpinp = new AstPin{nodep->fileline(), nodep->pinNum(),
 //                                      outModVarp->name(),  // should be {var}"__out"
 //                                      outexprp};
@@ -1781,9 +1809,8 @@ public:
 //                     }
 //                     return;
 //                 }
-//                 UASSERT_OBJ(!nodep->access().isRW(), nodep, "Tristate unexpected on R/W access");
-//                 m_tgraph.didProcess(nodep);
-//                 mapInsertLhsVarRef(nodep);
+//                 UASSERT_OBJ(!nodep->access().isRW(), nodep, "Tristate unexpected on R/W
+//                 access"); m_tgraph.didProcess(nodep); mapInsertLhsVarRef(nodep);
 //             } else if (nodep->access().isReadOnly()
 //                        // Not already processed, nor varref from visit(AstPin) creation
 //                        && !nodep->user1p()
@@ -1820,7 +1847,8 @@ public:
 //                 // Note unconnected output only changes behavior vs. previous
 //                 // versions and causes outputs that don't come from anywhere to
 //                 // possibly create connection errors.
-//                 // One example of problems is this:  "output z;  task t; z <= {something}; endtask"
+//                 // One example of problems is this:  "output z;  task t; z <= {something};
+//                 endtask"
 //             ) {
 //                 UINFO(9, "  setTristate-inout " << nodep);
 //                 m_tgraph.setTristate(nodep);

@@ -1488,7 +1488,7 @@ class WidthVisitor final : public VNVisitor {
     }
 
     AstAlways* convertSetupholdToAssign(FileLine* const flp, AstNodeExpr* const evp,
-                                         AstNodeExpr* const delp) {
+                                        AstNodeExpr* const delp) {
         AstNodeExpr* const lhsp = delp->cloneTreePure(false);
         AstNodeExpr* const rhsp = evp->cloneTreePure(false);
         UASSERT_OBJ(VN_IS(lhsp, NodeVarRef) || VN_IS(lhsp, NodePreSel), lhsp,

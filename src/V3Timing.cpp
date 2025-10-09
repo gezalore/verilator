@@ -1068,8 +1068,8 @@ class TimingControlVisitor final : public VNVisitor {
     }
     // void visit(AstAssignW* nodep) override {
     //     FileLine* const flp = nodep->fileline();
-    //     // Get the net delay unless this assignment was created for handling the net delay (user1)
-    //     AstDelay* const netDelayp = nodep->user1() ? nullptr : nodep->getLhsNetDelay();
+    //     // Get the net delay unless this assignment was created for handling the net delay
+    //     (user1) AstDelay* const netDelayp = nodep->user1() ? nullptr : nodep->getLhsNetDelay();
     //     if (netDelayp) {
     //         if (nodep->timingControlp()) {
     //             // If this assignment has a delay, create another one to handle the net delay
@@ -1101,10 +1101,12 @@ class TimingControlVisitor final : public VNVisitor {
     //     AstAlways* const alwaysp = nodep->convertToAlways();
     //     visit(alwaysp);  // Visit now as we need to do some post-processing
     //     VL_DO_DANGLING(nodep->deleteTree(), nodep);
-    //     // IEEE 1800-2023 10.3.3 - if the RHS value differs from the currently scheduled value to
+    //     // IEEE 1800-2023 10.3.3 - if the RHS value differs from the currently scheduled value
+    //     to
     //     // be assigned, the currently scheduled assignment is descheduled. To keep track if an
     //     // assignment should be descheduled, each scheduled assignment event has a 'generation',
-    //     // and if at assignment time its generation differs from the current generation, it won't
+    //     // and if at assignment time its generation differs from the current generation, it
+    //     won't
     //     // be performed
     //     AstFork* const forkp = VN_AS(alwaysp->stmtsp(), Fork);
     //     UASSERT_OBJ(forkp, alwaysp, "Fork should be there from convertToAlways()");
@@ -1140,7 +1142,8 @@ class TimingControlVisitor final : public VNVisitor {
     //     tmpAssignRhsp->access(VAccess::WRITE);
     //     preAssignp->addNextHere(
     //         new AstAssign{flp, new AstVarRef{flp, tmpVarp, VAccess::WRITE}, tmpAssignRhsp});
-    //     // If the RHS is different from the currently scheduled value, schedule the new assignment
+    //     // If the RHS is different from the currently scheduled value, schedule the new
+    //     assignment
     //     // The generation will increase, effectively 'descheduling' the previous assignment.
     //     alwaysp->addStmtsp(new AstIf{flp,
     //                                  new AstNeq{flp, preAssignp->rhsp()->cloneTree(false),

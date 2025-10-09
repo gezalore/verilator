@@ -98,8 +98,8 @@ AstArg* V3ParseGrammar::argWrapList(AstNodeExpr* nodep) {
 
 AstNode* V3ParseGrammar::createSupplyExpr(FileLine* fileline, const string& name, int value) {
     AstAssign* assignp = new AstAssign{fileline, new AstParseRef{fileline, name},
-                                        value ? new AstConst{fileline, AstConst::All1{}}
-                                              : new AstConst{fileline, AstConst::All0{}}};
+                                       value ? new AstConst{fileline, AstConst::All1{}}
+                                             : new AstConst{fileline, AstConst::All0{}}};
     AstStrengthSpec* strengthSpecp
         = new AstStrengthSpec{fileline, VStrength::SUPPLY, VStrength::SUPPLY};
     assignp->strengthSpecp(strengthSpecp);

@@ -2189,11 +2189,11 @@ class ConstVisitor final : public VNVisitor {
             && !VN_IS(nodep, AssignDly)) {
             // X = X.  Quite pointless, though X <= X may override another earlier assignment
             // if (VN_IS(nodep, AssignW)) {
-            //     nodep->v3error("Wire inputs its own output, creating circular logic (wire x=x)");
-            //     return false;  // Don't delete the assign, or V3Gate will freak out
+            //     nodep->v3error("Wire inputs its own output, creating circular logic (wire
+            //     x=x)"); return false;  // Don't delete the assign, or V3Gate will freak out
             // } else {
-                VL_DO_DANGLING(pushDeletep(nodep->unlinkFrBack()), nodep);
-                return true;
+            VL_DO_DANGLING(pushDeletep(nodep->unlinkFrBack()), nodep);
+            return true;
             // }
         } else if (m_doV && VN_IS(nodep->lhsp(), Concat)) {
             bool need_temp = false;
@@ -3252,13 +3252,16 @@ class ConstVisitor final : public VNVisitor {
     //     if (m_doNConst && replaceNodeAssign(nodep)) return;
     //     AstNodeVarRef* const varrefp = VN_CAST(
     //         nodep->lhsp(),
-    //         VarRef);  // Not VarXRef, as different refs may set different values to each hierarchy
+    //         VarRef);  // Not VarXRef, as different refs may set different values to each
+    //         hierarchy
     //     if (m_wremove && !m_params && m_doNConst && m_modp && operandConst(nodep->rhsp())
     //         && !VN_AS(nodep->rhsp(), Const)->num().isFourState()
     //         && varrefp  // Don't do messes with BITREFs/ARRAYREFs
-    //         && !varrefp->varp()->hasStrengthAssignment()  // Strengths are resolved in V3Tristate
+    //         && !varrefp->varp()->hasStrengthAssignment()  // Strengths are resolved in
+    //         V3Tristate
     //         && !varrefp->varp()->valuep()  // Not already constified
-    //         && !varrefp->varScopep()  // Not scoped (or each scope may have different initial val.)
+    //         && !varrefp->varScopep()  // Not scoped (or each scope may have different initial
+    //         val.)
     //         && !varrefp->varp()->isForced()  // Not forced (not really a constant)
     //     ) {
     //         // ASSIGNW (VARREF, const) -> INITIAL ( ASSIGN (VARREF, const) )

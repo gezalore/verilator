@@ -3188,7 +3188,8 @@ AstDelay* AstAssign::getLhsNetDelay() const { return getLhsNetDelayRecurse(lhsp(
 //     FileLine* const flp = fileline();
 //     AstNode* bodysp = new AstAssign{flp, lhs1p, rhs1p, controlp};
 //     if (hasTimingControl) {
-//         // If there's a timing control, put the assignment in a fork..join_none. This process won't
+//         // If there's a timing control, put the assignment in a fork..join_none. This process
+//         won't
 //         // get marked as suspendable and thus will be scheduled normally
 //         AstBegin* const beginp = new AstBegin{flp, "", bodysp, false};
 //         AstFork* const forkp = new AstFork{flp, "", beginp};

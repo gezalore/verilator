@@ -1145,8 +1145,8 @@ public:
 //         : ASTGEN_SUPER_AssignW(fl, lhsp, rhsp, timingControlp) {}
 //     ASTGEN_MEMBERS_AstAssignW;
 //     AstNodeAssign* cloneType(AstNodeExpr* lhsp, AstNodeExpr* rhsp) override {
-//         AstNode* const controlp = timingControlp() ? timingControlp()->cloneTree(false) : nullptr;
-//         return new AstAssignW{fileline(), lhsp, rhsp, controlp};
+//         AstNode* const controlp = timingControlp() ? timingControlp()->cloneTree(false) :
+//         nullptr; return new AstAssignW{fileline(), lhsp, rhsp, controlp};
 //     }
 //     bool isTimingControl() const override {
 //         return timingControlp() || lhsp()->exists([](const AstNodeVarRef* refp) {
