@@ -54,6 +54,7 @@ class WidthCommitVisitor final : public VNVisitor {
     bool m_taskRefWarn = true;  // Allow task reference warnings
     bool m_underSel = false;  // Under AstMemberSel or AstSel
     bool m_underAlwaysEdged = false;  // Under always with sequential SenTree
+    bool m_underAlwaysAssign = false;  // Under always for continuous assignment
     std::vector<AstNew*> m_virtualNewsp;  // Instantiations of virtual classes
     std::vector<AstNodeFTask*> m_tasksp;  // All the tasks, we will check if they are ever called
 
@@ -219,7 +220,9 @@ private:
                 return;
             }
         }
+        VL_RESTORER(m_underAlwaysAssign);
         VL_RESTORER(m_underAlwaysEdged);
+        m_underAlwaysAssign = nodep->keyword() == VAlwaysKwd::ASSIGN;
         m_underAlwaysEdged
             = nodep->sentreep() && nodep->sentreep()->sensesp() && nodep->sentreep()->hasEdge();
         // Iterate will delete ComboStar sentrees, so after above
@@ -393,7 +396,13 @@ private:
         if (nodep->access().isWriteOrRW()) varLifetimeCheck(nodep, nodep->varp());
     }
     void visit(AstAssign* nodep) override {
-        iterateChildren(nodep);
+        iterateAndNextNull(nodep->timingControlp());
+        iterateAndNextNull(nodep->rhsp());
+        {
+            VL_RESTORER(m_contNba);
+            if (m_underAlwaysAssign) m_contNba = "continuous";
+            iterateAndNextNull(nodep->lhsp());
+        }
         editDType(nodep);
         // Lint
         if (m_underAlwaysEdged) {
@@ -420,16 +429,6 @@ private:
         {
             VL_RESTORER(m_contNba);
             m_contNba = "nonblocking";
-            iterateAndNextNull(nodep->lhsp());
-        }
-        editDType(nodep);
-    }
-    void visit(AstAssignW* nodep) override {
-        iterateAndNextNull(nodep->timingControlp());
-        iterateAndNextNull(nodep->rhsp());
-        {
-            VL_RESTORER(m_contNba);
-            m_contNba = "continuous";
             iterateAndNextNull(nodep->lhsp());
         }
         editDType(nodep);

@@ -1066,87 +1066,87 @@ class TimingControlVisitor final : public VNVisitor {
         // Replace the RHS with an intermediate value var
         replaceWithIntermediate(nodep->rhsp(), m_intraValueNames.get(nodep));
     }
-    void visit(AstAssignW* nodep) override {
-        FileLine* const flp = nodep->fileline();
-        // Get the net delay unless this assignment was created for handling the net delay (user1)
-        AstDelay* const netDelayp = nodep->user1() ? nullptr : nodep->getLhsNetDelay();
-        if (netDelayp) {
-            if (nodep->timingControlp()) {
-                // If this assignment has a delay, create another one to handle the net delay
-                AstVarScope* const newvscp
-                    = createTemp(flp, m_contAsgnTmpNames.get(nodep), nodep->dtypep());
-                AstAssignW* assignp = new AstAssignW{
-                    nodep->fileline(), nodep->lhsp()->unlinkFrBack(),
-                    new AstVarRef{flp, newvscp, VAccess::READ}, netDelayp->cloneTree(false)};
-                assignp->user1(true);
-                nodep->addNextHere(assignp);
-                nodep->lhsp(new AstVarRef{flp, newvscp, VAccess::WRITE});
-            } else {
-                // Else just use this one with the net delay
-                nodep->timingControlp(netDelayp->cloneTree(false));
-            }
-        }
-        if (!nodep->timingControlp()) return;
-        // There will be some circular logic here, suppress the warning for newly created vars
-        flp->modifyWarnOff(V3ErrorCode::UNOPTFLAT, true);
-        // Also suppress the warning for the LHS var, for cases like `assign #1 clk = ~clk;`
-        // TODO: Restore the warning for other, non-delayed drivers
-        nodep->lhsp()->foreach([](AstVarRef* refp) {
-            if (refp->access().isWriteOrRW()) {
-                refp->varp()->fileline()->modifyWarnOff(V3ErrorCode::UNOPTFLAT, true);
-            }
-        });
-        // Convert it to an always; the new assign with intra delay will be handled by
-        // visit(AstNodeAssign*)
-        AstAlways* const alwaysp = nodep->convertToAlways();
-        visit(alwaysp);  // Visit now as we need to do some post-processing
-        VL_DO_DANGLING(nodep->deleteTree(), nodep);
-        // IEEE 1800-2023 10.3.3 - if the RHS value differs from the currently scheduled value to
-        // be assigned, the currently scheduled assignment is descheduled. To keep track if an
-        // assignment should be descheduled, each scheduled assignment event has a 'generation',
-        // and if at assignment time its generation differs from the current generation, it won't
-        // be performed
-        AstFork* const forkp = VN_AS(alwaysp->stmtsp(), Fork);
-        UASSERT_OBJ(forkp, alwaysp, "Fork should be there from convertToAlways()");
-        AstBegin* const beginp = VN_AS(forkp->stmtsp(), Begin);
-        UASSERT_OBJ(beginp, alwaysp, "Begin should be there from convertToAlways()");
-        AstAssign* const preAssignp = VN_AS(beginp->stmtsp(), Assign);
-        UASSERT_OBJ(preAssignp, alwaysp, "Pre-assign should be there from convertToAlways()");
-        AstAssign* const postAssignp = VN_AS(preAssignp->nextp()->nextp(), Assign);
-        UASSERT_OBJ(postAssignp, alwaysp, "Post-assign should be there from convertToAlways()");
-        // Increment generation and copy it to a local
-        AstVarScope* const generationVarp
-            = createTemp(flp, m_contAsgnGenNames.get(alwaysp), alwaysp->findUInt64DType());
-        AstVarScope* const genLocalVarp
-            = createTemp(flp, generationVarp->varp()->name() + "__local",
-                         alwaysp->findUInt64DType(), preAssignp);
-        preAssignp->addHereThisAsNext(
-            new AstAssign{flp, new AstVarRef{flp, generationVarp, VAccess::WRITE},
-                          new AstAdd{flp, new AstVarRef{flp, generationVarp, VAccess::READ},
-                                     new AstConst{flp, 1}}});
-        preAssignp->addHereThisAsNext(
-            new AstAssign{flp, new AstVarRef{flp, genLocalVarp, VAccess::WRITE},
-                          new AstVarRef{flp, generationVarp, VAccess::READ}});
-        // If the current generation is same as the one saved in the local var, assign
-        beginp->addStmtsp(
-            new AstIf{flp,
-                      new AstEq{flp, new AstVarRef{flp, generationVarp, VAccess::READ},
-                                new AstVarRef{flp, genLocalVarp, VAccess::READ}},
-                      postAssignp->unlinkFrBack()});
-        // Save scheduled RHS value before delay
-        AstVarScope* const tmpVarp
-            = createTemp(flp, m_contAsgnTmpNames.get(alwaysp), preAssignp->rhsp()->dtypep());
-        AstVarRef* const tmpAssignRhsp = VN_AS(preAssignp->lhsp(), VarRef)->cloneTree(false);
-        tmpAssignRhsp->access(VAccess::WRITE);
-        preAssignp->addNextHere(
-            new AstAssign{flp, new AstVarRef{flp, tmpVarp, VAccess::WRITE}, tmpAssignRhsp});
-        // If the RHS is different from the currently scheduled value, schedule the new assignment
-        // The generation will increase, effectively 'descheduling' the previous assignment.
-        alwaysp->addStmtsp(new AstIf{flp,
-                                     new AstNeq{flp, preAssignp->rhsp()->cloneTree(false),
-                                                new AstVarRef{flp, tmpVarp, VAccess::READ}},
-                                     forkp->unlinkFrBack()});
-    }
+    // void visit(AstAssignW* nodep) override {
+    //     FileLine* const flp = nodep->fileline();
+    //     // Get the net delay unless this assignment was created for handling the net delay (user1)
+    //     AstDelay* const netDelayp = nodep->user1() ? nullptr : nodep->getLhsNetDelay();
+    //     if (netDelayp) {
+    //         if (nodep->timingControlp()) {
+    //             // If this assignment has a delay, create another one to handle the net delay
+    //             AstVarScope* const newvscp
+    //                 = createTemp(flp, m_contAsgnTmpNames.get(nodep), nodep->dtypep());
+    //             AstAssignW* assignp = new AstAssignW{
+    //                 nodep->fileline(), nodep->lhsp()->unlinkFrBack(),
+    //                 new AstVarRef{flp, newvscp, VAccess::READ}, netDelayp->cloneTree(false)};
+    //             assignp->user1(true);
+    //             nodep->addNextHere(assignp);
+    //             nodep->lhsp(new AstVarRef{flp, newvscp, VAccess::WRITE});
+    //         } else {
+    //             // Else just use this one with the net delay
+    //             nodep->timingControlp(netDelayp->cloneTree(false));
+    //         }
+    //     }
+    //     if (!nodep->timingControlp()) return;
+    //     // There will be some circular logic here, suppress the warning for newly created vars
+    //     flp->modifyWarnOff(V3ErrorCode::UNOPTFLAT, true);
+    //     // Also suppress the warning for the LHS var, for cases like `assign #1 clk = ~clk;`
+    //     // TODO: Restore the warning for other, non-delayed drivers
+    //     nodep->lhsp()->foreach([](AstVarRef* refp) {
+    //         if (refp->access().isWriteOrRW()) {
+    //             refp->varp()->fileline()->modifyWarnOff(V3ErrorCode::UNOPTFLAT, true);
+    //         }
+    //     });
+    //     // Convert it to an always; the new assign with intra delay will be handled by
+    //     // visit(AstNodeAssign*)
+    //     AstAlways* const alwaysp = nodep->convertToAlways();
+    //     visit(alwaysp);  // Visit now as we need to do some post-processing
+    //     VL_DO_DANGLING(nodep->deleteTree(), nodep);
+    //     // IEEE 1800-2023 10.3.3 - if the RHS value differs from the currently scheduled value to
+    //     // be assigned, the currently scheduled assignment is descheduled. To keep track if an
+    //     // assignment should be descheduled, each scheduled assignment event has a 'generation',
+    //     // and if at assignment time its generation differs from the current generation, it won't
+    //     // be performed
+    //     AstFork* const forkp = VN_AS(alwaysp->stmtsp(), Fork);
+    //     UASSERT_OBJ(forkp, alwaysp, "Fork should be there from convertToAlways()");
+    //     AstBegin* const beginp = VN_AS(forkp->stmtsp(), Begin);
+    //     UASSERT_OBJ(beginp, alwaysp, "Begin should be there from convertToAlways()");
+    //     AstAssign* const preAssignp = VN_AS(beginp->stmtsp(), Assign);
+    //     UASSERT_OBJ(preAssignp, alwaysp, "Pre-assign should be there from convertToAlways()");
+    //     AstAssign* const postAssignp = VN_AS(preAssignp->nextp()->nextp(), Assign);
+    //     UASSERT_OBJ(postAssignp, alwaysp, "Post-assign should be there from convertToAlways()");
+    //     // Increment generation and copy it to a local
+    //     AstVarScope* const generationVarp
+    //         = createTemp(flp, m_contAsgnGenNames.get(alwaysp), alwaysp->findUInt64DType());
+    //     AstVarScope* const genLocalVarp
+    //         = createTemp(flp, generationVarp->varp()->name() + "__local",
+    //                      alwaysp->findUInt64DType(), preAssignp);
+    //     preAssignp->addHereThisAsNext(
+    //         new AstAssign{flp, new AstVarRef{flp, generationVarp, VAccess::WRITE},
+    //                       new AstAdd{flp, new AstVarRef{flp, generationVarp, VAccess::READ},
+    //                                  new AstConst{flp, 1}}});
+    //     preAssignp->addHereThisAsNext(
+    //         new AstAssign{flp, new AstVarRef{flp, genLocalVarp, VAccess::WRITE},
+    //                       new AstVarRef{flp, generationVarp, VAccess::READ}});
+    //     // If the current generation is same as the one saved in the local var, assign
+    //     beginp->addStmtsp(
+    //         new AstIf{flp,
+    //                   new AstEq{flp, new AstVarRef{flp, generationVarp, VAccess::READ},
+    //                             new AstVarRef{flp, genLocalVarp, VAccess::READ}},
+    //                   postAssignp->unlinkFrBack()});
+    //     // Save scheduled RHS value before delay
+    //     AstVarScope* const tmpVarp
+    //         = createTemp(flp, m_contAsgnTmpNames.get(alwaysp), preAssignp->rhsp()->dtypep());
+    //     AstVarRef* const tmpAssignRhsp = VN_AS(preAssignp->lhsp(), VarRef)->cloneTree(false);
+    //     tmpAssignRhsp->access(VAccess::WRITE);
+    //     preAssignp->addNextHere(
+    //         new AstAssign{flp, new AstVarRef{flp, tmpVarp, VAccess::WRITE}, tmpAssignRhsp});
+    //     // If the RHS is different from the currently scheduled value, schedule the new assignment
+    //     // The generation will increase, effectively 'descheduling' the previous assignment.
+    //     alwaysp->addStmtsp(new AstIf{flp,
+    //                                  new AstNeq{flp, preAssignp->rhsp()->cloneTree(false),
+    //                                             new AstVarRef{flp, tmpVarp, VAccess::READ}},
+    //                                  forkp->unlinkFrBack()});
+    // }
     void visit(AstDisableFork* nodep) override {
         if (hasFlags(m_procp, T_HAS_PROC)) return;
         // never reached by any process; remove to avoid compilation error

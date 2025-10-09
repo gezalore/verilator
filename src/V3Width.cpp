@@ -1467,7 +1467,7 @@ class WidthVisitor final : public VNVisitor {
 
     void visit(AstSetuphold* nodep) override {
         FileLine* const flp = nodep->fileline();
-        AstAssignW* newp = nullptr;
+        AstAlways* newp = nullptr;
         if (nodep->delrefp()) {
             newp = convertSetupholdToAssign(flp, nodep->refevp(), nodep->delrefp());
         }
@@ -1487,7 +1487,7 @@ class WidthVisitor final : public VNVisitor {
         VL_DO_DANGLING(pushDeletep(nodep), nodep);
     }
 
-    AstAssignW* convertSetupholdToAssign(FileLine* const flp, AstNodeExpr* const evp,
+    AstAlways* convertSetupholdToAssign(FileLine* const flp, AstNodeExpr* const evp,
                                          AstNodeExpr* const delp) {
         AstNodeExpr* const lhsp = delp->cloneTreePure(false);
         AstNodeExpr* const rhsp = evp->cloneTreePure(false);
@@ -1511,7 +1511,7 @@ class WidthVisitor final : public VNVisitor {
                 varRefp->access(VAccess::WRITE);
             }
         }
-        return new AstAssignW{flp, lhsp, rhsp};
+        return AstAlways::newCAssign(flp, lhsp, rhsp);
     }
 
     void visit(AstStable* nodep) override {

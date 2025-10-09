@@ -276,7 +276,7 @@ static void process() {
             V3Begin::debeginAll(v3Global.rootp());  // Flatten cell names, before inliner
 
             // Expand inouts, stage 2
-            // Also simplify pin connections to always be AssignWs in prep for V3Unknown
+            // Also simplify pin connections to always be continuous assign in prep for V3Unknown
             V3Tristate::tristateAll(v3Global.rootp());
         }
 

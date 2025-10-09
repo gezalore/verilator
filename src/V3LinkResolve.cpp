@@ -486,9 +486,9 @@ class LinkResolveVisitor final : public VNVisitor {
                         varoutp = varp;
                         // Tie off
                         m_modp->addStmtsp(
-                            new AstAssignW{varp->fileline(),
+                            AstAlways::newCAssign(varp->fileline(),
                                            new AstVarRef{varp->fileline(), varp, VAccess::WRITE},
-                                           new AstConst{varp->fileline(), AstConst::BitFalse{}}});
+                                           new AstConst{varp->fileline(), AstConst::BitFalse{}}));
                     } else {
                         varp->v3error("Only inputs and outputs are allowed in udp modules");
                     }

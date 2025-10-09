@@ -1111,6 +1111,7 @@ public:
         AstNode* const controlp = timingControlp() ? timingControlp()->cloneTree(false) : nullptr;
         return new AstAssign{fileline(), lhsp, rhsp, controlp};
     }
+    AstDelay* getLhsNetDelay() const;
 };
 class AstAssignDly final : public AstNodeAssign {
 public:
@@ -1135,26 +1136,26 @@ public:
         return new AstAssignForce{fileline(), lhsp, rhsp};
     }
 };
-class AstAssignW final : public AstNodeAssign {
-    // Like assign, but wire/assign's in verilog, the only setting of the specified variable
-    // @astgen op4 := strengthSpecp : Optional[AstStrengthSpec]
-public:
-    AstAssignW(FileLine* fl, AstNodeExpr* lhsp, AstNodeExpr* rhsp,
-               AstNode* timingControlp = nullptr)
-        : ASTGEN_SUPER_AssignW(fl, lhsp, rhsp, timingControlp) {}
-    ASTGEN_MEMBERS_AstAssignW;
-    AstNodeAssign* cloneType(AstNodeExpr* lhsp, AstNodeExpr* rhsp) override {
-        AstNode* const controlp = timingControlp() ? timingControlp()->cloneTree(false) : nullptr;
-        return new AstAssignW{fileline(), lhsp, rhsp, controlp};
-    }
-    bool isTimingControl() const override {
-        return timingControlp() || lhsp()->exists([](const AstNodeVarRef* refp) {
-            return refp->access().isWriteOrRW() && refp->varp()->delayp();
-        });
-    }
-    AstDelay* getLhsNetDelay() const;
-    AstAlways* convertToAlways();
-};
+// class AstAssignW final : public AstNodeAssign {
+//     // Like assign, but wire/assign's in verilog, the only setting of the specified variable
+//     // @astgen op4 := strengthSpecp : Optional[AstStrengthSpec]
+// public:
+//     AstAssignW(FileLine* fl, AstNodeExpr* lhsp, AstNodeExpr* rhsp,
+//                AstNode* timingControlp = nullptr)
+//         : ASTGEN_SUPER_AssignW(fl, lhsp, rhsp, timingControlp) {}
+//     ASTGEN_MEMBERS_AstAssignW;
+//     AstNodeAssign* cloneType(AstNodeExpr* lhsp, AstNodeExpr* rhsp) override {
+//         AstNode* const controlp = timingControlp() ? timingControlp()->cloneTree(false) : nullptr;
+//         return new AstAssignW{fileline(), lhsp, rhsp, controlp};
+//     }
+//     bool isTimingControl() const override {
+//         return timingControlp() || lhsp()->exists([](const AstNodeVarRef* refp) {
+//             return refp->access().isWriteOrRW() && refp->varp()->delayp();
+//         });
+//     }
+//     AstDelay* getLhsNetDelay() const;
+//     AstAlways* convertToAlways();
+// };
 
 // === AstNodeBlock ===
 class AstBegin final : public AstNodeBlock {

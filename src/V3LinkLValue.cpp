@@ -92,15 +92,19 @@ class LinkLValueVisitor final : public VNVisitor {
             iterateChildren(nodep);
         }
     }
+    void visit(AstAlways* nodep) override {
+        VL_RESTORER(m_setContinuously);
+        m_setContinuously = true;
+        iterateChildren(nodep);
+    }
+
     void visit(AstNodeAssign* nodep) override {
         VL_RESTORER(m_setRefLvalue);
-        VL_RESTORER(m_setContinuously);
         VL_RESTORER(m_setStrengthSpecified);
         {
             m_setRefLvalue = VAccess::WRITE;
-            m_setContinuously = VN_IS(nodep, AssignW);
-            if (const AstAssignW* const assignwp = VN_CAST(nodep, AssignW)) {
-                if (assignwp->strengthSpecp()) m_setStrengthSpecified = true;
+            if (const AstAssign* const assignp = VN_CAST(nodep, Assign)) {
+                if (assignp->strengthSpecp()) m_setStrengthSpecified = true;
             }
             {
                 VL_RESTORER(m_setForcedByCode);
@@ -108,7 +112,6 @@ class LinkLValueVisitor final : public VNVisitor {
                 iterateAndNextNull(nodep->lhsp());
             }
             m_setRefLvalue = VAccess::NOCHANGE;
-            m_setContinuously = false;
             m_setStrengthSpecified = false;
             iterateAndNextNull(nodep->rhsp());
         }

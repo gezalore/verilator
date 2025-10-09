@@ -131,7 +131,7 @@ class LinkDotState final {
     //  AstNodeModule::user2()          // bool.          Currently processing for recursion check
     //  ...  Note maybe more than one, as can be multiple hierarchy places
     //  AstVarScope::user2p()           // AstVarScope*.  Base alias for AstInline of this signal
-    //  AstAssignW::user2()             // bool.          Created for aliases handling.
+    //  AstAssign::user2()              // bool.          Created for aliases handling.
     //  ... Don't replace var refs if set
     //  AstVar::user2p()                // AstFTask*.     If a function variable, the task
     //                                                    that links to the variable
@@ -2131,12 +2131,15 @@ class LinkDotParamVisitor final : public VNVisitor {
         // Ports not needed any more
         VL_DO_DANGLING(nodep->unlinkFrBack()->deleteTree(), nodep);
     }
-    void visit(AstAssignW* nodep) override {  // ParamVisitor::
+    void visit(AstAlways* nodep) override {  // ParamVisitor::
+        if (nodep->keyword() != VAlwaysKwd::ASSIGN) return;
+        UASSERT_OBJ(!nodep->stmtsp()->nextp(), nodep, "Should only have one assignment here");
         // Deal with implicit definitions
         // We used to nodep->allowImplicit() here, but it turns out
         // normal "assigns" can also make implicit wires.  Yuk.
-        pinImplicitExprRecurse(nodep->lhsp());
-        iterateChildren(nodep);
+        AstAssign* const assignp = VN_AS(nodep->stmtsp(), Assign);
+        pinImplicitExprRecurse(assignp->lhsp());
+        iterateChildren(assignp);
     }
 
     void visit(AstImplicit* nodep) override {  // ParamVisitor::
@@ -4220,11 +4223,11 @@ class LinkDotResolveVisitor final : public VNVisitor {
             // Aliased variable might still be references from outside,
             // eg through the VPI, and is traced, so we need the value to propagate.
             // TODO: this means external writes to the LHS (e.g.: through the VPI) don't work
-            AstAssignW* const assignp = new AstAssignW{
+            AstAlways* const ap = AstAlways::newCAssign(
                 nodep->fileline(), new AstVarRef{nodep->fileline(), nodep, VAccess::WRITE},
-                new AstVarRef{nodep->fileline(), aliasp, VAccess::READ}};
-            assignp->user2(true);
-            nodep->addNextHere(assignp);
+                new AstVarRef{nodep->fileline(), aliasp, VAccess::READ});
+            VN_AS(ap->stmtsp(), Assign)->user2(true);
+            nodep->addNextHere(ap);
             // Propagate attributes of the replaced variable,
             // because all references to it are replaced with references to the alias variable
             aliasp->varp()->propagateAttrFrom(nodep->varp());
@@ -5094,7 +5097,7 @@ class LinkDotResolveVisitor final : public VNVisitor {
 
     void visit(AstAttrOf* nodep) override { iterateChildren(nodep); }
 
-    void visit(AstAssignW* nodep) override {
+    void visit(AstAssign* nodep) override {
         LINKDOT_VISIT_START();
         checkNoDot(nodep);
         VL_RESTORER(m_replaceWithAlias);
