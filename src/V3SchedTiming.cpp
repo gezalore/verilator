@@ -360,7 +360,7 @@ void transformForks(AstNetlist* const netlistp) {
             // Replace self with the function calls (no co_await, as we don't want the main
             // process to suspend whenever any of the children do)
             // V3Dead could have removed all statements from the fork, so guard against it
-            AstNode* const stmtsp = nodep->stmtsp();
+            AstNode* const stmtsp = nodep->forksp();
             if (stmtsp) nodep->addNextHere(stmtsp->unlinkFrBackWithNext());
             VL_DO_DANGLING(nodep->unlinkFrBack()->deleteTree(), nodep);
         }

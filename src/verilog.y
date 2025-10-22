@@ -3360,15 +3360,23 @@ senitemEdge<senItemp>:          // IEEE: part of event_expression
 seq_block<beginp>:               // ==IEEE: seq_block
         //                      // IEEE doesn't allow declarations in unnamed blocks, but several simulators do.
         //                      // So need AstBegin's even if unnamed to scope variables down
-                seq_blockFront blockDeclStmtListE yEND endLabelE
-                        { $$ = $1; $1->addStmtsp($2);
-                          GRAMMARP->endLabel($<fl>4, $1, $4); }
+                seq_blockFront blockDeclListE stmtListE yEND endLabelE
+                {
+                    GRAMMARP->endLabel($<fl>5, $1, $5);
+                    $1->addDeclsp($2);
+                    $1->addStmtsp($3);
+                    $$ = $1;
+                }
         ;
 
 seq_blockPreId<beginp>:          // IEEE: seq_block, but called with leading ID
-                seq_blockFrontPreId blockDeclStmtListE yEND endLabelE
-                        { $$ = $1; $1->addStmtsp($2);
-                          GRAMMARP->endLabel($<fl>4, $1, $4); }
+                seq_blockFrontPreId blockDeclListE stmtListE yEND endLabelE
+                {
+                    GRAMMARP->endLabel($<fl>5, $1, $5);
+                    $1->addDeclsp($2);
+                    $1->addStmtsp($3);
+                    $$ = $1;
+                }
         ;
 
 par_blockJoin<joinType>:
@@ -3378,17 +3386,25 @@ par_blockJoin<joinType>:
         ;
 
 par_block<forkp>:               // ==IEEE: par_block
-                par_blockFront blockDeclStmtListE par_blockJoin endLabelE
-                        { $$ = $1; $1->joinType($3);
-                          V3ParseGrammar::addForkStmtsp($1, $2);
-                          GRAMMARP->endLabel($<fl>4, $1, $4); }
+                par_blockFront blockDeclListE stmtListE par_blockJoin endLabelE
+                {
+                    GRAMMARP->endLabel($<fl>5, $1, $5);
+                    $1->addDeclsp($2);
+                    $1->addForksp(V3ParseGrammar::wrapInBegin($3));
+                    $1->joinType($4);
+                    $$ = $1;
+                }
         ;
 
 par_blockPreId<forkp>:          // ==IEEE: par_block but called with leading ID
-                par_blockFrontPreId blockDeclStmtListE par_blockJoin endLabelE
-                        { $$ = $1; $1->joinType($3);
-                          V3ParseGrammar::addForkStmtsp($1, $2);
-                          GRAMMARP->endLabel($<fl>4, $1, $4); }
+                par_blockFrontPreId blockDeclListE stmtListE par_blockJoin endLabelE
+                {
+                    GRAMMARP->endLabel($<fl>5, $1, $5);
+                    $1->addDeclsp($2);
+                    $1->addForksp(V3ParseGrammar::wrapInBegin($3));
+                    $1->joinType($4);
+                    $$ = $1;
+                }
         ;
 
 seq_blockFront<beginp>:         // IEEE: part of seq_block
@@ -3415,31 +3431,17 @@ par_blockFrontPreId<forkp>:     // IEEE: part of par_block/stmt with leading id
                         { $$ = new AstFork{$3, *$1, nullptr}; }
         ;
 
-
-blockDeclStmtList<nodep>:       // IEEE: { block_item_declaration } { statement or null }
-        //                      // The spec seems to suggest a empty declaration isn't ok, but most simulators take it
-                block_item_declarationList              { $$ = $1; }
-        |       block_item_declarationList stmtList     { $$ = addNextNull($1, $2); }
-        |       stmtList                                { $$ = $1; }
+blockDeclListE<nodep>:      // IEEE: [ block_item_declaration ]
+                /*empty*/                                  { $$ = nullptr; }
+        |       blockDeclListE data_declaration            { $$ = addNextNull($1, $2); }
+        |       blockDeclListE parameter_declaration ';'   { $$ = addNextNull($1, $2); }
+        |       blockDeclListE let_declaration             { $$ = addNextNull($1, $2); }
+        |       error ';'                                  { $$ = nullptr; }  // LCOV_EXCL_LINE
         ;
 
-blockDeclStmtListE<nodep>:      // IEEE: [ { block_item_declaration } { statement or null } ]
+stmtListE<nodeStmtp>:
                 /*empty*/                               { $$ = nullptr; }
-        |       blockDeclStmtList                       { $$ = $1; }
-        ;
-
-block_item_declarationList<nodep>:      // IEEE: [ block_item_declaration ]
-                block_item_declaration                  { $$ = $1; }
-        |       block_item_declarationList block_item_declaration       { $$ = addNextNull($1, $2); }
-        //
-        |       block_item_declarationList error ';'    { $$ = $1; }  // LCOV_EXCL_LINE
-        |       error ';'                               { $$ = nullptr; }  // LCOV_EXCL_LINE
-        ;
-
-block_item_declaration<nodep>:  // ==IEEE: block_item_declaration
-                data_declaration                        { $$ = $1; }
-        |       parameter_declaration ';'               { $$ = $1; }
-        |       let_declaration                         { $$ = $1; }
+        |       stmtList                                { $$ = $1; }
         ;
 
 stmtList<nodeStmtp>:
@@ -4667,7 +4669,9 @@ tf_item_declarationList<nodep>:
         ;
 
 tf_item_declaration<nodep>:     // ==IEEE: tf_item_declaration
-                block_item_declaration                  { $$ = $1; }
+                data_declaration                        { $$ = $1; }
+        |       parameter_declaration ';'               { $$ = $1; }
+        |       let_declaration                         { $$ = $1; }
         |       tf_port_declaration                     { $$ = $1; }
         |       tf_item_declarationVerilator            { $$ = $1; }
         ;
