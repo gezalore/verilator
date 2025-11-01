@@ -141,7 +141,9 @@ class DeadVisitor final : public VNVisitor {
     void visit(AstCFunc* nodep) override {
         iterateChildren(nodep);
         checkAll(nodep);
-        if (!nodep->keepIfEmpty() && !nodep->entryPoint() && !nodep->isVirtual() && !nodep->dpiExportDispatcher() && !nodep->dpiExportImpl() && !nodep->argsp() && !nodep->varsp()) {
+        if (!nodep->keepIfEmpty() && !nodep->entryPoint() && !nodep->isVirtual()
+            && !nodep->dpiExportDispatcher() && !nodep->dpiExportImpl() && !nodep->argsp()
+            && !nodep->varsp()) {
             m_cfuncsp.emplace_back(nodep);
         }
         if (nodep->scopep()) nodep->scopep()->user1Inc();
