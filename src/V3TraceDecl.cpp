@@ -725,6 +725,7 @@ public:
         // Set name of top level function
         AstCFunc* const topFuncp = m_topFuncps.front();
         topFuncp->name("trace_init_top");
+        topFuncp->entryPoint(true);
 
         checkCalls(topFuncp);
     }

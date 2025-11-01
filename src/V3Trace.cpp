@@ -796,6 +796,7 @@ class TraceVisitor final : public VNVisitor {
         m_regFuncp->slow(true);
         m_regFuncp->isStatic(false);
         m_regFuncp->isLoose(true);
+        m_regFuncp->entryPoint(true);
         m_topScopep->addBlocksp(m_regFuncp);
 
         // Create the const dump functions. Also allocates trace codes.

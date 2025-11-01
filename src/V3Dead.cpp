@@ -51,6 +51,7 @@ class DeadVisitor final : public VNVisitor {
     // NODE STATE
     // Entire Netlist:
     //  AstNodeModule::user1()  -> int. Count of number of cells referencing this module.
+    //  AstCFunc::user1()       -> int. Count of number of references
     //  AstVar::user1()         -> int. Count of number of references
     //  AstVarScope::user1()    -> int. Count of number of references
     //  AstNodeDType::user1()   -> int. Count of number of references
@@ -70,6 +71,7 @@ class DeadVisitor final : public VNVisitor {
     std::map<AstNodeDType*, AstNodeModule*> m_dtypePkgsp;  // Data type's containing package
     std::vector<AstVarScope*> m_vscsp;
     std::vector<AstScope*> m_scopesp;
+    std::vector<AstCFunc*> m_cfuncsp;
     std::vector<AstCell*> m_cellsp;
     std::vector<AstClass*> m_classesp;
     std::vector<AstTypedef*> m_typedefsp;
@@ -139,6 +141,9 @@ class DeadVisitor final : public VNVisitor {
     void visit(AstCFunc* nodep) override {
         iterateChildren(nodep);
         checkAll(nodep);
+        if (!nodep->keepIfEmpty() && !nodep->entryPoint() && !nodep->isVirtual() && !nodep->dpiExportDispatcher() && !nodep->dpiExportImpl() && !nodep->argsp() && !nodep->varsp()) {
+            m_cfuncsp.emplace_back(nodep);
+        }
         if (nodep->scopep()) nodep->scopep()->user1Inc();
     }
     void visit(AstScope* nodep) override {
@@ -335,6 +340,14 @@ class DeadVisitor final : public VNVisitor {
             }
         }
     }
+    void visit(AstNodeCCall* nodep) override {
+        visit(static_cast<AstNode*>(nodep));
+        nodep->funcp()->user1Inc();
+    }
+    void visit(AstAddrOfCFunc* nodep) override {
+        visit(static_cast<AstNode*>(nodep));
+        nodep->funcp()->user1Inc();
+    }
 
     //-----
     void visit(AstClockingItem* nodep) override {
@@ -515,6 +528,12 @@ class DeadVisitor final : public VNVisitor {
         }
     }
 
+    void deadCheckCFunc() {
+        for (AstCFunc* const cfuncp : m_cfuncsp) {
+            if (!cfuncp->user1()) VL_DO_DANGLING(pushDeletep(cfuncp->unlinkFrBack()), cfuncp);
+        }
+    }
+
     // cppcheck-suppress constParameterPointer
     void preserveTopIfaces(AstNetlist* rootp) {
         // cppcheck-suppress constVariablePointer
@@ -570,6 +589,9 @@ public:
             vscp->varp()->user1Inc();
         }
 
+        if (AstCFunc* const cfuncp = nodep->evalp()) cfuncp->user1Inc();
+        if (AstCFunc* const cfuncp = nodep->evalNbap()) cfuncp->user1Inc();
+
         // If data type has a reference in another package, then keep defining package around
         for (auto& itr : m_dtypePkgsp) {
             if (itr.first->user1()) itr.second->user1Inc();
@@ -578,6 +600,7 @@ public:
         if (elimTasks) deadCheckTasks();
         deadCheckTypedefs();
         deadCheckVar();
+        deadCheckCFunc();
         // We only eliminate scopes when in a flattened structure
         // Otherwise we have no easy way to know if a scope is used
         if (elimScopes) deadCheckScope();
