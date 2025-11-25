@@ -737,6 +737,22 @@ Summary:
    this is not recommended as may cause additional warnings and ordering
    issues.
 
+.. option:: -fno-ico-change-detect
+
+   Rarely needed. Disable input change detection in the input combinational
+   ('ico') region. With change detection enabled (the default), the input
+   combinational logic is evaluated only when a primary input has actually
+   changed, rather than unconditionally on the first scheduling iteration.
+
+   Change detection assumes a primary input only ever changes externally
+   between evaluations. If the design itself drives any primary input (including
+   via a DPI export), that assumption does not hold, so change detection is
+   automatically disabled for that module's input combinational region
+   regardless of this option.
+
+   Input change detection is not supported in :vlopt:`--sc` mode, so
+   :vlopt:`-fno-ico-change-detect` is implied there.
+
 .. option:: -fno-inline
 
 .. option:: -fno-inline-funcs

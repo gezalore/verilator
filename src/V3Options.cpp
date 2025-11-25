@@ -1483,6 +1483,7 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc,
     DECL_OPTION("-ffunc-opt-balance-cat", FOnOff, &m_fFuncBalanceCat);
     DECL_OPTION("-ffunc-opt-split-cat", FOnOff, &m_fFuncSplitCat);
     DECL_OPTION("-fgate", FOnOff, &m_fGate);
+    DECL_OPTION("-fico-change-detect", FOnOff, &m_fIcoChangeDetect);
     DECL_OPTION("-finline", FOnOff, &m_fInline);
     DECL_OPTION("-finline-funcs", FOnOff, &m_fInlineFuncs);
     DECL_OPTION("-finline-funcs-eager", FOnOff, &m_fInlineFuncsEager);
@@ -1868,7 +1869,10 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc,
         showVersion(false);
         v3Global.vlExit(0);
     });
-    DECL_OPTION("-vpi", OnOff, &m_vpi);
+    DECL_OPTION("-vpi", CbOnOff, [this](bool flag) {
+        m_vpi = flag;
+        if (flag) m_fIcoChangeDetect = false;  // Turn off potentially unsound optimization
+    });
 
     DECL_OPTION("-Wall", CbCall, []() { FileLine::globalWarnOff(V3ErrorCode::I_LINT, false); });
     DECL_OPTION("-Werror-", CbPartialMatch, [this, fl](const char* optp) {

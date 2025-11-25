@@ -50,6 +50,11 @@ void V3LinkLevel::modSortByLevel() {
         if (nodep->isTop() && !VN_IS(nodep, NotFoundModule)) {
             UINFO(9, "top candidate " << nodep);
             tops.push_back(nodep);
+            for (AstNode* stmtp = nodep->stmtsp(); stmtp; stmtp = stmtp->nextp()) {
+                if (AstVar* const varp = VN_CAST(stmtp, Var)) {
+                    if (varp->isIO()) varp->primaryIO(true);
+                }
+            }
         }
         mods.push_back(nodep);
     }
@@ -291,6 +296,7 @@ void V3LinkLevel::wrapTopCell(AstNetlist* rootp) {
                     varp->sigPublic(true);  // User needs to be able to get to it...
                     oldvarp->primaryIO(false);
                     varp->primaryIO(true);
+                    varp->maybeWritten(oldvarp->maybeWritten());
                     if (varp->isRef() || varp->isConstRef()) {
                         varp->v3warn(E_UNSUPPORTED,
                                      "Unsupported: ref/const ref as primary input/output: "
