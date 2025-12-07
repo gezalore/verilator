@@ -927,9 +927,6 @@ public:
     // If do a this->replaceNode(newp), would cause a broken()
     bool wouldBreak(const AstNode* const newp) const { return backp()->wouldBreakGen(this, newp); }
 
-    // INVOKERS
-    virtual void accept(VNVisitorConst& v) = 0;
-
 protected:
     // All VNVisitor related functions are called as methods off the visitor
     friend class VNVisitor;
@@ -1520,10 +1517,20 @@ struct std::equal_to<VNRef<T_Node>> final {
 
 //######################################################################
 // Inline VNVisitor METHODS
+using visitPtr = void (VNVisitorConst::*)(AstNode*);
 
-void VNVisitorConst::iterateConst(AstNode* nodep) { nodep->accept(*this); }
+extern const visitPtr s_visitPtrs[];
+
+inline void nodeDispatch(VNVisitorConst& v, AstNode* nodep) {
+    //     switch (nodep->type().m_e) {
+    // #include "V3Ast__gen_dispatch.h"
+    //     }
+
+    (v.*s_visitPtrs[nodep->type().m_e])(nodep);
+}
+void VNVisitorConst::iterateConst(AstNode* nodep) { nodeDispatch(*this, nodep); }
 void VNVisitorConst::iterateConstNull(AstNode* nodep) {
-    if (VL_LIKELY(nodep)) nodep->accept(*this);
+    if (VL_LIKELY(nodep)) nodeDispatch(*this, nodep);
 }
 void VNVisitorConst::iterateChildrenConst(AstNode* nodep) { nodep->iterateChildrenConst(*this); }
 void VNVisitorConst::iterateChildrenBackwardsConst(AstNode* nodep) {
@@ -1533,9 +1540,9 @@ void VNVisitorConst::iterateAndNextConstNull(AstNode* nodep) {
     if (VL_LIKELY(nodep)) nodep->iterateAndNextConst(*this);
 }
 
-void VNVisitor::iterate(AstNode* nodep) { nodep->accept(*this); }
+void VNVisitor::iterate(AstNode* nodep) { nodeDispatch(*this, nodep); }
 void VNVisitor::iterateNull(AstNode* nodep) {
-    if (VL_LIKELY(nodep)) nodep->accept(*this);
+    if (VL_LIKELY(nodep)) nodeDispatch(*this, nodep);
 }
 void VNVisitor::iterateChildren(AstNode* nodep) { nodep->iterateChildren(*this); }
 void VNVisitor::iterateAndNextNull(AstNode* nodep) {

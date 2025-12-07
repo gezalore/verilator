@@ -988,6 +988,15 @@ void AstNode::operator delete(void* objp, size_t size) {
 //======================================================================
 // Iterators
 
+
+using visitPtr = void (VNVisitorConst::*)(AstNode*);
+
+const visitPtr s_visitPtrs[] = {
+#include "V3Ast__gen_ptrtable.h"
+    nullptr  //
+};
+
+
 void AstNode::iterateChildren(VNVisitor& v) {
     // This is a very hot function
     // Optimization note: Grabbing m_op#p->m_nextp is a net loss
@@ -1033,7 +1042,7 @@ void AstNode::iterateAndNext(VNVisitor& v) {
         // edits"); Optimization note: Doing PREFETCH_RW on m_iterpp is a net even
         // cppcheck-suppress nullPointer
         niterp->m_iterpp = &niterp;
-        niterp->accept(v);
+        nodeDispatch(v, niterp);
         // accept may do a replaceNode and change niterp on us...
         // niterp maybe nullptr, so need cast if printing
         // if (niterp != nodep) UINFO(1,"iterateAndNext edited "<<cvtToHex(nodep)
@@ -1053,7 +1062,7 @@ void AstNode::iterateListBackwardsConst(VNVisitorConst& v) {
     while (nodep->m_nextp) nodep = nodep->m_nextp;
     while (nodep) {
         // Edits not supported: nodep->m_iterpp = &nodep;
-        nodep->accept(v);
+        nodeDispatch(v, nodep);
         if (nodep->backp()->m_nextp == nodep) {
             nodep = nodep->backp();
         } else {
@@ -1075,7 +1084,7 @@ void AstNode::iterateAndNextConst(VNVisitorConst& v) {
     do {
         AstNode* const nnextp = nodep->m_nextp;
         ASTNODE_PREFETCH(nnextp);
-        nodep->accept(v);
+        nodeDispatch(v, nodep);
         nodep = nnextp;
     } while (nodep);
 }
@@ -1090,13 +1099,13 @@ AstNode* AstNode::iterateSubtreeReturnEdits(VNVisitor& v) {
     AstNode* nodep = this;  // Note "this" may point to bogus point later in this function
     if (VN_IS(nodep, Netlist)) {
         // Calling on top level; we know the netlist won't get replaced
-        nodep->accept(v);
+        nodeDispatch(v, nodep);
     } else if (!nodep->backp()) {
         // Calling on standalone tree; insert a shim node so we can keep
         // track, then delete it on completion
         AstBegin* const tempp = new AstBegin{nodep->fileline(), "[EditWrapper]", nodep, false};
         // nodep to null as may be replaced
-        VL_DO_DANGLING(tempp->stmtsp()->accept(v), nodep);
+        VL_DO_DANGLING(nodeDispatch(v, tempp->stmtsp()), nodep);
         nodep = tempp->stmtsp()->unlinkFrBackWithNext();
         VL_DO_DANGLING(tempp->deleteTree(), tempp);
     } else {
@@ -1116,7 +1125,7 @@ AstNode* AstNode::iterateSubtreeReturnEdits(VNVisitor& v) {
         }
         UASSERT_OBJ(nextnodepp, this, "Node's back doesn't point to forward to node itself");
         {
-            VL_DO_DANGLING(nodep->accept(v), nodep);  // nodep to null as may be replaced
+            VL_DO_DANGLING(nodeDispatch(v, nodep), nodep);  // nodep to null as may be replaced
         }
         nodep = *nextnodepp;  // Grab new node from point where old was connected
     }
