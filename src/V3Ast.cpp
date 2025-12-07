@@ -988,14 +988,12 @@ void AstNode::operator delete(void* objp, size_t size) {
 //======================================================================
 // Iterators
 
-
 using visitPtr = void (VNVisitorConst::*)(AstNode*);
 
 const visitPtr s_visitPtrs[] = {
 #include "V3Ast__gen_ptrtable.h"
     nullptr  //
 };
-
 
 void AstNode::iterateChildren(VNVisitor& v) {
     // This is a very hot function

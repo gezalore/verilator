@@ -1187,14 +1187,18 @@ def write_ast_dispatch(filename):
         for node in AstNodeList:
             if not node.isLeaf:
                 continue
-            fh.write("case VNType::{}: this->visit(reinterpret_cast<Ast{}*>(nodep)); break;\n".format(node.name, node.name))
+            fh.write(
+                "case VNType::{}: this->visit(reinterpret_cast<Ast{}*>(nodep)); break;\n".format(
+                    node.name, node.name))
 
 
 def write_ast_ptrtable(filename):
     with open_file(filename) as fh:
-        nodes = sorted((_ for _ in AstNodeList if _.isLeaf), key = lambda _: _.typeId)
+        nodes = sorted((_ for _ in AstNodeList if _.isLeaf), key=lambda _: _.typeId)
         for node in nodes:
-            fh.write("reinterpret_cast<void(VNVisitorConst::*)(AstNode*)>(static_cast<void(VNVisitorConst::*)(Ast{}*)>(&VNVisitorConst::visit)),\n".format(node.name))
+            fh.write(
+                "reinterpret_cast<void(VNVisitorConst::*)(AstNode*)>(static_cast<void(VNVisitorConst::*)(Ast{}*)>(&VNVisitorConst::visit)),\n"
+                .format(node.name))
 
 
 ################################################################################
