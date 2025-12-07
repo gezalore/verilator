@@ -33,6 +33,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <map>
 #include <set>
 #include <type_traits>
@@ -174,32 +175,32 @@ public:
 //  user2.  When the member goes out of scope it will be automagically
 //  freed up.
 
-class VNUserInUseBase VL_NOT_FINAL {
-protected:
-    static void allocate(int id, uint32_t& cntGblRef, bool& userBusyRef) {
-        // Perhaps there's still a AstUserInUse in scope for this?
-        UASSERT_STATIC(!userBusyRef, "Conflicting user use; AstUser" + cvtToStr(id)
-                                         + "InUse request when under another AstUserInUse");
-        userBusyRef = true;
-        clearcnt(id, cntGblRef, userBusyRef);
-    }
-    static void free(int id, uint32_t& cntGblRef, bool& userBusyRef) {
-        UASSERT_STATIC(userBusyRef, "Free of User" + cvtToStr(id) + "() not under AstUserInUse");
-        clearcnt(id, cntGblRef, userBusyRef);  // Includes a checkUse for us
-        userBusyRef = false;
-    }
-    static void clearcnt(int id, uint32_t& cntGblRef, const bool& userBusyRef) {
-        UASSERT_STATIC(userBusyRef, "Clear of User" + cvtToStr(id) + "() not under AstUserInUse");
-        // If this really fires and is real (after 2^32 edits???)
-        // we could just walk the tree and clear manually
-        ++cntGblRef;
-        UASSERT_STATIC(cntGblRef, "User*() overflowed!");
-    }
-    static void checkcnt(int id, uint32_t&, const bool& userBusyRef) {
-        UASSERT_STATIC(userBusyRef,
-                       "Check of User" + cvtToStr(id) + "() failed, not under AstUserInUse");
-    }
-};
+class VNUserInUseBase
+VL_NOT_FINAL{protected : static void allocate(int id, uint32_t& cntGblRef, bool& userBusyRef){
+    // Perhaps there's still a AstUserInUse in scope for this?
+    UASSERT_STATIC(!userBusyRef, "Conflicting user use; AstUser" + cvtToStr(id)
+                                     + "InUse request when under another AstUserInUse");
+userBusyRef = true;
+clearcnt(id, cntGblRef, userBusyRef);
+}
+static void free(int id, uint32_t& cntGblRef, bool& userBusyRef) {
+    UASSERT_STATIC(userBusyRef, "Free of User" + cvtToStr(id) + "() not under AstUserInUse");
+    clearcnt(id, cntGblRef, userBusyRef);  // Includes a checkUse for us
+    userBusyRef = false;
+}
+static void clearcnt(int id, uint32_t& cntGblRef, const bool& userBusyRef) {
+    UASSERT_STATIC(userBusyRef, "Clear of User" + cvtToStr(id) + "() not under AstUserInUse");
+    // If this really fires and is real (after 2^32 edits???)
+    // we could just walk the tree and clear manually
+    ++cntGblRef;
+    UASSERT_STATIC(cntGblRef, "User*() overflowed!");
+}
+static void checkcnt(int id, uint32_t&, const bool& userBusyRef) {
+    UASSERT_STATIC(userBusyRef,
+                   "Check of User" + cvtToStr(id) + "() failed, not under AstUserInUse");
+}
+}
+;
 
 // For each user() declare the in use structure
 // We let AstNode peek into here, because when under low optimization even
@@ -286,17 +287,25 @@ public:
 class VNVisitorConst VL_NOT_FINAL {
     friend class AstNode;
 
+    using visitPtr = void (VNVisitorConst::*)(AstNode*);
+
+    const static visitPtr s_visitPtrs[];
+protected:
+    void dispatch(AstNode* nodep);
+
 public:
     /// Call visit()s on nodep
     inline void iterateConst(AstNode* nodep);
     /// Call visit()s on nodep
     inline void iterateConstNull(AstNode* nodep);
     /// Call visit()s on const nodep's children
-    inline void iterateChildrenConst(AstNode* nodep);
-    /// Call visit()s on nodep's children in backp() order
-    inline void iterateChildrenBackwardsConst(AstNode* nodep);
+    void iterateChildrenConst(AstNode* nodep);
     /// Call visit()s on const nodep (maybe nullptr) and nodep's nextp() list
-    inline void iterateAndNextConstNull(AstNode* nodep);
+    void iterateAndNextConstNull(AstNode* nodep);
+    /// Call visit()s on nodep's children in backp() order
+    void iterateChildrenBackwardsConst(AstNode* nodep);
+    /// Call visit()s on const nodep (maybe nullptr) and nodep's back() list
+    void iterateReverseAndBackConstNull(AstNode* nodep);
 
     virtual void visit(AstNode* nodep) = 0;
     virtual ~VNVisitorConst() {}
@@ -309,17 +318,21 @@ public:
 
 class VNVisitor VL_NOT_FINAL : public VNVisitorConst {
     VNDeleter m_deleter;  // Used to delay deletion of nodes
+
+    //======================================================================
+    // Iterators
+
 public:
     /// Call visit()s on nodep
     inline void iterate(AstNode* nodep);
     /// Call visit()s on nodep
     inline void iterateNull(AstNode* nodep);
     /// Call visit()s on nodep's children
-    inline void iterateChildren(AstNode* nodep);
+    void iterateChildren(AstNode* nodep);
     /// Call visit()s on nodep (maybe nullptr) and nodep's nextp() list
-    inline void iterateAndNextNull(AstNode* nodep);
+    void iterateAndNextNull(AstNode* nodep);
     /// Return edited nodep; see comments in V3Ast.cpp
-    inline AstNode* iterateSubtreeReturnEdits(AstNode* nodep);
+    AstNode* iterateSubtreeReturnEdits(AstNode* nodep);
 
     VNDeleter& deleter() { return m_deleter; }
     void pushDeletep(AstNode* nodep) { deleter().pushDeletep(nodep); }
@@ -366,10 +379,11 @@ inline std::ostream& operator<<(std::ostream& os, const VNRelinker& rhs) {
 // ######################################################################
 //  Callback base class to determine if node matches some formula
 
-class VNodeMatcher VL_NOT_FINAL {
-public:
-    virtual bool nodeMatch(const AstNode* nodep) const { return true; }
-};
+class VNodeMatcher
+VL_NOT_FINAL{public : virtual bool nodeMatch(const AstNode* nodep) const {return true;
+}
+}
+;
 
 // ######################################################################
 //   AstNode -- Base type of all Ast types
@@ -387,6 +401,9 @@ public:
     } while (false)
 
 class AstNode VL_NOT_FINAL {
+    friend class VNVisitorConst;
+    friend class VNVisitor;
+
     // v ASTNODE_PREFETCH depends on below ordering of members
     AstNode* m_nextp = nullptr;  // Next peer in the parent's list
     AstNode* m_backp = nullptr;  // Node that points to this one (via next/op1/op2/...)
@@ -927,25 +944,10 @@ public:
     // If do a this->replaceNode(newp), would cause a broken()
     bool wouldBreak(const AstNode* const newp) const { return backp()->wouldBreakGen(this, newp); }
 
-    // INVOKERS
-    virtual void accept(VNVisitorConst& v) = 0;
-
 protected:
     // All VNVisitor related functions are called as methods off the visitor
     friend class VNVisitor;
     friend class VNVisitorConst;
-    // Use instead VNVisitor::iterateChildren
-    void iterateChildren(VNVisitor& v);
-    // Use instead VNVisitor::iterateChildrenBackwardsConst
-    void iterateChildrenBackwardsConst(VNVisitorConst& v);
-    // Use instead VNVisitor::iterateChildrenConst
-    void iterateChildrenConst(VNVisitorConst& v);
-    // Use instead VNVisitor::iterateAndNextNull
-    void iterateAndNext(VNVisitor& v);
-    // Use instead VNVisitor::iterateAndNextConstNull
-    void iterateAndNextConst(VNVisitorConst& v);
-    // Use instead VNVisitor::iterateSubtreeReturnEdits
-    AstNode* iterateSubtreeReturnEdits(VNVisitor& v);
 
     static void dumpJsonNum(std::ostream& os, const std::string& name, int64_t val);
     static void dumpJsonBool(std::ostream& os, const std::string& name, bool val);
@@ -953,8 +955,6 @@ protected:
     static void dumpJsonPtr(std::ostream& os, const std::string& name, const AstNode* const valp);
 
 protected:
-    void iterateListBackwardsConst(VNVisitorConst& v);
-
     // For internal use only.
     // Note: specializations for particular node types are provided by 'astgen'
     template <typename T>
@@ -1518,33 +1518,6 @@ struct std::equal_to<VNRef<T_Node>> final {
     }
 };
 
-//######################################################################
-// Inline VNVisitor METHODS
-
-void VNVisitorConst::iterateConst(AstNode* nodep) { nodep->accept(*this); }
-void VNVisitorConst::iterateConstNull(AstNode* nodep) {
-    if (VL_LIKELY(nodep)) nodep->accept(*this);
-}
-void VNVisitorConst::iterateChildrenConst(AstNode* nodep) { nodep->iterateChildrenConst(*this); }
-void VNVisitorConst::iterateChildrenBackwardsConst(AstNode* nodep) {
-    nodep->iterateChildrenBackwardsConst(*this);
-}
-void VNVisitorConst::iterateAndNextConstNull(AstNode* nodep) {
-    if (VL_LIKELY(nodep)) nodep->iterateAndNextConst(*this);
-}
-
-void VNVisitor::iterate(AstNode* nodep) { nodep->accept(*this); }
-void VNVisitor::iterateNull(AstNode* nodep) {
-    if (VL_LIKELY(nodep)) nodep->accept(*this);
-}
-void VNVisitor::iterateChildren(AstNode* nodep) { nodep->iterateChildren(*this); }
-void VNVisitor::iterateAndNextNull(AstNode* nodep) {
-    if (VL_LIKELY(nodep)) nodep->iterateAndNext(*this);
-}
-AstNode* VNVisitor::iterateSubtreeReturnEdits(AstNode* nodep) {
-    return nodep->iterateSubtreeReturnEdits(*this);
-}
-
 // Include macros generated by 'astgen'. These include ASTGEN_MEMBERS_Ast<Node>
 // for each AstNode sub-type, and ASTGEN_SUPER_<Node> for concrete final
 // AstNode sub-types. The generated members include boilerplate methods related
@@ -1566,5 +1539,23 @@ AstNode* VNVisitor::iterateSubtreeReturnEdits(AstNode* nodep) {
 #include "V3AstInlines.h"
 void dumpNodeListJson(std::ostream& os, const AstNode* nodep, const std::string& listName,
                       const string& indent);
+
+//######################################################################
+// Inline VNVisitor METHODS
+
+void VNVisitorConst::iterateConst(AstNode* nodep) {  //
+    dispatch(nodep);
+}
+void VNVisitorConst::iterateConstNull(AstNode* nodep) {
+    if (VL_LIKELY(nodep)) dispatch(nodep);
+}
+
+void VNVisitor::iterate(AstNode* nodep) {  //
+    dispatch(nodep);
+}
+
+void VNVisitor::iterateNull(AstNode* nodep) {  //
+    if (VL_LIKELY(nodep)) dispatch(nodep);
+}
 
 #endif  // Guard

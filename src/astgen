@@ -1111,7 +1111,6 @@ def write_ast_macros(filename):
 
             if node.isLeaf:
                 emitBlock('''\
-                void accept(VNVisitorConst& v) override {{ v.visit(this); }}
                 AstNode* clone() override {{ return new Ast{t}(*this); }}
                 ''',
                           t=node.name)
@@ -1183,6 +1182,22 @@ def write_ast_yystype(filename):
             fh.write("Ast{t}* {m}p;\n".format(t=node.name, m=node.name[0].lower() + node.name[1:]))
 
 
+def write_ast_dispatch(filename):
+    with open_file(filename) as fh:
+        for node in AstNodeList:
+            if not node.isLeaf:
+                continue
+            fh.write("case VNType::{}: this->visit(reinterpret_cast<Ast{}*>(nodep)); break;\n".format(node.name, node.name))
+
+
+def write_ast_ptrtable(filename):
+    with open_file(filename) as fh:
+        nodes = sorted((_ for _ in AstNodeList if _.isLeaf), key = lambda _: _.typeId)
+        for node in nodes:
+            fh.write("reinterpret_cast<void(VNVisitorConst::*)(AstNode*)>(static_cast<void(VNVisitorConst::*)(Ast{}*)>(&VNVisitorConst::visit)),\n".format(node.name))
+
+
+################################################################################
 ################################################################################
 # DFG code generation
 ################################################################################
@@ -1583,6 +1598,8 @@ if Args.classes:
     write_ast_impl("V3Ast__gen_impl.h")
     write_ast_macros("V3Ast__gen_macros.h")
     write_ast_yystype("V3Ast__gen_yystype.h")
+    write_ast_dispatch("V3Ast__gen_dispatch.h")
+    write_ast_ptrtable("V3Ast__gen_ptrtable.h")
     # Write Dfg code
     write_forward_class_decls("Dfg", DfgVertexList)
     write_visitor_decls("Dfg", DfgVertexList)
