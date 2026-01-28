@@ -60,8 +60,9 @@ class UnknownVisitor final : public VNVisitor {
     // STATE - for current visit position (use VL_RESTORER)
     AstNodeModule* m_modp = nullptr;  // Current module
     AstNodeFTask* m_ftaskp = nullptr;  // Current function/task
-    AstAssignDly* m_assigndlyp = nullptr;  // Current assignment
-    AstNode* m_timingControlp = nullptr;  // Current assignment's intra timing control
+    // Current procedural statement. TODO: Make this an AstNodeStmt after #6280
+    AstNode* m_stmtp = nullptr;
+
     bool m_constXCvt = false;  // Convert X's
     bool m_allowXUnique = v3Global.opt.xAssign() == "unique";  // Allow unique assignments
 
@@ -95,37 +96,27 @@ class UnknownVisitor final : public VNVisitor {
         // but makes a mess in the emitter as lvalue switching is needed.  So 4.
         // SEL(...) -> temp
         //             if (COND(LTE(bit<=maxlsb))) ASSIGN(SEL(...)),temp)
-        const bool needDly = (m_assigndlyp != nullptr);
-        if (m_assigndlyp) {
-            // Delayed assignments become normal assignments,
-            // then the temp created becomes the delayed assignment
-            AstNode* const newp = new AstAssign{m_assigndlyp->fileline(),
-                                                m_assigndlyp->lhsp()->unlinkFrBackWithNext(),
-                                                m_assigndlyp->rhsp()->unlinkFrBackWithNext()};
-            m_assigndlyp->replaceWith(newp);
-            VL_DO_CLEAR(pushDeletep(m_assigndlyp), m_assigndlyp = nullptr);
-        }
-        AstNodeExpr* prep = nodep;
 
-        // Scan back to put the condlvalue above all selects (IE top of the lvalue)
-        while (VN_IS(prep->backp(), NodeSel) || VN_IS(prep->backp(), Sel)
-               || VN_IS(prep->backp(), MemberSel) || VN_IS(prep->backp(), StructSel)) {
-            prep = VN_AS(prep->backp(), NodeExpr);
-        }
-        if (VN_IS(prep->backp(), AssignForce) || VN_IS(prep->backp(), Release)) {
-            // The conversion done in this function breaks force and release statements
+        if (!m_stmtp) {
             nodep->v3warn(E_UNSUPPORTED,
-                          "Unsupported: Force / release statement with complex select expression");
+                          "Unsupported: Dynamic Lvalue expression not supported in this positin");
             VL_DO_DANGLING(condp->deleteTree(), condp);
             return;
         }
+        if (VN_IS(m_stmtp, AssignForce) || VN_IS(m_stmtp, Release)) {
+            // The conversion done in this function breaks force and release statements
+            nodep->v3warn(E_UNSUPPORTED,
+                          "Unsupported: Force / release statement with Dynamic Lvalue expression");
+            VL_DO_DANGLING(condp->deleteTree(), condp);
+            return;
+        }
+
         FileLine* const fl = nodep->fileline();
         VL_DANGLING(nodep);  // Zap it so we don't use it by mistake - use prep
 
         // Already exists; rather than IF(a,... IF(b... optimize to IF(a&&b,
         // Saves us teaching V3Const how to optimize, and it won't be needed again.
         if (const AstIf* const ifp = VN_AS(prep->user2p(), If)) {
-            UASSERT_OBJ(!needDly, prep, "Should have already converted to non-delay");
             VNRelinker replaceHandle;
             AstNodeExpr* const earliercondp = ifp->condp()->unlinkFrBack(&replaceHandle);
             AstNodeExpr* const newp = new AstLogAnd{condp->fileline(), condp, earliercondp};
@@ -134,22 +125,16 @@ class UnknownVisitor final : public VNVisitor {
         } else {
             AstVar* const varp = newVar(fl, m_lvboundNames.get(prep), prep->dtypep());
             ++m_statLvBoundVars;
-            AstNode* stmtp = prep->backp();  // Grab above point before we replace 'prep'
-            while (!VN_IS(stmtp, NodeStmt)) stmtp = stmtp->backp();
 
             prep->replaceWith(new AstVarRef{fl, varp, VAccess::WRITE});
-            if (m_timingControlp) m_timingControlp->unlinkFrBack();
-            AstIf* const newp = new AstIf{
-                fl, condp,
-                (needDly
-                     ? static_cast<AstNode*>(new AstAssignDly{
-                           fl, prep, new AstVarRef{fl, varp, VAccess::READ}, m_timingControlp})
-                     : static_cast<AstNode*>(new AstAssign{
-                           fl, prep, new AstVarRef{fl, varp, VAccess::READ}, m_timingControlp}))};
+            AstIf* const newp
+                = new AstIf{fl, condp,
+
+                            new AstAssign{fl, prep, new AstVarRef{fl, varp, VAccess::READ}}};
             newp->branchPred(VBranchPred::BP_LIKELY);
             newp->isBoundsCheck(true);
             UINFOTREE(9, newp, "", "_new");
-            stmtp->addNextHere(newp);
+            m_stmtp->addNextHere(newp);
             prep->user2p(newp);  // Save so we may LogAnd it next time
         }
     }
@@ -204,65 +189,6 @@ class UnknownVisitor final : public VNVisitor {
         return new AstVarRef{flp, varp, VAccess::READ};
     }
 
-    // VISITORS
-    void visit(AstNodeModule* nodep) override {
-        UINFO(4, " MOD   " << nodep);
-        {
-            VL_RESTORER(m_modp);
-            VL_RESTORER(m_constXCvt);
-            VL_RESTORER(m_allowXUnique);
-            m_modp = nodep;
-            m_constXCvt = true;
-            // Class X randomization causes Vxrand in strange places, so disable
-            if (VN_IS(nodep, Class)) m_allowXUnique = false;
-            iterateChildren(nodep);
-        }
-        // Reset variable names only at a root module
-        if (!m_modp) {
-            m_lvboundNames.reset();
-            m_xrandNames.reset();
-        }
-    }
-    void visit(AstNodeFTask* nodep) override {
-        VL_RESTORER(m_ftaskp);
-        m_ftaskp = nodep;
-        iterateChildren(nodep);
-    }
-    void visit(AstAssignDly* nodep) override {
-        VL_RESTORER(m_assigndlyp);
-        VL_RESTORER(m_timingControlp);
-        m_assigndlyp = nodep;
-        m_timingControlp = nodep->timingControlp();
-        VL_DO_DANGLING(iterateChildren(nodep), nodep);  // May delete nodep.
-    }
-    void visit(AstAssignW* nodep) override {
-        VL_RESTORER(m_timingControlp);
-        m_timingControlp = nodep->timingControlp();
-        VL_DO_DANGLING(iterateChildren(nodep), nodep);  // May delete nodep.
-    }
-    void visit(AstNodeAssign* nodep) override {
-        VL_RESTORER(m_timingControlp);
-        m_timingControlp = nodep->timingControlp();
-        iterateChildren(nodep);
-    }
-    void visit(AstCaseItem* nodep) override {
-        VL_RESTORER(m_constXCvt);
-        m_constXCvt = false;  // Avoid losing the X's in casex
-        iterateAndNextNull(nodep->condsp());
-        m_constXCvt = true;
-        iterateAndNextNull(nodep->stmtsp());
-    }
-    void visit(AstNodeDType* nodep) override {
-        // FIXME: Why is this needed?
-        VL_RESTORER(m_constXCvt);
-        m_constXCvt = false;  // Avoid losing the X's in casex
-        iterateChildren(nodep);
-    }
-    void visit(AstVar* nodep) override {
-        VL_RESTORER(m_allowXUnique);
-        if (nodep->isParam()) m_allowXUnique = false;
-        iterateChildren(nodep);
-    }
     void visitEqNeqCase(AstNodeBiop* nodep) {
         UINFO(4, " N/EQCASE->EQ " << nodep);
         V3Const::constifyEdit(nodep->lhsp());  // lhsp may change
@@ -295,6 +221,7 @@ class UnknownVisitor final : public VNVisitor {
             iterateChildren(newp);
         }
     }
+
     void visitEqNeqWild(AstNodeBiop* nodep) {
         UINFO(4, " N/EQWILD->EQ " << nodep);
         V3Const::constifyEdit(nodep->lhsp());  // lhsp may change
@@ -337,6 +264,76 @@ class UnknownVisitor final : public VNVisitor {
         }
     }
 
+    // VISITORS - Non statment/non-expression - All must set m_stmtp to nullptr
+    void visit(AstNode* nodep) override {
+        VL_RESTORER(m_stmtp);
+        // Conservatively assume not a statement. If it is (prior to #6280),
+        // add explicit 'visit' in stmt section below
+        m_stmtp = nullptr;
+        iterateChildren(nodep);
+    }
+    void visit(AstNodeModule* nodep) override {
+        UINFO(4, " MOD   " << nodep);
+
+        // Reset variable names only at a root modules
+        if (!m_modp) {
+            m_lvboundNames.reset();
+            m_xrandNames.reset();
+        }
+
+        VL_RESTORER(m_modp);
+        VL_RESTORER(m_stmtp);
+        VL_RESTORER(m_constXCvt);
+        VL_RESTORER(m_allowXUnique);
+        m_modp = nodep;
+        m_stmtp = nullptr;
+        m_constXCvt = true;
+        // Class X randomization causes Vxrand in strange places, so disable
+        if (VN_IS(nodep, Class)) m_allowXUnique = false;
+        iterateChildren(nodep);
+    }
+    void visit(AstNodeFTask* nodep) override {
+        UASSERT_OBJ(m_modp, nodep, "FTask must be under a NodeModule");
+        VL_RESTORER(m_ftaskp);
+        VL_RESTORER(m_stmtp);
+        m_ftaskp = nodep;
+        m_stmtp = nullptr;
+        iterateChildren(nodep);
+    }
+    void visit(AstNodeDType* nodep) override {
+        // FIXME: Why is this needed?
+        VL_RESTORER(m_stmtp);
+        VL_RESTORER(m_constXCvt);
+        m_stmtp = nullptr;
+        m_constXCvt = false;  // Avoid losing the X's in casex
+        iterateChildren(nodep);
+    }
+    void visit(AstVar* nodep) override {
+        VL_RESTORER(m_stmtp);
+        VL_RESTORER(m_allowXUnique);
+        m_stmtp = nullptr;
+        if (nodep->isParam()) m_allowXUnique = false;
+        iterateChildren(nodep);
+    }
+    void visit(AstCaseItem* nodep) override {
+        VL_RESTORER(m_stmtp);
+        VL_RESTORER(m_constXCvt);
+        m_stmtp = nullptr;
+        m_constXCvt = false;  // Avoid losing the X's in casex
+        iterateAndNextNull(nodep->condsp());
+        m_constXCvt = true;
+        iterateAndNextNull(nodep->stmtsp());
+    }
+
+    // VISITORS - Statements - All must set m_stmtp to self
+    void visit(AstNodeStmt* nodep) override {
+        VL_RESTORER(m_stmtp);
+        m_stmtp = nodep;
+        iterateChildren(nodep);
+    }
+
+    // VISITORS - Expressions - All must not modify m_stmtp (except under AstExprStmt)
+    void visit(AstNodeExpr* nodep) override { iterateChildren(nodep); }
     void visit(AstEqCase* nodep) override { visitEqNeqCase(nodep); }
     void visit(AstNeqCase* nodep) override { visitEqNeqCase(nodep); }
     void visit(AstEqWild* nodep) override { visitEqNeqWild(nodep); }
@@ -415,7 +412,7 @@ class UnknownVisitor final : public VNVisitor {
             // We use the special XTEMP type so it doesn't break pure functions
             UASSERT_OBJ(m_modp, nodep, "X number not under module");
             AstVar* const newvarp
-                = new AstVar{nodep->fileline(), VVarType::XTEMP, m_xrandNames->get(nullptr),
+                = new AstVar{nodep->fileline(), VVarType::XTEMP, m_xrandNames.get(nullptr),
                              VFlagLogicPacked{}, nodep->width()};
             newvarp->lifetime(VLifetime::STATIC_EXPLICIT);
             ++m_statUnkVars;
@@ -550,8 +547,6 @@ class UnknownVisitor final : public VNVisitor {
             iterate(newp);
         }
     }
-    //--------------------
-    void visit(AstNode* nodep) override { iterateChildren(nodep); }
 
 public:
     // CONSTRUCTORS
