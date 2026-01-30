@@ -307,6 +307,8 @@ private:
     }
 
 protected:
+    bool isPure() const { return !m_pliVertexp; }
+
     void scanBlock(AstNode* nodep) {
         // Iterate across current block, making the scoreboard
         for (AstNode* nextp = nodep; nextp; nextp = nextp->nextp()) {
@@ -853,6 +855,7 @@ class SplitVisitor final : public SplitReorderBaseVisitor {
     // AstNodeIf* whose condition we're currently visiting
     const AstNode* m_curIfConditional = nullptr;
     VDouble0 m_statSplits;  // Statistic tracking
+    bool m_combLogic = false;  // Currently inside combinational logic
 
     // CONSTRUCTORS
 public:
@@ -954,10 +957,24 @@ protected:
         if (dumpGraphLevel() >= 9) m_graph.dumpDotFilePrefixed("splitg_colored", false);
     }
 
+    void visit(AstActive* nodep) override {
+        VL_RESTORER(m_combLogic);
+        m_combLogic = nodep->sentreep()->hasCombo();
+        iterateChildren(nodep);
+    }
+
     void visit(AstAlways* nodep) override {
         // build the scoreboard
         scoreboardClear();
         scanBlock(nodep->stmtsp());
+
+        // Cannot split up combinational logic that contains impure statements.
+        // The executaion of the block (and hence the side effects) depend on
+        // all variables read in the block, so read references cannot be removed,
+        // otherwise the executions of the side effecting statements may chagne.
+        // TODO: Could split the block if we add back all the remaining read
+        // references so all split blocks are always triggered on the same conditions.
+        if (m_combLogic && !isPure()) m_noReorderWhy = "Impure combinatinal logic";
 
         if (m_noReorderWhy != "") {
             // We saw a jump or something else rare that we don't handle.

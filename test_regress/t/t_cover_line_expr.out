@@ -22,8 +22,8 @@
 -000001  point: comment=block hier=top.t
         
             logic [63:32] cyc2;
-%000001     always_comb cyc2 = cyc;
--000001  point: comment=block hier=top.t
+ 000010     always_comb cyc2 = cyc;
++000010  point: comment=block hier=top.t
         
             integer some_int;
             integer other_int;
@@ -57,10 +57,10 @@
             localparam int NUM_INTFS = 4;
             intf the_intfs [NUM_INTFS-1:0] ();
             genvar intf_i;
-%000004     for (intf_i = 0; intf_i < NUM_INTFS; intf_i++) begin
--000004  point: comment=block hier=top.t
-%000004         always_comb the_intfs[intf_i].t = cyc[intf_i];
--000004  point: comment=block hier=top.t
+ 000040     for (intf_i = 0; intf_i < NUM_INTFS; intf_i++) begin
++000040  point: comment=block hier=top.t
+ 000040         always_comb the_intfs[intf_i].t = cyc[intf_i];
++000040  point: comment=block hier=top.t
             end
         
 %000009     always @ (posedge clk) begin
