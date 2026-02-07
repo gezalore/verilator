@@ -354,7 +354,8 @@ LogicRegions partition(LogicByScope& clockedLogic, LogicByScope& combinationalLo
 
     for (V3GraphVertex& vtx : graphp->vertices()) {
         if (const auto lvtxp = vtx.cast<SchedLogicVertex>()) {
-            LogicByScope& lbs = lvtxp->color() ? result.m_act : result.m_nba;
+            const bool isPost = VN_IS(lvtxp->logicp(), AlwaysPost);
+            LogicByScope& lbs = lvtxp->color() || !isPost ? result.m_act : result.m_nba;
             AstNode* const logicp = lvtxp->logicp();
             logicp->unlinkFrBack();
             lbs.add(lvtxp->scopep(), lvtxp->senTreep(), logicp);

@@ -831,6 +831,7 @@ public:
         SCHED_EVALUATION,
         SCHED_POST_UPDATE,
         SCHED_RESUME,
+        SCHED_RESUME_ZERO_DELAY,
         SCHED_RESUMPTION,
         SCHED_TRIGGER,
         UNPACKED_ASSIGN,
@@ -964,6 +965,7 @@ inline std::ostream& operator<<(std::ostream& os, const VCMethod& rhs) {
            {SCHED_EVALUATION, "evaluation", false}, \
            {SCHED_POST_UPDATE, "postUpdate", false}, \
            {SCHED_RESUME, "resume", false}, \
+           {SCHED_RESUME_ZERO_DELAY, "resumeZeroDelay", false}, \
            {SCHED_RESUMPTION, "resumption", false}, \
            {SCHED_TRIGGER, "trigger", false}, \
            {UNPACKED_ASSIGN, "assign", false}, \

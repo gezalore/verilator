@@ -163,8 +163,16 @@ EvalLoop createEvalLoop(
         if (phaseWorkp) {
             // Check if any triggers are fired, save the result
             AstNodeExpr* const lhsp = new AstVarRef{flp, executeFlagp, VAccess::WRITE};
-            AstNodeExpr* const rhsp = trigKit.newAnySetCall(trigp);
-            phaseFuncp->addStmtsp(new AstAssign{flp, lhsp, rhsp});
+            if (tag == "inact") {
+                AstNodeExpr* const rhsp
+                    = new AstCMethodHard{flp, new AstVarRef{flp, trigp, VAccess::READWRITE},
+                                         VCMethod::SCHED_RESUME_ZERO_DELAY};
+                rhsp->dtypeSetBit();
+                phaseFuncp->addStmtsp(new AstAssign{flp, lhsp, rhsp});
+            } else {
+                AstNodeExpr* const rhsp = trigKit.newAnySetCall(trigp);
+                phaseFuncp->addStmtsp(new AstAssign{flp, lhsp, rhsp});
+            }
 
             // Add the work
             AstIf* const ifp = new AstIf{flp, new AstVarRef{flp, executeFlagp, VAccess::READ}};
@@ -217,7 +225,12 @@ EvalLoop createEvalLoop(
         stmtps->addNext(loopp);
 
         // Check the iteration limit (aborts if exceeded)
-        AstNodeStmt* const dumpCallp = trigKit.newDumpCall(trigp, tag, false);
+        AstNodeStmt* dumpCallp = nullptr;
+        if (tag != "inact") {
+            dumpCallp = trigKit.newDumpCall(trigp, tag, false);
+        } else {
+            dumpCallp = new AstComment{flp, "Whatever, just needs a statement"};
+        }
         loopp->addStmtsp(util::checkIterationLimit(netlistp, name, counterp, dumpCallp));
         // Increment the iteration counter
         loopp->addStmtsp(util::incrementVar(counterp));
@@ -595,6 +608,8 @@ void createEval(AstNetlist* netlistp,  //
 ) {
     FileLine* const flp = netlistp->fileline();
 
+    AstVarScope* const delaySchedVscp = timingKit.getDelayScheduler(netlistp);
+
     // 'createResume' consumes the contents that 'createReady' needs, so do the right order
     AstCCall* const timingReadyp = timingKit.createReady(netlistp);
     AstCCall* const timingResumep = timingKit.createResume(netlistp);
@@ -638,6 +653,18 @@ void createEval(AstNetlist* netlistp,  //
             workp = AstNode::addNext(workp, util::callVoidFunc(actKit.m_funcp));
             //
             return workp;
+        }());
+
+    topLoop = createEvalLoop(  //
+        netlistp, "inact", "Inactive", /* slow: */ false, trigKit, delaySchedVscp,
+        // Inner loop statements
+        topLoop.stmtsp,
+        // Prep statements
+        [&]() { return new AstComment{flp, "Inactive region prep"}; }(),
+        // Work statements
+        [&]() {
+            //
+            return new AstComment{flp, "Inactive region work"};
         }());
 
     // Create the NBA eval loop, which is the default top level loop.

@@ -181,6 +181,8 @@ public:
     // METHODS
     // Resume coroutines waiting for the current simulation time
     void resume();
+    // Resume coroutines waiting for #0
+    bool resumeZeroDelay();
     // Returns the simulation time of the next time slot (aborts if there are no delayed
     // coroutines)
     uint64_t nextTimeSlot() const;
@@ -188,8 +190,7 @@ public:
     bool empty() const { return m_queue.empty() && m_zeroDelayed.empty(); }
     // Are there coroutines to resume at the current simulation time?
     bool awaitingCurrentTime() const {
-        return (!m_queue.empty() && (m_queue.cbegin()->first <= m_context.time()))
-               || !m_zeroDelayed.empty();
+        return (!m_queue.empty() && (m_queue.cbegin()->first <= m_context.time()));
     }
 #ifdef VL_DEBUG
     void dump() const;

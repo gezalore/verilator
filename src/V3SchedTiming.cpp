@@ -113,6 +113,22 @@ AstCCall* TimingKit::createResume(AstNetlist* const netlistp) {
     return callp;
 }
 
+AstVarScope* TimingKit::getDelayScheduler(AstNetlist* const netlistp) {
+    for (auto& p : m_lbs) {
+        AstActive* const activep = p.second;
+        // Hack to ensure that #0 delays will be executed after any other `act` events.
+        // Just handle delayed coroutines last.
+        AstVarRef* const schedrefp = VN_AS(
+            VN_AS(VN_AS(activep->stmtsp(), StmtExpr)->exprp(), CMethodHard)->fromp(), VarRef);
+
+        if (schedrefp->varScopep()->dtypep()->basicp()->isDelayScheduler()) {
+            return schedrefp->varScopep();
+        }
+    }
+
+    return nullptr;
+}
+
 //============================================================================
 // Creates a timing ready call (if needed, else returns null)
 
