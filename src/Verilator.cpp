@@ -566,6 +566,10 @@ static void process() {
                 // Merge conditionals
                 V3MergeCond::mergeAll(v3Global.rootp());
             }
+            // Branch prediction
+            V3Branch::branchAll(v3Global.rootp());
+
+            V3MergeCond::slowPathAll(v3Global.rootp());
 
             if (v3Global.opt.fReloop()) {
                 // Reform loops to reduce code size
@@ -582,8 +586,6 @@ static void process() {
             // Mark evaluation functions as member functions, if needed.
             V3Depth::depthAll(v3Global.rootp());
 
-            // Branch prediction
-            V3Branch::branchAll(v3Global.rootp());
 
             // Add C casts when longs need to become long-long and vice-versa
             // Note depth may insert something needing a cast, so this must be last.

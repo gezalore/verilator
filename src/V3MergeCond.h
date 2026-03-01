@@ -27,6 +27,7 @@ class AstNetlist;
 class V3MergeCond final {
 public:
     static void mergeAll(AstNetlist* nodep) VL_MT_DISABLED;
+    static void slowPathAll(AstNetlist* nodep) VL_MT_DISABLED;
 };
 
 #endif  // Guard

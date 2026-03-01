@@ -113,6 +113,9 @@ class InlineCFuncsVisitor final : public VNVisitor {
 
     // Check if a function is eligible for inlining into caller
     bool isInlineable(const AstCFunc* callerp, AstCFunc* cfuncp) {
+        // No point inlining slow path functions
+        if (cfuncp->name().find("slow_path") != std::string::npos) return false;
+
         // Must be in the same scope (same class) to access the same members
         if (callerp->scopep() != cfuncp->scopep()) return false;
 

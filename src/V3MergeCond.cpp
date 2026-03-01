@@ -76,11 +76,13 @@
 
 #include "V3MergeCond.h"
 
+#include "V3Ast.h"
 #include "V3AstUserAllocator.h"
 #include "V3DupFinder.h"
 #include "V3Hasher.h"
 #include "V3Stats.h"
 
+#include <_stdio.h>
 #include <queue>
 #include <set>
 
@@ -956,4 +958,82 @@ void V3MergeCond::mergeAll(AstNetlist* nodep) {
     UINFO(2, __FUNCTION__ << ":");
     { MergeCondVisitor{nodep}; }
     V3Global::dumpCheckGlobalTree("merge_cond", 0, dumpTreeEitherLevel() >= 6);
+}
+
+class SlowPathVisitor final : public VNVisitor {
+    AstNodeModule* m_modp = nullptr;  // Current module
+    AstCFunc* m_funcp = nullptr;  // Current function
+    size_t m_nSub = 0;  // Number of extracted sub functions
+
+    AstNodeStmt* extract(AstNode* stmtsp) {
+        if (!stmtsp) return nullptr;
+        const bool hasLocal = stmtsp->existsAndNext([](const AstVarRef* refp) {  //
+            return refp->varp()->isFuncLocal();
+        });
+        // Can't extract if it references a local variable
+        if (hasLocal) return nullptr;
+
+        const std::string name = m_funcp->name() + "__slow_path_" + cvtToStr(m_nSub++);
+
+        AstCFunc* const funcp = new AstCFunc{stmtsp->fileline(), name, m_funcp->scopep()};
+        funcp->slow(true);
+        funcp->isStatic(m_funcp->isStatic());
+        funcp->isLoose(m_funcp->isLoose());
+        funcp->addStmtsp(stmtsp->unlinkFrBackWithNext());
+        m_modp->addStmtsp(funcp);
+        AstCCall* const callp = new AstCCall{stmtsp->fileline(), funcp};
+        callp->dtypeSetVoid();
+        callp->selfPointer(VSelfPointerText{VSelfPointerText::This{}});
+        return callp->makeStmt();
+    }
+
+    void visit(AstNodeModule* nodep) {
+        VL_RESTORER(m_modp);
+        m_modp = nodep;
+        iterateChildren(nodep);
+    }
+
+    void visit(AstCFunc* nodep) {
+        if (nodep->slow()) return;
+        if (!nodep->isLoose()) return;
+        if (!nodep->argTypes().empty()) return;
+        if (nodep->entryPoint()) return;
+        if (nodep->name().find("triggers") != std::string::npos) return;
+        VL_RESTORER(m_funcp);
+        VL_RESTORER(m_nSub);
+        m_funcp = nodep;
+        m_nSub = 0;
+        iterateChildren(nodep);
+    }
+
+    void visit(AstNodeIf* nodep) {
+        if (nodep->branchPred() == VBranchPred::BP_LIKELY) {
+            iterateAndNextNull(nodep->thensp());
+            if (AstNodeStmt* const replacementp = extract(nodep->elsesp())) {
+                nodep->addElsesp(replacementp);
+            } else {
+                iterateAndNextNull(nodep->elsesp());
+            }
+        } else if (nodep->branchPred() == VBranchPred::BP_UNLIKELY) {
+            if (AstNodeStmt* const replacementp = extract(nodep->thensp())) {
+                nodep->addThensp(replacementp);
+            } else {
+                iterateAndNextNull(nodep->thensp());
+            }
+            iterateAndNextNull(nodep->elsesp());
+        } else {
+            iterateChildren(nodep);
+        }
+    }
+
+    void visit(AstNode* nodep) { iterateChildren(nodep); }
+
+public:
+    SlowPathVisitor(AstNetlist* nodep) { iterate(nodep); }
+};
+
+void V3MergeCond::slowPathAll(AstNetlist* nodep) {
+    UINFO(2, __FUNCTION__ << ":");
+    { SlowPathVisitor{nodep}; }
+    V3Global::dumpCheckGlobalTree("slow_path", 0, dumpTreeEitherLevel() >= 6);
 }
