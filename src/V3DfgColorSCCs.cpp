@@ -105,6 +105,12 @@ class ColorStronglyConnectedComponents final {
             component(vtx) = 0;
         }
 
+        // We know ast read and write references have no output or input eges
+        for (const DfgVertexAst& vtx : m_dfg.astVertices()) {
+            index(vtx) = 0;
+            component(vtx) = 0;
+        }
+
         // Initialize state of variable vertices
         for (const DfgVertexVar& vtx : m_dfg.varVertices()) {
             // If it has no inputs or no outputs, it cannot be part of a non-trivial SCC.
