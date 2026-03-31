@@ -267,6 +267,7 @@ public:
         // Inputs
         VDouble0 inputAssignments;  // Number of input assignments
         VDouble0 inputExpressions;  // Number of input equations
+        VDouble0 astRdExpressions;  // Number of AstRd expressions attempted
         // Successful
         VDouble0 representable;  // Number of representable constructs
         // Unsuccessful
@@ -274,6 +275,7 @@ public:
         VDouble0 nonRepDType;  // Non representable: unsupported data type
         VDouble0 nonRepLValue;  // Non representable: unsupported LValue form
         VDouble0 nonRepVarRef;  // Non representable: unsupported var reference
+        VDouble0 nonRepNoVar;  // Non representable: reference to unknown variable
         VDouble0 nonRepOOBSel;  // Non representable: out of bounds select
         VDouble0 nonRepNode;  // Non representable: unsupported AstNode type
         VDouble0 nonRepUnknown;  // Non representable: unhandled AstNode type
@@ -316,11 +318,13 @@ private:
         // Conversion statistics
         addStat("conv / input assignments", m_conv.inputAssignments);
         addStat("conv / input expressions", m_conv.inputExpressions);
+        addStat("conv / astrd expressions", m_conv.astRdExpressions);
         addStat("conv / representable inputs", m_conv.representable);
         addStat("conv / non-representable (impure)", m_conv.nonRepImpure);
         addStat("conv / non-representable (dtype)", m_conv.nonRepDType);
         addStat("conv / non-representable (lhs)", m_conv.nonRepLValue);
         addStat("conv / non-representable (varref)", m_conv.nonRepVarRef);
+        addStat("conv / non-representable (no var)", m_conv.nonRepNoVar);
         addStat("conv / non-representable (oobsel)", m_conv.nonRepOOBSel);
         addStat("conv / non-representable (node)", m_conv.nonRepNode);
         addStat("conv / non-representable (unknown)", m_conv.nonRepUnknown);
@@ -329,12 +333,14 @@ private:
         nConvNonRep += m_conv.nonRepDType;
         nConvNonRep += m_conv.nonRepLValue;
         nConvNonRep += m_conv.nonRepVarRef;
+        nConvNonRep += m_conv.nonRepNoVar;
         nConvNonRep += m_conv.nonRepOOBSel;
         nConvNonRep += m_conv.nonRepNode;
         nConvNonRep += m_conv.nonRepUnknown;
         VDouble0 nConvExpect;
         nConvExpect += m_conv.inputAssignments;
         nConvExpect += m_conv.inputExpressions;
+        nConvExpect += m_conv.astRdExpressions;
         nConvExpect -= m_conv.representable;
         UASSERT(nConvNonRep == nConvExpect, "Inconsistent statistics / conv");
 

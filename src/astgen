@@ -1313,7 +1313,7 @@ def write_dfg_ast_to_dfg(filename):
             fh.write(
                 '    UASSERT_OBJ(m_converting, nodep, "AstToDfg visit called without m_converting");\n'
             )
-            fh.write('    UASSERT_OBJ(!nodep->user2p(), nodep, "Already has Dfg vertex");\n\n')
+            fh.write('    if (nodep->user2p()) return;\n')
             fh.write("    if (unhandled(nodep)) return;\n\n")
 
             fh.write(
@@ -1339,7 +1339,7 @@ def write_dfg_ast_to_dfg(filename):
             fh.write("        ++m_ctx.m_conv.nonRepNode;\n")
             fh.write("        return;\n")
             fh.write("    }\n")
-            fh.write("    m_logicp->synth().emplace_back(vtxp);\n\n")
+            fh.write("    if (m_logicp) m_logicp->synth().emplace_back(vtxp);\n\n")
             for i in range(node.arity):
                 fh.write(
                     "    vtxp->inputp({i}, nodep->op{j}p()->user2u().to<DfgVertex*>());\n".format(

@@ -84,7 +84,7 @@ class AstToDfgConverter final : public VNVisitor {
         static_assert(!std::is_base_of<DfgVertexVar, Vertex>::value, "Do not use for variables");
         static_assert(std::is_base_of<DfgVertex, Vertex>::value, "'Vertex' must be a 'DfgVertex'");
         Vertex* const vtxp = new Vertex{m_dfg, std::forward<Args>(args)...};
-        m_logicp->synth().emplace_back(vtxp);
+        if (m_logicp) m_logicp->synth().emplace_back(vtxp);
         return vtxp;
     }
 
@@ -352,24 +352,29 @@ class AstToDfgConverter final : public VNVisitor {
     // Expressions - mostly auto generated, but a few special ones
     void visit(AstVarRef* nodep) override {
         UASSERT_OBJ(m_converting, nodep, "AstToDfg visit called without m_converting");
-        UASSERT_OBJ(!nodep->user2p(), nodep, "Already has Dfg vertex");
+        if (nodep->user2p()) return;
         if (unhandled(nodep)) return;
-        // This visit method is only called on RValues, where only read refs are supported
-        UASSERT_OBJ(nodep->access().isReadOnly(), nodep, "Non-ReadOnly reference");
-        if (!isSupported(nodep)) {
+        if (!nodep->access().isReadOnly() || !isSupported(nodep)) {
             m_foundUnhandled = true;
             ++m_ctx.m_conv.nonRepVarRef;
             return;
         }
 
-        // Variable should have been bound before starting conversion
+        // This visit method is only called on RValues, where only read refs are supported
+        // UASSERT_OBJ(nodep->access().isReadOnly(), nodep, "Non-ReadOnly reference");
+
+        // Pick up bound variable, or give up if not found
         DfgVertex* const vtxp = nodep->varScopep()->user2u().template to<DfgVertexVar*>();
-        UASSERT_OBJ(vtxp, nodep, "Referenced variable has no associated DfgVertexVar");
+        if (!vtxp) {
+            m_foundUnhandled = true;
+            ++m_ctx.m_conv.nonRepVarRef;
+            return;
+        }
         nodep->user2p(vtxp);
     }
     void visit(AstConst* nodep) override {
         UASSERT_OBJ(m_converting, nodep, "AstToDfg visit called without m_converting");
-        UASSERT_OBJ(!nodep->user2p(), nodep, "Already has Dfg vertex");
+        if (nodep->user2p()) return;
         if (unhandled(nodep)) return;
 
         if (nodep->width() != nodep->num().width()) {
@@ -406,7 +411,7 @@ class AstToDfgConverter final : public VNVisitor {
     }
     void visit(AstSel* nodep) override {
         UASSERT_OBJ(m_converting, nodep, "AstToDfg visit called without m_converting");
-        UASSERT_OBJ(!nodep->user2p(), nodep, "Already has Dfg vertex");
+        if (nodep->user2p()) return;
         if (unhandled(nodep)) return;
 
         const DfgDataType* const dtypep = DfgDataType::fromAst(nodep->dtypep());
@@ -524,6 +529,13 @@ public:
         m_logicp = &vtx;
         // Convert it
         ++m_ctx.m_conv.inputExpressions;
+        DfgVertex* const vtxp = convertRValue(nodep);
+        if (vtxp) ++m_ctx.m_conv.representable;
+        return vtxp;
+    }
+
+    DfgVertex* convertAstRd(AstNodeExpr* nodep) {
+        ++m_ctx.m_conv.astRdExpressions;
         DfgVertex* const vtxp = convertRValue(nodep);
         if (vtxp) ++m_ctx.m_conv.representable;
         return vtxp;
@@ -1655,6 +1667,36 @@ class AstToDfgSynthesize final {
         return true;
     }
 
+    // Synthesize a DfgAstRd into more specific for.
+    void synthesize(DfgAstRd* vtxp) {
+        DfgVertex* srcp = vtxp->srcp();
+        AstNodeExpr* exprp = vtxp->exprp();
+
+        DfgVertexVar* const varp = srcp->as<DfgVertexVar>();
+        if (varp->hasExtWrRefs() || varp->hasModWrRefs()) return;
+
+        // Use fresh set of vertices in m_converter
+        const VNUser2InUse user2InUse;
+        VN_AS(vtxp->exprp(), VarRef)->user2p(varp);
+
+        // Walk up the expression tree as far as we can
+        while (true) {
+            AstNodeExpr* const abovep = VN_CAST(exprp->firstAbovep(), NodeExpr);
+            if (!abovep) break;
+            DfgVertex* const vtxp = m_converter.convertAstRd(abovep);
+            if (!vtxp) break;
+            srcp = vtxp;
+            exprp = abovep;
+        }
+
+        // If we managed to walk up at least one step, repalce with the more specific vertex
+        if (exprp != vtxp->exprp()) {
+            DfgAstRd* const newp = new DfgAstRd{m_dfg, exprp, vtxp->inSenItem(), vtxp->inLoop()};
+            newp->srcp(srcp);
+            VL_DO_DANGLING(vtxp->unlinkDelete(m_dfg), vtxp);
+        }
+    }
+
     // Revert all DfgLogic in m_toRevert, or DfgLogic driving the DfgUnresolved
     // vertices in m_toRevert, and transitively the same for any DfgUnresolved
     // driven by the reverted DfgLogic. Delete all DfgUnresolved involed.
@@ -1891,6 +1933,16 @@ class AstToDfgSynthesize final {
             }
         }
         debugDump("synth-rmsplice");
+
+        //-------------------------------------------------------------------
+        // FIXME: only those that have drivers that could be optimized
+        UINFO(5, "Step 6: Synthesize Ast references");
+        std::vector<DfgAstRd*> astRdps;
+        for (DfgVertexAst& vtx : m_dfg.astVertices()) {
+            if (DfgAstRd* const astRdp = vtx.cast<DfgAstRd>()) astRdps.emplace_back(astRdp);
+        }
+        for (DfgAstRd* const astRdp : astRdps) VL_DO_DANGLING(synthesize(astRdp), astRdp);
+        debugDump("synth-astrefs");
     }
 
     // CONSTRUCTOR
@@ -1906,7 +1958,7 @@ public:
         AstToDfgSynthesize{dfg, ctx};
 
         // Final step outside, as both AstToDfgSynthesize and removeUnused used DfgUserMap
-        UINFO(5, "Step 6: Remove all unused vertices");
+        UINFO(5, "Step 7: Remove all unused vertices");
         V3DfgPasses::removeUnused(dfg);
         if (dumpDfgLevel() >= 9) dfg.dumpDotFilePrefixed("synth-rmunused");
 
