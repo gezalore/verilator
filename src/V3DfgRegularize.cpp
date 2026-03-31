@@ -240,6 +240,21 @@ class DfgRegularize final {
             vtx.replaceWith(newp);
             newp->srcp(&vtx);
         }
+
+        for (DfgConst& vtx : m_dfg.constVertices()) {
+            if (!needsTemporary(vtx, vtx)) continue;
+
+            // Need to create an intermediate variable
+            ++m_ctx.m_temporariesIntroduced;
+            const std::string name = m_dfg.makeUniqueName("Const", m_nTmps);
+            FileLine* const flp = vtx.fileline();
+            AstScope* const scopep = scoped ? vtx.scopep(scopeCache) : nullptr;
+            DfgVertexVar* const newp = m_dfg.makeNewVar(flp, name, vtx.dtype(), scopep);
+            ++m_nTmps;
+            // Replace vertex with the variable, make it drive the variable
+            vtx.replaceWith(newp);
+            newp->srcp(&vtx);
+        }
     }
 
     // Insert intermediate variables for vertices with multiple sinks (or use an existing one)
