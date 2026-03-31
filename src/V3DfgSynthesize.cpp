@@ -1978,6 +1978,34 @@ static void dfgSelectLogicForSynthesis(DfgGraph& dfg) {
         });
     }
 
+    // Synthesize everything that drives a sensitivity list (clock)
+    {
+        // Work queue for traversal starting from all the seed vertices
+        std::vector<DfgVertex*> queue;
+        // Start from all read references in sensitivity lists
+        for (DfgVertexAst& vtx : dfg.astVertices()) {
+            DfgAstRd* const astRdp = vtx.cast<DfgAstRd>();
+            if (astRdp && astRdp->inSenItem()) queue.emplace_back(astRdp);
+        }
+        // Set of already visited vertices
+        std::unordered_set<const DfgVertex*> visited;
+        // Depth first traversal
+        while (!queue.empty()) {
+            // Pop next work item
+            DfgVertex* const vtxp = queue.back();
+            queue.pop_back();
+            // Mark vertex as visited, move on if already visited
+            if (!visited.insert(vtxp).second) continue;
+            // Add logic to work list
+            if (vtxp->is<DfgLogic>()) worklist.push_front(*vtxp);
+            // Enqueue all sources of this vertex.
+            vtxp->foreachSource([&](DfgVertex& src) {
+                queue.push_back(&src);
+                return false;
+            });
+        }
+    }
+
     // Choose some simple special cases to always synthesize
     for (DfgVertex& vtx : dfg.opVertices()) {
         DfgLogic* const logicp = vtx.cast<DfgLogic>();
