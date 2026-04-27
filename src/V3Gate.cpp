@@ -196,6 +196,7 @@ class GateBuildVisitor final : public VNVisitorConst {
     const AstScope* m_scopep = nullptr;  // Current scope being processed
     AstActive* m_activep = nullptr;  // Current active
     bool m_inClockedActive = false;  // Underneath clocked active
+    bool m_inStaticActive = false;  // Underneath static active
     bool m_inSenItem = false;  // Underneath AstSenItem; any varrefs are clocks
 
     // METHODS
@@ -219,6 +220,8 @@ class GateBuildVisitor final : public VNVisitorConst {
             m_logicVertexp->clearReducibleAndDedupable(nonReducibleReason);
         } else if (m_inClockedActive) {
             m_logicVertexp->clearReducible("Clocked logic");  // but dedupable
+        } else if (m_inStaticActive) {
+            m_logicVertexp->clearReducibleAndDedupable("Static initializer");
         }
         if (consumeReason) m_logicVertexp->setConsumed(consumeReason);
         checkNode(nodep);
@@ -242,8 +245,10 @@ class GateBuildVisitor final : public VNVisitorConst {
         UASSERT_OBJ(!m_activep, nodep, "Should not nest");
         VL_RESTORER(m_activep);
         VL_RESTORER(m_inClockedActive);
+        VL_RESTORER(m_inStaticActive);
         m_activep = nodep;
         m_inClockedActive = nodep->hasClocked();
+        m_inStaticActive = nodep->hasStatic();
 
         // AstVarScope::user2 -> bool: Signal used in SenItem in *this* active block
         const VNUser2InUse user2InUse;
