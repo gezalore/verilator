@@ -290,7 +290,7 @@ TimingKit prepareTiming(AstNetlist* const netlistp) {
     if (!v3Global.usesTiming()) return {};
     LogicByScope lbs;
     std::map<const AstVarScope*, std::set<AstSenTree*>> externalDomains;
-    { AwaitVisitor{netlistp, lbs,  externalDomains}; }
+    { AwaitVisitor{netlistp, lbs, externalDomains}; }
     return {std::move(lbs), std::move(externalDomains)};
 }
 
