@@ -20,9 +20,11 @@
 
 #include "V3PchAstNoMT.h"  // VL_MT_DISABLED_CODE_UNIT
 
+#include "V3Ast.h"
 #include "V3Const.h"
 #include "V3EmitCBase.h"
 #include "V3EmitV.h"
+#include "V3Global.h"
 #include "V3Order.h"
 #include "V3Sched.h"
 #include "V3SenExprBuilder.h"
@@ -787,6 +789,7 @@ TriggerKit TriggerKit::create(AstNetlist* netlistp,  //
         for (AstNodeStmt* const nodep : senResults.m_preUpdates) fp->addStmtsp(nodep);
         fp->addStmtsp(trigStmtsp);
         for (AstNodeStmt* const nodep : senResults.m_postUpdates) fp->addStmtsp(nodep);
+        if (v3Global.hasEvents()) fp->addStmtsp(new AstCStmt{flp, "vlSymsp->clearFiredEvents();"});
         // Add the initialization time triggers
         if (initialTrigsp) {
             AstVarScope* const initVscp = scopep->createTemp("__V" + name + "DidInit", 1);

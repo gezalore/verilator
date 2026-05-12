@@ -639,15 +639,6 @@ class TimingControlVisitor final : public VNVisitor {
             return !nodep->isPure();
         });
     }
-    // Returns true if the given trigger expression needs a destructive post update after trigger
-    // evaluation. Currently this only applies to named events.
-    bool destructivePostUpdate(AstNode* const exprp) const {
-        return exprp->exists([](const AstNode* const nodep) {
-            const AstNodeDType* const dtypep = nodep->dtypep();
-            const AstBasicDType* const basicp = dtypep ? dtypep->skipRefp()->basicp() : nullptr;
-            return basicp && basicp->isEvent();
-        });
-    }
     // Creates a trigger scheduler variable
     AstVarScope* getCreateTriggerSchedulerp(AstSenTree* const sentreep) {
         if (!sentreep->user1p()) {
@@ -1111,31 +1102,25 @@ class TimingControlVisitor final : public VNVisitor {
             }
             // Create the trigger eval loop, which will await the evaluation step and check the
             // trigger
-            AstNodeExpr* const condp
-                = new AstLogNot{flp, new AstVarRef{flp, trigvscp, VAccess::READ}};
             AstLoop* const loopp = new AstLoop{flp};
-            loopp->addStmtsp(new AstLoopTest{flp, loopp, condp});
             loopp->addStmtsp(awaitEvalp);
             // Put pre updates before the trigger check and assignment
             for (AstNodeStmt* const stmtp : senResults.m_preUpdates) loopp->addStmtsp(stmtp);
             // Then the trigger check and assignment
             loopp->addStmtsp(assignp);
+            // Put the post updates at the end of the loop
+            for (AstNodeStmt* const stmtp : senResults.m_postUpdates) loopp->addStmtsp(stmtp);
+            // Loop terminates when the trigger was set
+            AstNodeExpr* const condp
+                = new AstLogNot{flp, new AstVarRef{flp, trigvscp, VAccess::READ}};
+            loopp->addStmtsp(new AstLoopTest{flp, loopp, condp});
             // Let the dynamic trigger scheduler know if this trigger was set
             // If it was, a call to the scheduler's evaluate() will return true
             AstCMethodHard* const anyTriggeredMethodp = new AstCMethodHard{
                 flp, new AstVarRef{flp, getCreateDynamicTriggerScheduler(), VAccess::WRITE},
-                VCMethod::SCHED_ANY_TRIGGERED, new AstVarRef{flp, trigvscp, VAccess::READ}};
+                VCMethod::SCHED_SET_ANY_TRIGGERED};
             anyTriggeredMethodp->dtypeSetVoid();
-            loopp->addStmtsp(anyTriggeredMethodp->makeStmt());
-            // If the post update is destructive (e.g. event vars are cleared), create an await for
-            // the post update step
-            if (destructivePostUpdate(sentreep)) {
-                AstCAwait* const awaitPostUpdatep = awaitEvalp->cloneTree(false);
-                VN_AS(awaitPostUpdatep->exprp(), CMethodHard)->method(VCMethod::SCHED_POST_UPDATE);
-                loopp->addStmtsp(awaitPostUpdatep);
-            }
-            // Put the post updates at the end of the loop
-            for (AstNodeStmt* const stmtp : senResults.m_postUpdates) loopp->addStmtsp(stmtp);
+            AstNode::addNext<AstNodeStmt, AstNodeStmt>(loopp, anyTriggeredMethodp->makeStmt());
             // Finally, await the resumption step in 'act'
             AstCAwait* const awaitResumep = awaitEvalp->cloneTree(false);
             VN_AS(awaitResumep->exprp(), CMethodHard)->method(VCMethod::SCHED_RESUMPTION);

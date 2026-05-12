@@ -730,8 +730,10 @@ void EmitCSyms::emitSymHdr() {
     }
     if (v3Global.hasEvents()) {
         if (v3Global.assignsEvents()) {
+            puts("std::vector<VlAssignableEvent> __Vm_firedEvents;\n");
             puts("std::vector<VlAssignableEvent> __Vm_triggeredEvents;\n");
         } else {
+            puts("std::vector<VlEvent*> __Vm_firedEvents;\n");
             puts("std::vector<VlEvent*> __Vm_triggeredEvents;\n");
         }
     }
@@ -803,6 +805,13 @@ void EmitCSyms::emitSymHdr() {
         } else {
             puts("void fireEvent(VlEvent& event) {\n");
         }
+        puts("if (VL_LIKELY(!event.isFired())) {\n");
+        if (v3Global.assignsEvents()) {
+            puts("__Vm_firedEvents.push_back(event);\n");
+        } else {
+            puts("__Vm_firedEvents.push_back(&event);\n");
+        }
+        puts("}\n");
         puts("if (VL_LIKELY(!event.isTriggered())) {\n");
         if (v3Global.assignsEvents()) {
             puts("__Vm_triggeredEvents.push_back(event);\n");
@@ -811,6 +820,14 @@ void EmitCSyms::emitSymHdr() {
         }
         puts("}\n");
         puts("event.fire();\n");
+        puts("}\n");
+        puts("void clearFiredEvents() {\n");
+        if (v3Global.assignsEvents()) {
+            puts("for (auto& event : __Vm_firedEvents) event.clearFired();\n");
+        } else {
+            puts("for (const auto eventp : __Vm_firedEvents) eventp->clearFired();\n");
+        }
+        puts("__Vm_firedEvents.clear();\n");
         puts("}\n");
         puts("void clearTriggeredEvents() {\n");
         if (v3Global.assignsEvents()) {

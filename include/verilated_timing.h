@@ -339,7 +339,7 @@ public:
     // Evaluates all dynamic triggers (resumed coroutines that co_await evaluation())
     bool evaluate();
     // Called by coroutines that evaluate triggers to notify the scheduler if any triggers were set
-    void anyTriggered(bool triggered) { m_anyTriggered = m_anyTriggered || triggered; }
+    void setAnyTriggered() { m_anyTriggered = true; }
     // Runs post updates for all dynamic triggers (resumes coroutines that co_await postUpdate())
     void doPostUpdates();
     // Resumes all coroutines whose triggers are set (those that co_await resumption())

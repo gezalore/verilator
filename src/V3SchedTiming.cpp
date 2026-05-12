@@ -187,7 +187,6 @@ class AwaitVisitor final : public VNVisitor {
     bool m_gatherVars = false;  // Should we gather vars in m_writtenBySuspendable?
     AstScope* const m_scopeTopp;  // Scope at the top
     LogicByScope& m_lbs;  // Timing resume actives
-    AstNodeStmt*& m_postUpdatesr;  // Post updates for the trigger eval function
     // Additional var sensitivities
     std::map<const AstVarScope*, std::set<AstSenTree*>>& m_externalDomains;
     std::set<AstSenTree*> m_processDomains;  // Sentrees from the current process
@@ -226,10 +225,6 @@ class AwaitVisitor final : public VNVisitor {
             if (AstNode* const dbginfop = methodp->pinsp()->nextp()) {
                 if (methodp->pinsp()) addResumePins(resumep, static_cast<AstNodeExpr*>(dbginfop));
             }
-        } else if (schedulerp->dtypep()->basicp()->isDynamicTriggerScheduler()) {
-            auto* const postp = resumep->cloneTree(false);
-            postp->method(VCMethod::SCHED_DO_POST_UPDATES);
-            m_postUpdatesr = AstNode::addNext(m_postUpdatesr, postp->makeStmt());
         }
         // Put it in an active
         AstActive* const activep = new AstActive{flp, "_timing", sentreep};
@@ -281,11 +276,10 @@ class AwaitVisitor final : public VNVisitor {
 
 public:
     // CONSTRUCTORS
-    explicit AwaitVisitor(AstNetlist* nodep, LogicByScope& lbs, AstNodeStmt*& postUpdatesr,
+    explicit AwaitVisitor(AstNetlist* nodep, LogicByScope& lbs,
                           std::map<const AstVarScope*, std::set<AstSenTree*>>& externalDomains)
         : m_scopeTopp{nodep->topScopep()->scopep()}
         , m_lbs{lbs}
-        , m_postUpdatesr{postUpdatesr}
         , m_externalDomains{externalDomains} {
         iterate(nodep);
     }
@@ -295,10 +289,9 @@ public:
 TimingKit prepareTiming(AstNetlist* const netlistp) {
     if (!v3Global.usesTiming()) return {};
     LogicByScope lbs;
-    AstNodeStmt* postUpdates = nullptr;
     std::map<const AstVarScope*, std::set<AstSenTree*>> externalDomains;
-    { AwaitVisitor{netlistp, lbs, postUpdates, externalDomains}; }
-    return {std::move(lbs), postUpdates, std::move(externalDomains)};
+    { AwaitVisitor{netlistp, lbs,  externalDomains}; }
+    return {std::move(lbs), std::move(externalDomains)};
 }
 
 //============================================================================

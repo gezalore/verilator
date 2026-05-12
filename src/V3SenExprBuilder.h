@@ -34,6 +34,9 @@ public:
         std::vector<AstNodeStmt*> m_inits;  // Initialization statements for previous values
         std::vector<AstNodeStmt*> m_preUpdates;  // Pre update assignments
         std::vector<AstNodeStmt*> m_postUpdates;  // Post update assignments
+        // Aliases of destructive post updates (for example event clearFired) that may need
+        // to run once before entering a fresh dynamic wait loop.
+        std::vector<AstNodeStmt*> m_destructivePostUpdates;
         std::vector<AstVar*> m_vars;  // Created temporary variables
     };
 
@@ -273,19 +276,13 @@ private:
                     false};
         case VEdgeType::ET_EVENT: {
             UASSERT_OBJ(v3Global.hasEvents(), senItemp, "Inconsistent");
-
-            // Clear 'fired' state when done (guarded if class member access)
-            AstCMethodHard* const clearp
-                = new AstCMethodHard{flp, currp(), VCMethod::EVENT_CLEAR_FIRED};
-            clearp->dtypeSetVoid();
-            m_results.m_postUpdates.push_back(
-                wrapStmtWithNullCheck(flp, clearp->makeStmt(), baseClassRefp));
-
             // Get 'fired' state
             AstCMethodHard* const callp
                 = new AstCMethodHard{flp, currp(), VCMethod::EVENT_IS_FIRED};
             callp->dtypeSetBit();
             return {wrapExprWithNullCheck(flp, callp, baseClassRefp), false};
+            // 'fired' state is cleared automatically for all events at the end of trigger
+            // computation
         }
         case VEdgeType::ET_TRUE:  //
             return {currp(), false};
