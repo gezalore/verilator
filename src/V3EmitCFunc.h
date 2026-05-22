@@ -1754,11 +1754,11 @@ public:
         puts("}");
     }
     void visit(AstNodeSel* nodep) override {
-        if (!VN_IS(nodep, ArraySel) && !VN_IS(nodep, WordSel)) {
+        if (!VN_IS(nodep, ArraySel)) {
             visit(static_cast<AstNodeBiop*>(nodep));
             return;
         }
-        // ArraySel or WordSel
+        // ArraySel
         iterateAndNextConstNull(nodep->fromp());
         // Special case constant index for readability
         if (AstConst* const idxp = VN_CAST(nodep->bitp(), Const)) {
@@ -1768,6 +1768,10 @@ public:
         putbs("[");
         iterateAndNextConstNull(nodep->bitp());
         puts("]");
+    }
+    void visit(AstWordSel* nodep) override {
+        iterateAndNextConstNull(nodep->fromp());
+        puts("[" + std::to_string(nodep->index()) + "U]");
     }
 
     //

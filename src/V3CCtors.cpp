@@ -262,9 +262,8 @@ void V3CCtors::evalAsserts() {
                         vrefp->selfPointer(VSelfPointerText{VSelfPointerText::This{}});
                         AstNodeExpr* newp = vrefp;
                         if (varp->isWide()) {
-                            newp = new AstWordSel{
-                                varp->fileline(), newp,
-                                new AstConst(varp->fileline(), varp->widthWords() - 1)};
+                            newp = new AstWordSel{varp->fileline(), newp,
+                                                  static_cast<uint32_t>(varp->widthWords() - 1)};
                         }
                         const uint64_t value = VL_MASK_Q(storedWidth) & ~VL_MASK_Q(lastWordWidth);
                         newp = new AstAnd{varp->fileline(), newp,

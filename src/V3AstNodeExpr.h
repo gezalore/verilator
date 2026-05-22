@@ -2952,6 +2952,28 @@ public:
     string emitC() override { V3ERROR_NA_RETURN(""); }
     bool cleanOut() const override { V3ERROR_NA_RETURN(true); }
 };
+class AstWordSel final : public AstNodeExpr {
+    // Select a single word from a multi-word wide value
+    // @astgen op1 := fromp : AstNodeExpr
+    const uint32_t m_index;  // Index of the word to select
+public:
+    AstWordSel(FileLine* fl, AstNodeExpr* fromp, uint32_t index)
+        : ASTGEN_SUPER_WordSel(fl)
+        , m_index{index} {
+        this->fromp(fromp);
+        dtypeSetUInt32();  // Always used on WData arrays so returns edata size
+    }
+    ASTGEN_MEMBERS_AstWordSel;
+    void dump(std::ostream& str = std::cout) const override;
+    void dumpJson(std::ostream& str = std::cout) const override;
+    string emitVerilog() override { V3ERROR_NA_RETURN(""); }
+    string emitC() override { V3ERROR_NA_RETURN(""); }
+    bool cleanOut() const override { return true; }
+    bool sameNode(const AstNode* samep) const override {
+        return m_index == VN_DBG_AS(samep, WordSel)->index();
+    }
+    uint32_t index() const { return m_index; }
+};
 
 // === AstNodeBiop ===
 class AstBufIf1 final : public AstNodeBiop {
@@ -4867,25 +4889,6 @@ public:
     bool isPredictOptimizable() const override { return false; }
     bool sameNode(const AstNode* /*samep*/) const override { return true; }
     int instrCount() const override { return widthInstrs(); }
-};
-class AstWordSel final : public AstNodeSel {
-    // Select a single word from a multi-word wide value
-public:
-    AstWordSel(FileLine* fl, AstNodeExpr* fromp, AstNodeExpr* bitp)
-        : ASTGEN_SUPER_WordSel(fl, fromp, bitp) {
-        UASSERT_OBJ(VN_IS(bitp, Const), bitp, "Bitp must be a constant");
-        dtypeSetUInt32();  // Always used on WData arrays so returns edata size
-    }
-    ASTGEN_MEMBERS_AstWordSel;
-    void numberOperate(V3Number&, const V3Number&, const V3Number&) override { V3ERROR_NA; }
-    string emitVerilog() override { return "%k(%l%f[%r])"; }
-    string emitC() override { V3ERROR_NA_RETURN(""); }  // Special cased
-    bool cleanOut() const override { return true; }
-    bool cleanLhs() const override { return true; }
-    bool cleanRhs() const override { return true; }
-    bool sizeMattersLhs() const override { return false; }
-    bool sizeMattersRhs() const override { return false; }
-    bool sameNode(const AstNode* /*samep*/) const override { return true; }
 };
 
 // === AstNodeStream ===

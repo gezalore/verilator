@@ -198,6 +198,10 @@ class CastVisitor final : public VNVisitor {
         }
         nodep->user1(1);
     }
+    void visit(AstWordSel* nodep) override {
+        iterateChildren(nodep);
+        nodep->user1(1);
+    }
     void visit(AstConst* nodep) override {
         // Constants are of unknown size if smaller than 33 bits, because
         // we're too lazy to wrap every constant in the universe in

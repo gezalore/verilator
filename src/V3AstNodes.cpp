@@ -3706,3 +3706,10 @@ void AstWith::dumpJson(std::ostream& str) const {
     }
     dumpJsonGen(str);
 }
+void AstWordSel::dump(std::ostream& str) const {
+    this->AstNodeExpr::dump(str);
+    str << " [index=" << index() << "]";
+}
+void AstWordSel::dumpJson(std::ostream& str) const {
+    dumpJsonNumFunc(str, index);
+}

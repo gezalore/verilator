@@ -162,6 +162,9 @@ public:
     void splitSizeInc(size_t count) { m_splitSize += count; }
     void splitSizeInc(const AstNode* nodep) {
         splitSizeInc(static_cast<size_t>(nodep->nodeCount()));
+        size_t n = 0;
+        nodep->foreach([&](const AstWordSel*) { ++n; });
+        splitSizeInc(n);
     }
     bool splitNeeded(size_t splitLimit) const { return m_splitSize >= splitLimit; }
     bool splitNeeded() const { return splitNeeded(m_splitLimit); }

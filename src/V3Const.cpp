@@ -486,10 +486,8 @@ class ConstBitOpTreeVisitor final : public VNVisitorConst {
     }
     void visit(AstWordSel* nodep) override {
         CONST_BITOP_RETURN_IF(!m_leafp, nodep);
-        const AstConst* const constp = VN_CAST(nodep->bitp(), Const);
-        CONST_BITOP_RETURN_IF(!constp, nodep->bitp());
         UASSERT_OBJ(m_leafp->wordIdx() == -1, nodep, "Unexpected nested WordSel");
-        m_leafp->wordIdx(constp->toSInt());
+        m_leafp->wordIdx(nodep->index());
         iterateConst(nodep->fromp());
     }
     void visit(AstVarRef* nodep) override {
@@ -1446,10 +1444,9 @@ class ConstVisitor final : public VNVisitor {
         // V3Expand may make a arraysel that exceeds the bounds of the array
         // It was an expression, then got constified.  In reality, the WordSel
         // must be wrapped in a Cond, that will be false.
-        return (VN_IS(nodep->bitp(), Const) && VN_IS(nodep->fromp(), NodeVarRef)
+        return (VN_IS(nodep->fromp(), NodeVarRef)
                 && VN_AS(nodep->fromp(), NodeVarRef)->access().isReadOnly()
-                && (static_cast<int>(VN_AS(nodep->bitp(), Const)->toUInt())
-                    >= VN_AS(nodep->fromp(), NodeVarRef)->varp()->widthWords()));
+                && (nodep->index() >= VN_AS(nodep->fromp(), NodeVarRef)->varp()->widthWords()));
     }
     bool operandSelFull(const AstSel* nodep) {
         return (VN_IS(nodep->lsbp(), Const) && nodep->lsbConst() == 0

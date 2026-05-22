@@ -152,14 +152,12 @@ class SubstValidVisitor final : public VNVisitorConst {
         if (!m_valid) return;
 
         if (AstVarRef* const refp = VN_CAST(nodep->fromp(), VarRef)) {
-            if (AstConst* const idxp = VN_CAST(nodep->bitp(), Const)) {
-                SubstVarEntry& entry = getEntry(refp);
-                // If either the whole variable, or the indexed word was written to
-                // after the original assignment was recorded, the value is invalid.
-                if (m_step < entry.m_wholeRecord.m_step) m_valid = false;
-                if (m_step < entry.m_wordRecords[idxp->toUInt()].m_step) m_valid = false;
-                return;
-            }
+            SubstVarEntry& entry = getEntry(refp);
+            // If either the whole variable, or the indexed word was written to
+            // after the original assignment was recorded, the value is invalid.
+            if (m_step < entry.m_wholeRecord.m_step) m_valid = false;
+            if (m_step < entry.m_wordRecords[nodep->index()].m_step) m_valid = false;
+            return;
         }
         iterateChildrenConst(nodep);
     }
@@ -337,15 +335,11 @@ class SubstVisitor final : public VNVisitor {
             return;
         }
 
-        // If LHS is a known word reference, track the word
+        // If LHS is a word reference, track the word
         if (const AstWordSel* const selp = VN_CAST(nodep->lhsp(), WordSel)) {
             if (AstVarRef* const refp = VN_CAST(selp->fromp(), VarRef)) {
-                // Simplify the index
-                simplify(selp->bitp());
-                if (const AstConst* const idxp = VN_CAST(selp->bitp(), Const)) {
-                    getEntry(refp).assignWord(getAssignp(refp), ++m_assignStep, idxp->toUInt());
-                    return;
-                }
+                getEntry(refp).assignWord(getAssignp(refp), ++m_assignStep, selp->index());
+                return;
             }
         }
 
@@ -356,52 +350,47 @@ class SubstVisitor final : public VNVisitor {
     void visit(AstWordSel* nodep) override {
         if (!m_funcp) return;
 
-        // Simplify the index
-        simplify(nodep->bitp());
-
-        // If this is a known word reference, track/substitute it
+        // If this is a word reference, track/substitute it
         if (AstVarRef* const refp = VN_CAST(nodep->fromp(), VarRef)) {
-            if (const AstConst* const idxp = VN_CAST(nodep->bitp(), Const)) {
-                SubstVarEntry& entry = getEntry(refp);
-                const uint32_t word = idxp->toUInt();
+            SubstVarEntry& entry = getEntry(refp);
+            const uint32_t word = nodep->index();
 
-                // If it's a write, reset tracking as we don't know the assigned value,
-                // otherwise we would have picked it up in visit(AstNodeAssign*)
-                if (refp->access().isWriteOrRW()) {
-                    entry.assignWord(nullptr, ++m_assignStep, word);
-                    return;
-                }
-
-                // Otherwise it's a read,
-                UASSERT_OBJ(refp->access().isReadOnly(), nodep, "Invalid access");
-
-                // If it's a constant pool variable, substiute with the constant word
-                AstVar* const varp = refp->varp();
-                if (varp->user2()) {
-                    AstConst* const constp = VN_AS(varp->valuep(), Const);
-                    const uint32_t value = constp->num().edataWord(word);
-                    FileLine* const flp = nodep->fileline();
-                    ++m_nConstWordsReinlined;
-                    substitute(nodep, new AstConst{flp, AstConst::SizedEData{}, value});
-                    return;
-                }
-
-                // Substitute other variables if possible
-                if (isSubstitutable(refp->varp())) {
-                    if (AstNodeExpr* const substp = entry.substWord(word)) {
-                        ++m_nWordSubstituted;
-                        substitute(nodep, substp);
-                        return;
-                    }
-                }
-
-                // If not substituted, mark the assignment setting this word as used
-                entry.usedWord(word);
+            // If it's a write, reset tracking as we don't know the assigned value,
+            // otherwise we would have picked it up in visit(AstNodeAssign*)
+            if (refp->access().isWriteOrRW()) {
+                entry.assignWord(nullptr, ++m_assignStep, word);
                 return;
             }
+
+            // Otherwise it's a read,
+            UASSERT_OBJ(refp->access().isReadOnly(), nodep, "Invalid access");
+
+            // If it's a constant pool variable, substiute with the constant word
+            AstVar* const varp = refp->varp();
+            if (varp->user2()) {
+                AstConst* const constp = VN_AS(varp->valuep(), Const);
+                const uint32_t value = constp->num().edataWord(word);
+                FileLine* const flp = nodep->fileline();
+                ++m_nConstWordsReinlined;
+                substitute(nodep, new AstConst{flp, AstConst::SizedEData{}, value});
+                return;
+            }
+
+            // Substitute other variables if possible
+            if (isSubstitutable(refp->varp())) {
+                if (AstNodeExpr* const substp = entry.substWord(word)) {
+                    ++m_nWordSubstituted;
+                    substitute(nodep, substp);
+                    return;
+                }
+            }
+
+            // If not substituted, mark the assignment setting this word as used
+            entry.usedWord(word);
+            return;
         }
 
-        // If not a known word reference, iterate fromp to simplify/reset tracking
+        // If not a word reference, iterate fromp to simplify/reset tracking
         iterate(nodep->fromp());
     }
 
