@@ -552,9 +552,7 @@ class MergeCondVisitor final : public VNVisitor {
             if (!VN_IS(aselp->bitp(), Const)) return nodep;
             nodep = aselp->fromp();
         }
-        while (const AstWordSel* const wselp = VN_CAST(nodep, WordSel)) {
-            nodep = wselp->fromp();
-        }
+        while (const AstWordSel* const wselp = VN_CAST(nodep, WordSel)) { nodep = wselp->fromp(); }
         return nodep;
     }
 
