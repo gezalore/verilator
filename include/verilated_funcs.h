@@ -2698,14 +2698,12 @@ static inline QData VL_SHIFTRS_QQQ(int obits, int lbits, int rbits, QData lhs, Q
 #define VL_BITSEL_QIII(lbits, lhs, rhs) ((lhs) >> (rhs))
 #define VL_BITSEL_QQII(lbits, lhs, rhs) ((lhs) >> (rhs))
 #define VL_BITSEL_IQII(lbits, lhs, rhs) (static_cast<IData>((lhs) >> (rhs)))
-
 static inline IData VL_BITSEL_IWII(int lbits, WDataInP const lwp, IData rd) VL_MT_SAFE {
-    const int word = VL_BITWORD_E(rd);
-    if (VL_UNLIKELY(rd > static_cast<IData>(lbits))) {
-        return ~0;  // Spec says you can go outside the range of a array.  Don't coredump if so.
-        // We return all 1's as that's more likely to find bugs (?) than 0's.
-    }
-    return (lwp[word] >> VL_BITBIT_E(rd));
+    // Spec says you can go outside the range of a array. Don't coredump if so.
+    // We return all 1's as that's more likely to find bugs (?) than 0's.
+    if (VL_UNLIKELY(rd >= static_cast<IData>(lbits))) return ~0;
+    // Bounds checking is done in the generated code/caller
+    return lwp[VL_BITWORD_E(rd)] >> VL_BITBIT_E(rd);
 }
 
 // EMIT_RULE: VL_RANGE:  oclean=lclean;  out=dirty
@@ -2752,38 +2750,28 @@ static inline IData VL_SEL_IRII(int lbits, const VlQueue<VlWide<N_Words>>& lhs, 
 }
 
 static inline IData VL_SEL_IWII(int lbits, WDataInP const lwp, IData lsb, IData width) VL_MT_SAFE {
-    const int msb = lsb + width - 1;
-    if (VL_UNLIKELY(msb >= lbits)) {
-        return ~0;  // Spec says you can go outside the range of a array.  Don't coredump if so.
-    }
-    if (VL_BITWORD_E(msb) == VL_BITWORD_E(static_cast<int>(lsb))) {
-        return VL_BITRSHIFT_W(lwp, lsb);
-    }
-    // 32 bit extraction may span two words
-    const int nbitsfromlow = VL_EDATASIZE - VL_BITBIT_E(lsb);  // bits that come from low word
-    return ((lwp[VL_BITWORD_E(msb)] << nbitsfromlow) | VL_BITRSHIFT_W(lwp, lsb));
+    if (VL_UNLIKELY(lsb + width > lbits)) return ~0;
+    // 32 bit extraction may span 2 words
+    const int word = VL_BITWORD_E(lsb);
+    // Load the 64 bits from the 2 words into a QData
+    const QData data
+        = static_cast<QData>(lwp[word + 1]) << VL_EDATASIZE | static_cast<QData>(lwp[word]);
+    return static_cast<IData>(data >> VL_BITBIT_E(lsb));
 }
 
 static inline QData VL_SEL_QWII(int lbits, WDataInP const lwp, IData lsb, IData width) VL_MT_SAFE {
-    const int msb = lsb + width - 1;
-    if (VL_UNLIKELY(msb > lbits)) {
-        return ~0;  // Spec says you can go outside the range of a array.  Don't coredump if so.
-    }
-    if (VL_BITWORD_E(msb) == VL_BITWORD_E(static_cast<int>(lsb))) {
-        return VL_BITRSHIFT_W(lwp, lsb);
-    }
-    if (VL_BITWORD_E(msb) == 1 + VL_BITWORD_E(static_cast<int>(lsb))) {
-        const int nbitsfromlow = VL_EDATASIZE - VL_BITBIT_E(lsb);
-        const QData hi = (lwp[VL_BITWORD_E(msb)]);
-        const QData lo = VL_BITRSHIFT_W(lwp, lsb);
-        return (hi << nbitsfromlow) | lo;
-    }
-    // 64 bit extraction may span three words
-    const int nbitsfromlow = VL_EDATASIZE - VL_BITBIT_E(lsb);
-    const QData hi = (lwp[VL_BITWORD_E(msb)]);
-    const QData mid = (lwp[VL_BITWORD_E(lsb) + 1]);
-    const QData lo = VL_BITRSHIFT_W(lwp, lsb);
-    return (hi << (nbitsfromlow + VL_EDATASIZE)) | (mid << nbitsfromlow) | lo;
+    if (VL_UNLIKELY(lsb + width > lbits)) return ~0;
+    // 64 bit extraction may span 3 words
+    const int word = VL_BITWORD_E(lsb);
+    const int loShift = VL_BITBIT_E(lsb);
+    const int hiShift = VL_EDATASIZE - loShift;
+    // Load the 64 bits from the bottom two words into a QData
+    const QData dataLo
+        = static_cast<QData>(lwp[word + 1]) << VL_EDATASIZE | static_cast<QData>(lwp[word]);
+    // Load the 32 bits from the top word into the top of a QData
+    const QData dataHi = static_cast<QData>(lwp[word + 2]) << VL_EDATASIZE;
+    // Both loShift and hiShift are within [0, 32], which is valid for QData
+    return (dataLo >> loShift) | (dataHi << hiShift);
 }
 
 static inline WDataOutP VL_SEL_WWII(int obits, int lbits, WDataOutP owp, WDataInP const lwp,

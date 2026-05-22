@@ -4873,6 +4873,7 @@ class AstWordSel final : public AstNodeSel {
 public:
     AstWordSel(FileLine* fl, AstNodeExpr* fromp, AstNodeExpr* bitp)
         : ASTGEN_SUPER_WordSel(fl, fromp, bitp) {
+        UASSERT_OBJ(VN_IS(bitp, Const), bitp, "Bitp must be a constant");
         dtypeSetUInt32();  // Always used on WData arrays so returns edata size
     }
     ASTGEN_MEMBERS_AstWordSel;

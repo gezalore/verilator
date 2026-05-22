@@ -512,12 +512,13 @@ class ExpandVisitor final : public VNVisitor {
                    || VN_IS(nodep->fromp()->dtypep(), QueueDType)) {
             //sel stream or queue
         } else if (nodep->fromp()->isWide()) {
-            if (isImpure(nodep)) return;
+            if (isImpure(nodep) || !VN_IS(nodep->lsbp(), Const)) return;
             UINFO(8, "    SEL(wide) " << nodep);
             UASSERT_OBJ(nodep->widthConst() <= 64, nodep, "Inconsistent width");
             // Selection amounts
             // Check for constant shifts & save some constification work later.
             // Grab lowest bit(s)
+            const int lsb = nodep->lsbConst();
             FileLine* const nfl = nodep->fileline();
             FileLine* const lfl = nodep->lsbp()->fileline();
             FileLine* const ffl = nodep->fromp()->fileline();
@@ -532,8 +533,7 @@ class ExpandVisitor final : public VNVisitor {
             if (nodep->widthConst() > 1) {
                 const uint32_t midMsbOffset
                     = std::min<uint32_t>(nodep->widthConst(), VL_EDATASIZE) - 1;
-                AstNodeExpr* const midMsbp = new AstAdd{lfl, new AstConst{lfl, midMsbOffset},
-                                                        nodep->lsbp()->cloneTreePure(true)};
+                AstNodeExpr* const midMsbp = new AstConst{lfl, midMsbOffset + lsb};
                 AstNodeExpr* midwordp = newWordSelBit(ffl, nodep->fromp(), midMsbp, 0);
                 if (!midMsbp->backp()) VL_DO_DANGLING(midMsbp->deleteTree(), midMsbp);
                 if (nodep->isQuad() && !midwordp->isQuad()) {
@@ -557,8 +557,7 @@ class ExpandVisitor final : public VNVisitor {
             AstNodeExpr* hip = nullptr;
             if (nodep->widthConst() > VL_EDATASIZE) {
                 const uint32_t hiMsbOffset = nodep->widthConst() - 1;
-                AstNodeExpr* const hiMsbp = new AstAdd{lfl, new AstConst{lfl, hiMsbOffset},
-                                                       nodep->lsbp()->cloneTreePure(true)};
+                AstNodeExpr* const hiMsbp = new AstConst{lfl, hiMsbOffset + lsb};
                 AstNodeExpr* hiwordp = newWordSelBit(ffl, nodep->fromp(), hiMsbp);
                 if (!hiMsbp->backp()) VL_DO_DANGLING(hiMsbp->deleteTree(), hiMsbp);
                 if (nodep->isQuad() && !hiwordp->isQuad()) {
@@ -602,6 +601,8 @@ class ExpandVisitor final : public VNVisitor {
 
         // Simplify the index, in case it becomes a constant
         V3Const::constifyEditCpp(rhsp->lsbp());
+
+        if (!VN_IS(rhsp->lsbp(), Const)) return false;
 
         // If it's a constant select and aligned, we can just copy the words
         if (const AstConst* const lsbConstp = VN_CAST(rhsp->lsbp(), Const)) {
@@ -783,79 +784,41 @@ class ExpandVisitor final : public VNVisitor {
             }
             return true;
         } else {  // non-const select offset
-            if (destwide && lhsp->widthConst() == 1) {
-                UINFO(8, "    ASSIGNSEL(varlsb,wide,1bit) " << nodep);
-                AstNodeExpr* const rhsp = nodep->rhsp()->unlinkFrBack();
-                AstNodeExpr* const destp = lhsp->fromp()->unlinkFrBack();
-                AstNodeExpr* oldvalp
-                    = newWordSelBit(lfl, destp->cloneTreePure(false), lhsp->lsbp());
-                fixCloneLvalue(oldvalp);
-                if (!ones) {
-                    oldvalp = new AstAnd{
-                        lfl,
-                        new AstNot{
-                            lfl, new AstShiftL{lfl, new AstConst{nfl, 1},
-                                               // newSelBitBit may exceed the MSB of this variable.
-                                               // That's ok as we'd just AND with a larger value,
-                                               // but oldval would clip the upper bits to sanity
-                                               newSelBitBit(lhsp->lsbp()), VL_EDATASIZE}},
-                        oldvalp};
-                }
-                // Restrict the shift amount to 0-31, see bug804.
-                AstNodeExpr* const shiftp = new AstAnd{nfl, lhsp->lsbp()->cloneTreePure(true),
-                                                       new AstConst{nfl, VL_EDATASIZE - 1}};
-                AstNode* const newp = new AstAssign{
-                    nfl, newWordSelBit(nfl, destp, lhsp->lsbp()),
-                    new AstOr{lfl, oldvalp, new AstShiftL{lfl, rhsp, shiftp, VL_EDATASIZE}}};
-                insertBefore(nodep, newp);
-                return true;
-            } else if (destwide) {
-                UINFO(8, "    ASSIGNSEL(varlsb,wide) -- NoOp -- " << nodep);
-                //   For wide destp, we can either form a equation for every destination word,
-                // with the appropriate long equation of if it's being written or not.
-                //   Or, we can use a LHS variable arraysel with
-                //   non-constant index to set the vector.
-                // Doing the variable arraysel is better for globals and large arrays,
-                // doing every word is better for temporaries and if we're setting most words
-                // since it may result in better substitution optimizations later.
-                //   This results in so much code, we're better off leaving a function call.
-                // Reconsider if we get subexpression elimination.
-                return false;
-            } else {
-                UINFO(8, "    ASSIGNSEL(varlsb,narrow) " << nodep);
-                // nodep->dumpTree("-  old: ");
-                AstNodeExpr* rhsp = nodep->rhsp()->unlinkFrBack();
-                AstNodeExpr* const destp = lhsp->fromp()->unlinkFrBack();
-                AstNodeExpr* oldvalp = destp->cloneTreePure(true);
-                fixCloneLvalue(oldvalp);
+            if (destwide) return false;
 
-                V3Number maskwidth{nodep, destp->widthMin()};
-                maskwidth.setMask(lhsp->widthConst());
+            UINFO(8, "    ASSIGNSEL(varlsb,narrow) " << nodep);
+            // nodep->dumpTree("-  old: ");
+            AstNodeExpr* rhsp = nodep->rhsp()->unlinkFrBack();
+            AstNodeExpr* const destp = lhsp->fromp()->unlinkFrBack();
+            AstNodeExpr* oldvalp = destp->cloneTreePure(true);
+            fixCloneLvalue(oldvalp);
 
-                if (destp->isQuad() && !rhsp->isQuad()) rhsp = new AstCCast{nfl, rhsp, nodep};
-                if (!ones) {
-                    oldvalp = new AstAnd{
-                        lfl,
-                        new AstNot{lfl, new AstShiftL{lfl, new AstConst{nfl, maskwidth},
-                                                      lhsp->lsbp()->cloneTreePure(true),
-                                                      destp->width()}},
-                        oldvalp};
-                }
-                AstNodeExpr* newp
-                    = new AstShiftL{lfl, rhsp, lhsp->lsbp()->cloneTreePure(true), destp->width()};
-                // Apply cleaning to the new value being inserted.  Mask is
-                // slightly wider than necessary to avoid an AND with all ones
-                // being optimized out.  No need to clean if destp is
-                // quad-sized as there are no extra bits to contaminate
-                if (destp->widthMin() != 64) {
-                    V3Number cleanmask{nodep, destp->widthMin() + 1};
-                    cleanmask.setMask(destp->widthMin());
-                    newp = new AstAnd{lfl, newp, new AstConst{lfl, cleanmask}};
-                }
+            V3Number maskwidth{nodep, destp->widthMin()};
+            maskwidth.setMask(lhsp->widthConst());
 
-                insertBefore(nodep, new AstAssign{nfl, destp, new AstOr{lfl, oldvalp, newp}});
-                return true;
+            if (destp->isQuad() && !rhsp->isQuad()) rhsp = new AstCCast{nfl, rhsp, nodep};
+            if (!ones) {
+                oldvalp
+                    = new AstAnd{lfl,
+                                 new AstNot{lfl, new AstShiftL{lfl, new AstConst{nfl, maskwidth},
+                                                               lhsp->lsbp()->cloneTreePure(true),
+                                                               destp->width()}},
+                                 oldvalp};
             }
+            AstNodeExpr* newp
+                = new AstShiftL{lfl, rhsp, lhsp->lsbp()->cloneTreePure(true), destp->width()};
+            // Apply cleaning to the new value being inserted.  Mask is
+            // slightly wider than necessary to avoid an AND with all ones
+            // being optimized out.  No need to clean if destp is
+            // quad-sized as there are no extra bits to contaminate
+            if (destp->widthMin() != 64) {
+                V3Number cleanmask{nodep, destp->widthMin() + 1};
+                cleanmask.setMask(destp->widthMin());
+                newp = new AstAnd{lfl, newp, new AstConst{lfl, cleanmask}};
+            }
+
+            insertBefore(nodep, new AstAssign{nfl, destp, new AstOr{lfl, oldvalp, newp}});
+            return true;
         }
     }
 
