@@ -797,9 +797,12 @@ public:
         iterateConst(nodep->fromp());
         putns(nodep, nodep->usePtr() ? "->" : ".");
         putns(nodep, nodep->name());
-        if (nodep->method() == VCMethod::FORCE_READ_SEL) {
-            emitIQW(nodep);
-            if (nodep->isWide()) puts("<" + cvtToStr(nodep->dtypep()->widthWords()) + ">");
+        if (nodep->method() == VCMethod::FORCE_READ_SEL
+            || nodep->method() == VCMethod::FORCE_READ) {
+            AstNodeDType* const dtypep = nodep->dtypep()->skipRefp();
+            if ((VN_IS(dtypep, BasicDType) || VN_IS(dtypep, PackArrayDType)) && dtypep->isIntegralOrPacked()) {
+                emitIQW(nodep);
+            }
         }
         puts("(");
         bool comma = false;

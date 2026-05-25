@@ -147,6 +147,8 @@ private:
                                  // statements instead of force statements
 
 public:
+    V3UniqueNames m_readWOutNames{"__VforceReadWTmp"};  // Names wide result temporaries
+
     ForceState(bool doingAssign)
         : m_doingAssign{doingAssign} {}
     VL_UNCOPYABLE(ForceState);
@@ -320,23 +322,6 @@ public:
         cexprp->add(exprp);
         cexprp->add(")");
         return cexprp;
-    }
-
-    AstNodeExpr* createForceReadCall(const VarForceInfo& varInfo, FileLine* flp, VCMethod method,
-                                     AstNodeExpr* originalExprp, AstNode* dtypeFromp,
-                                     AstNodeExpr* indexExprp) const {
-        UASSERT(varInfo.m_forceVecVscp, "No forceVec for forced variable");
-
-        originalExprp->foreach(
-            [](AstVarRef* const refp) { ForceState::markNonReplaceable(refp); });
-        AstNodeExpr* const origValp
-            = addRhsValueReads(varInfo, castToNodeDType(originalExprp, dtypeFromp));
-
-        AstCMethodHard* const callp = new AstCMethodHard{
-            flp, new AstVarRef{flp, varInfo.m_forceVecVscp, VAccess::READ}, method, origValp};
-        if (indexExprp) callp->addPinsp(indexExprp);
-        callp->dtypeFrom(dtypeFromp);
-        return callp;
     }
 
     AstNodeStmt* createForceRdUpdateStmt(const VarForceInfo& varInfo) const {
@@ -629,20 +614,46 @@ public:
         return false;
     }
 
-    AstNodeExpr* createForceReadExpression(const VarForceInfo& varInfo,
-                                           AstVarRef* originalRefp) const {
-        FileLine* const flp = originalRefp->fileline();
-        return createForceReadCall(varInfo, flp, VCMethod::FORCE_READ,
-                                   originalRefp->cloneTreePure(false), originalRefp->varp(),
-                                   nullptr);
+    AstNodeExpr* createForceReadExpression(const VarForceInfo& varInfo, AstVarRef* origp) {
+        UASSERT(varInfo.m_forceVecVscp, "No forceVec for forced variable");
+        FileLine* const flp = origp->fileline();
+        AstVarScope* const vscp = origp->varScopep();
+        AstVar* const varp = vscp->varp();
+        AstNodeExpr* clonep = origp->cloneTreePure(false);
+        clonep->foreach([](AstVarRef* const refp) { ForceState::markNonReplaceable(refp); });
+        AstNodeExpr* const valp = addRhsValueReads(varInfo, castToNodeDType(clonep, varp));
+        AstNodeExpr* const vecRefp = new AstVarRef{flp, varInfo.m_forceVecVscp, VAccess::READ};
+        AstCMethodHard* const callp = new AstCMethodHard{flp, vecRefp, VCMethod::FORCE_READ};
+        if (varp->isWide()) {
+            // Wide result needs a storage location
+            AstScope* const scopep = vscp->scopep();
+            AstVar* const tmpVarp = new AstVar{flp, VVarType::MEMBER,
+                                               m_readWOutNames.get(vscp->varp()), varp->dtypep()};
+            tmpVarp->isInternal(true);
+            vscp->varp()->addNextHere(tmpVarp);
+            AstVarScope* const tmpVscp = new AstVarScope{flp, scopep, tmpVarp};
+            scopep->addVarsp(tmpVscp);
+            callp->addPinsp(makeConst32(flp, varp->width()));
+            callp->addPinsp(new AstVarRef{flp, tmpVscp, VAccess::WRITE});
+        }
+        callp->addPinsp(valp);
+        callp->dtypeFrom(varp);
+        return callp;
     }
 
-    AstNodeExpr* createForceReadIndexExpression(const VarForceInfo& varInfo,
-                                                AstNodeExpr* originalExprp,
-                                                AstNodeExpr* indexExprp) const {
-        FileLine* const flp = originalExprp->fileline();
-        return createForceReadCall(varInfo, flp, VCMethod::FORCE_READ_INDEX,
-                                   originalExprp->cloneTreePure(false), originalExprp, indexExprp);
+    AstNodeExpr* createForceReadIndexExpression(const VarForceInfo& varInfo, AstNodeExpr* origp,
+                                                AstNodeExpr* indexp) const {
+        UASSERT(varInfo.m_forceVecVscp, "No forceVec for forced variable");
+        FileLine* const flp = origp->fileline();
+        AstNodeExpr* const clonep = origp->cloneTreePure(false);
+        clonep->foreach([](AstVarRef* const refp) { ForceState::markNonReplaceable(refp); });
+        AstNodeExpr* const valp = addRhsValueReads(varInfo, castToNodeDType(clonep, origp));
+        AstNodeExpr* const vecRefp = new AstVarRef{flp, varInfo.m_forceVecVscp, VAccess::READ};
+        AstCMethodHard* const callp = new AstCMethodHard{flp, vecRefp, VCMethod::FORCE_READ_INDEX};
+        callp->addPinsp(valp);
+        callp->addPinsp(indexp);
+        callp->dtypeFrom(origp);
+        return callp;
     }
 
     static AstNodeExpr* rebuildSelPath(AstNodeExpr* pathp, AstNodeExpr* baseExprp) {
@@ -1061,14 +1072,22 @@ public:
 // ForceReplaceVisitor - Replace variable reads with force-aware reads
 
 class ForceReplaceVisitor final : public VNVisitor {
-    const ForceState& m_state;
+    ForceState& m_state;
     VDouble0 m_nonOverlappingForceSels;  // Statistic tracking
     AstNodeStmt* m_stmtp = nullptr;
     bool m_inLogic = false;
+    AstNodeModule* m_modp = nullptr;  // Current module
 
     void iterateLogic(AstNode* nodep) {
         VL_RESTORER(m_inLogic);
         m_inLogic = true;
+        iterateChildren(nodep);
+    }
+
+    void visit(AstNodeModule* nodep) override {
+        VL_RESTORER(m_modp);
+        if (!m_modp) m_state.m_readWOutNames.reset();
+        m_modp = nodep;
         iterateChildren(nodep);
     }
 
@@ -1115,10 +1134,10 @@ class ForceReplaceVisitor final : public VNVisitor {
             return;
         }
 
-        AstVar* const varp = refp->varp();
-        const ForceState::VarForceInfo* const varInfo = m_state.getVarInfo(varp);
+        AstVarScope* const vscp = refp->varScopep();
+        const ForceState::VarForceInfo* const varInfo = m_state.getVarInfo(vscp->varp());
         if (!varInfo || varInfo->m_forceRdVscp || varInfo->m_forces.empty()
-            || !ForceState::isBitwiseDType(varp) || !varp->dtypep()->isWide()) {
+            || !ForceState::isBitwiseDType(vscp->varp()) || !vscp->varp()->dtypep()->isWide()) {
             visit(static_cast<AstNode*>(nodep));
             return;
         }
@@ -1126,7 +1145,7 @@ class ForceReplaceVisitor final : public VNVisitor {
         if (const AstConst* const lsbConstp = VN_CAST(nodep->lsbp(), Const)) {
             const int selLsb = lsbConstp->toSInt();
             const int selMsb = selLsb + nodep->width() - 1;
-            if (!varp->isSigPublic()
+            if (!vscp->varp()->isSigPublic()
                 && !ForceState::selOverlapsAnyForce(*varInfo, selLsb, selMsb)) {
                 m_nonOverlappingForceSels++;
                 ForceState::markNonReplaceable(refp);
@@ -1135,13 +1154,26 @@ class ForceReplaceVisitor final : public VNVisitor {
             }
         }
 
+        // TODO: lift this out to the enclosing statement and go via temporaries
         FileLine* const flp = nodep->fileline();
         ForceState::markNonReplaceable(refp);
         AstVarRef* const refClonep = refp->cloneTreePure(false);
         ForceState::markNonReplaceable(refClonep);
-        AstCMethodHard* const callp = new AstCMethodHard{
-            flp, new AstVarRef{flp, varInfo->m_forceVecVscp, VAccess::READ},
-            VCMethod::FORCE_READ_SEL, ForceState::makeConst32(flp, varp->width())};
+        AstCMethodHard* const callp
+            = new AstCMethodHard{flp, new AstVarRef{flp, varInfo->m_forceVecVscp, VAccess::READ},
+                                 VCMethod::FORCE_READ_SEL};
+        callp->addPinsp(ForceState::makeConst32(flp, vscp->varp()->width()));
+        if (nodep->isWide()) {
+            // Wide result needs a storage location
+            AstScope* const scopep = vscp->scopep();
+            AstVar* const tmpVarp = new AstVar{
+                flp, VVarType::MEMBER, m_state.m_readWOutNames.get(vscp->varp()), nodep->dtypep()};
+            tmpVarp->isInternal(true);
+            vscp->varp()->addNextHere(tmpVarp);
+            AstVarScope* const tmpVscp = new AstVarScope{flp, scopep, tmpVarp};
+            scopep->addVarsp(tmpVscp);
+            callp->addPinsp(new AstVarRef{flp, tmpVscp, VAccess::WRITE});
+        }
         callp->addPinsp(refClonep);
         callp->addPinsp(nodep->lsbp()->cloneTreePure(false));
         callp->addPinsp(ForceState::makeConst32(flp, nodep->width()));
@@ -1266,7 +1298,7 @@ class ForceReplaceVisitor final : public VNVisitor {
     }
 
 public:
-    explicit ForceReplaceVisitor(AstNetlist* nodep, const ForceState& state)
+    explicit ForceReplaceVisitor(AstNetlist* nodep, ForceState& state)
         : m_state{state} {
         iterateAndNextNull(nodep->modulesp());
     }

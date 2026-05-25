@@ -207,6 +207,12 @@ private:
         for (const auto& entry : m_entries) val = applyEntry(val, entry);
     }
 
+    void applyEntriesW(WDataOutP val) const {
+        for (const auto& entry : m_entries) {
+            applyEntry(val, entry, entry.m_lsb, entry.m_msb, 0);
+        }
+    }
+
     void readSel(int lbits, WDataInP valp, WDataOutP reswp, int lsb, int width) const {
         VL_SEL_WWII(width, lbits, reswp, valp, lsb, width);
         const int msb = lsb + width - 1;
@@ -221,8 +227,28 @@ private:
 public:
     VlForceVec() = default;
 
+
+    IData readI(IData val) const {
+        IData result = val;
+        applyEntries(result);
+        return result;
+    }
+
+    QData readQ(QData val) const {
+        QData result = val;
+        applyEntries(result);
+        return result;
+    }
+
+    WDataOutP readW(int lbits, WDataOutP resp, WDataInP valp) const {
+        VL_ASSIGN_W(lbits, resp, valp);
+        applyEntriesW(resp);
+        return resp;
+    }
+
     template <typename T>
     T read(const T& val) const {
+        static_assert(!VlIsVlWide<T>::value, "'read' should not be applied to a single VlWide directly");
         T result = val;
         if VL_CONSTEXPR_CXX17 (VlForceTypeInfo<T>::unpackedArray) {
             // Handling the case of a nested flattened array using recursion
@@ -248,6 +274,7 @@ public:
 
     template <typename T>
     T readIndex(T origVal, int index) const {
+        static_assert(!VlIsVlWide<T>::value, "'readIndex' should not be applied to a single VlWide directly");
         if (m_entries.empty()) return origVal;
 
         const auto it = std::lower_bound(m_entries.begin(), m_entries.end(), index,
@@ -274,12 +301,10 @@ public:
         return result;
     }
 
-    template <std::size_t N_Words>
-    VlWide<N_Words> readSelW(int lbits, WDataInP valp, int lsb, int width) const {
-        VlWide<N_Words> result;
-        readSel(lbits, valp, result, lsb, width);
-        result[N_Words - 1] &= VL_MASK_E(width);
-        return result;
+    WDataOutP readSelW(int lbits, WDataOutP resp, WDataInP valp, int lsb, int width) const {
+        readSel(lbits, valp, resp, lsb, width);
+        resp[VL_WORDS_I(lbits)] &= VL_MASK_E(width);
+        return resp;
     }
 
     void addForce(int lsb, int msb, const void* rhsDatap, int rhsLsb) {
