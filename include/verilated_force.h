@@ -227,7 +227,6 @@ private:
 public:
     VlForceVec() = default;
 
-
     IData readI(IData val) const {
         IData result = val;
         applyEntries(result);
@@ -248,7 +247,8 @@ public:
 
     template <typename T>
     T read(const T& val) const {
-        static_assert(!VlIsVlWide<T>::value, "'read' should not be applied to a single VlWide directly");
+        static_assert(!VlIsVlWide<T>::value,
+                      "'read' should not be applied to a single VlWide directly");
         T result = val;
         if VL_CONSTEXPR_CXX17 (VlForceTypeInfo<T>::unpackedArray) {
             // Handling the case of a nested flattened array using recursion
@@ -274,7 +274,8 @@ public:
 
     template <typename T>
     T readIndex(T origVal, int index) const {
-        static_assert(!VlIsVlWide<T>::value, "'readIndex' should not be applied to a single VlWide directly");
+        static_assert(!VlIsVlWide<T>::value,
+                      "'readIndex' should not be applied to a single VlWide directly");
         if (m_entries.empty()) return origVal;
 
         const auto it = std::lower_bound(m_entries.begin(), m_entries.end(), index,

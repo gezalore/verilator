@@ -800,7 +800,8 @@ public:
         if (nodep->method() == VCMethod::FORCE_READ_SEL
             || nodep->method() == VCMethod::FORCE_READ) {
             AstNodeDType* const dtypep = nodep->dtypep()->skipRefp();
-            if ((VN_IS(dtypep, BasicDType) || VN_IS(dtypep, PackArrayDType)) && dtypep->isIntegralOrPacked()) {
+            if ((VN_IS(dtypep, BasicDType) || VN_IS(dtypep, PackArrayDType))
+                && dtypep->isIntegralOrPacked()) {
                 emitIQW(nodep);
             }
         }
