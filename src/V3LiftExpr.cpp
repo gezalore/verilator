@@ -173,6 +173,14 @@ class LiftExprVisitor final : public VNVisitor {
         m_newStmtps = AstNode::addNext(m_newStmtps, stmtp);
     }
 
+    void extractExpr(AstNodeExpr* nodep, const char* baseName, const std::string& suffix = "") {
+        // Extract expression into a temporary variable
+        FileLine* const flp = nodep->fileline();
+        AstVar* const varp = newVar(baseName, nodep, suffix);
+        nodep->replaceWith(new AstVarRef{flp, varp, VAccess::READ});
+        addStmtps(new AstAssign{flp, new AstVarRef{flp, varp, VAccess::WRITE}, nodep});
+    }
+
     // Lift expressions from expression, return lifted statements
     AstNode* lift(AstNodeExpr* nodep) {
         if (!nodep) return nullptr;
@@ -273,7 +281,7 @@ class LiftExprVisitor final : public VNVisitor {
 
         // Do not lift if already in normal form
         if (m_doNotLiftp == nodep) return;
-        // No need to lift void expressions, these should be under StmtExpr, but just in case ...
+        // No need to lift void expressions, these should be under StmtExpr, but just in case
         if (VN_IS(nodep->dtypep()->skipRefp(), VoidDType)) return;
         // Do not lift if pure
         if (nodep->isPure()) return;
@@ -282,10 +290,7 @@ class LiftExprVisitor final : public VNVisitor {
 
         // Extract expression into a temporary variable
         ++m_statLiftedExprs;
-        FileLine* const flp = nodep->fileline();
-        AstVar* const varp = newVar("Expr", nodep);
-        nodep->replaceWith(new AstVarRef{flp, varp, VAccess::READ});
-        addStmtps(new AstAssign{flp, new AstVarRef{flp, varp, VAccess::WRITE}, nodep});
+        extractExpr(nodep, "Expr");
     }
     void visit(AstNodeFTaskRef* nodep) override {
         if (!m_lift) return;
@@ -294,17 +299,14 @@ class LiftExprVisitor final : public VNVisitor {
 
         // Do not lift if already in normal form
         if (m_doNotLiftp == nodep) return;
-        // No need to lift void functions, these should be under StmtExpr, but just in case ...
+        // No need to lift void expressions, these should be under StmtExpr, but just in case
         if (VN_IS(nodep->dtypep()->skipRefp(), VoidDType)) return;
         // Do not lift Taskref, it's always in statement position and cleanly inlineable.
         if (VN_IS(nodep, TaskRef)) return;
 
         // Extract expression into a temporary variable
         ++m_statLiftedCalls;
-        FileLine* const flp = nodep->fileline();
-        AstVar* const varp = newVar("Call", nodep, nodep->taskp()->name());
-        nodep->replaceWith(new AstVarRef{flp, varp, VAccess::READ});
-        addStmtps(new AstAssign{flp, new AstVarRef{flp, varp, VAccess::WRITE}, nodep});
+        extractExpr(nodep, "Call", nodep->taskp()->name());
     }
     void visit(AstMemberSel* nodep) override {
         if (!m_lift) return;
