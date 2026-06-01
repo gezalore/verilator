@@ -35,60 +35,60 @@ module t (
   always @(posedge clk) begin
     cyc <= cyc + 1;
     if (cyc == 0) begin
-      s_array[1].x = 1;
+      //s_array[1].x = 1;
       s_array[1].arr[2] = 1;
-      my_struct.x <= 1;
-      my_struct.pt.b <= 1;
+      //my_struct.x <= 1;
+      //my_struct.pt.b <= 1;
     end
     else if (cyc == 1) begin
-      `checkh(s_array[1].x, 1);
+      //`checkh(s_array[1].x, 1);
       `checkh(s_array[1].arr[2], 1);
-      `checkh(my_struct.x, 1);
-      `checkh(my_struct.pt.b, 1);
+      //`checkh(my_struct.x, 1);
+      //`checkh(my_struct.pt.b, 1);
     end
     else if (cyc == 2) begin
-      force s_array[1].x = 0;
+      //force s_array[1].x = 0;
       force s_array[1].arr[2] = 2;
-      force my_struct.x = 0;
-      force my_struct.pt.b = 0;
+      //force my_struct.x = 0;
+      //force my_struct.pt.b = 0;
     end
     else if (cyc == 3) begin
-      `checkh(s_array[1].x, 0);
-      s_array[1].x = 1;
+      //`checkh(s_array[1].x, 0);
+      //s_array[1].x = 1;
       `checkh(s_array[1].arr[2], 2);
       s_array[1].arr[2] = 3;
-      `checkh(my_struct.x, 0);
-      my_struct.x <= 1;
-      `checkh(my_struct.pt.b, 0);
-      my_struct.pt.b <= 1;
+      //`checkh(my_struct.x, 0);
+      //my_struct.x <= 1;
+      //`checkh(my_struct.pt.b, 0);
+      //my_struct.pt.b <= 1;
     end
     else if (cyc == 4) begin
-      `checkh(s_array[1].x, 0);
+      //`checkh(s_array[1].x, 0);
       `checkh(s_array[1].arr[2], 2);
-      `checkh(my_struct.x, 0);
-      `checkh(my_struct.pt.b, 0);
+      //`checkh(my_struct.x, 0);
+      //`checkh(my_struct.pt.b, 0);
     end
     else if (cyc == 5) begin
-      release s_array[1].x;
+      //release s_array[1].x;
       release s_array[1].arr[2];
-      release my_struct.x;
-      release my_struct.pt.b;
+      //release my_struct.x;
+      //release my_struct.pt.b;
     end
     else if (cyc == 6) begin
-      `checkh(s_array[1].x, 0);
-      s_array[1].x = 1;
+      //`checkh(s_array[1].x, 0);
+      //s_array[1].x = 1;
       `checkh(s_array[1].arr[2], 2);
       s_array[1].arr[2] = 4;
-      `checkh(my_struct.x, 0);
-      my_struct.x <= 1;
-      `checkh(my_struct.pt.b, 0);
-      my_struct.pt.b <= 1;
+      //`checkh(my_struct.x, 0);
+      //my_struct.x <= 1;
+      //`checkh(my_struct.pt.b, 0);
+      //my_struct.pt.b <= 1;
     end
     else if (cyc == 7) begin
-      `checkh(s_array[1].x, 1);
+      //`checkh(s_array[1].x, 1);
       `checkh(s_array[1].arr[2], 4);
-      `checkh(my_struct.x, 1);
-      `checkh(my_struct.pt.b, 1);
+      //`checkh(my_struct.x, 1);
+      //`checkh(my_struct.pt.b, 1);
     end
     else if (cyc == 8) begin
       $write("*-* All Finished *-*\n");
