@@ -71,6 +71,10 @@ public:
     // If the expression is a valid C++ LValue, return the target reference, else nullptr
     // This always returns either AstVarRef, AstMemberSel, or nullptr
     AstNodeExpr* cLValueTargetp();
+    // If the expression selects from a sub-expression on the way to its cLValueTargetp,
+    // return that sub-expression, else nullptr. That is: the single step cLValueTargetp
+    // recurses through, so the whole select path can be walked one node at a time.
+    AstNodeExpr* cLValueFromp();
     // TODO: this actually means it's a write or RW, not that it's an LValue
     bool isLValue() const;
     // Return base var (or const) nodep dereferences

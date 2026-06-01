@@ -11,8 +11,13 @@ import vltest_bootstrap
 
 test.scenarios('vlt')
 
-test.compile()
+test.compile(verilator_flags2=["--stats"])
 
 test.execute()
+
+test.file_grep(test.stats, r'LiftExpr, lifted calls\s+(\d+)', 6)
+test.file_grep(test.stats, r'LiftExpr, lifted Cond\s+(\d+)', 2)
+test.file_grep(test.stats, r'LiftExpr, lifted LogAnd\s+(\d+)', 2)
+test.file_grep(test.stats, r'LiftExpr, lifted forced reads\s+(\d+)', 40)
 
 test.passes()

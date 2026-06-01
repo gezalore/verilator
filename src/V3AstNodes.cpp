@@ -2514,6 +2514,20 @@ AstNode* AstNodeExpr::baseFromp(bool overMembers) {
     }
     return nodep;
 }
+AstNodeExpr* AstNodeExpr::cLValueFromp() {
+    if (AstSel* const selp = VN_CAST(this, Sel)) {  //
+        return selp->fromp();
+    }
+    if (AstStructSel* const selp = VN_CAST(this, StructSel)) {  //
+        return selp->fromp();
+    }
+    if (AstNodeSel* const selp = VN_CAST(this, NodeSel)) {  // Array, Assoc, Wildcard, Word
+        return selp->fromp();
+    }
+
+    // Does not select from anything
+    return nullptr;
+}
 AstNodeExpr* AstNodeExpr::cLValueTargetp() {
     // Leaves
     if (AstVarRef* const refp = VN_CAST(this, VarRef)) {  //
@@ -2524,14 +2538,8 @@ AstNodeExpr* AstNodeExpr::cLValueTargetp() {
     }
 
     // Recursive
-    if (AstSel* const selp = VN_CAST(this, Sel)) {  //
-        return selp->fromp()->cLValueTargetp();
-    }
-    if (AstStructSel* const selp = VN_CAST(this, StructSel)) {  //
-        return selp->fromp()->cLValueTargetp();
-    }
-    if (AstNodeSel* const selp = VN_CAST(this, NodeSel)) {  // Array, Assoc, Wildcard, Word
-        return selp->fromp()->cLValueTargetp();
+    if (AstNodeExpr* const fromp = cLValueFromp()) {  //
+        return fromp->cLValueTargetp();
     }
 
     // Not an LValue

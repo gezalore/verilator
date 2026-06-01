@@ -67,6 +67,18 @@
 // return references, and are marked as impure. For this reason only we still
 // need to special case their handling via AstNodeExpr::isLValue().
 //
+// Reads of forced variables are lifted as well, even though they are pure, so
+// that V3Force can lower them without pass-by-value methods:
+//    x = a + forced[i].m;
+// is transformed into:
+//    __VleForcedRd_0 = forced[i].m;
+//    x = a + __VleForcedRd_0;
+// The whole LValue expression is lifted, that is: the entire select path down
+// to the variable, which is the same shape AstNodeExpr::cLValueTargetp walks.
+// This is the granularity V3Force lowers reads at, so lifting only a prefix of
+// the path (say 'forced[i]' above) would hide the rest of it from V3Force.
+// Hence these are lifted on the way down, before any sub-expression is.
+//
 //*************************************************************************
 
 #include "V3PchAstNoMT.h"  // VL_MT_DISABLED_CODE_UNIT
@@ -109,10 +121,22 @@ class LiftExprVisitor final : public VNVisitor {
     VDouble0 m_statLiftedLogAnds;
     VDouble0 m_statLiftedLogOrs;
     VDouble0 m_statLiftedExprStmts;
+    VDouble0 m_statLiftedForcedReads;
     VDouble0 m_statTemporariesCreated;
     VDouble0 m_statTemporariesReused;
 
     // METHODS
+    // True if the given expression is the read of a forced variable. Note this holds for the
+    // whole LValue expression, that is: at every node of the select path down to the variable.
+    // V3Force lowers reads at the granularity of the whole path.
+    static bool isForcedRead(AstNodeExpr* nodep) {
+        const AstVarRef* const refp = VN_CAST(nodep->cLValueTargetp(), VarRef);
+        if (!refp) return false;
+        if (!refp->access().isReadOnly()) return false;
+        if (!refp->varp()->isForced()) return false;
+        return true;
+    }
+
     AstVar* newVar(const char* baseName, const AstNodeExpr* exprp,
                    const std::string& suffix = "") {
         // Reuse existing temporary if available
@@ -266,6 +290,11 @@ class LiftExprVisitor final : public VNVisitor {
         // Do not lift if the expression itself. This AstStmtExpr is required to
         // throw away the return value if any, and V3Task can inline without using
         // AstExprStmt in this case. Can still lift all sub-expressions though.
+        // Not lifting would be wrong for the read of a forced variable, as that must always
+        // end up on the RHS of a simple assignment, but those cannot occur here, as the
+        // expression of an AstStmtExpr is always a call.
+        UASSERT_OBJ(!isForcedRead(nodep->exprp()), nodep,
+                    "Read of forced variable in statement position");
         m_doNotLiftp = nodep->exprp();
         if (AstNode* const newStmtps = liftChildren(nodep)) nodep->addHereThisAsNext(newStmtps);
     }
@@ -276,6 +305,24 @@ class LiftExprVisitor final : public VNVisitor {
     // VISITORS - expressions
     void visit(AstNodeExpr* nodep) override {
         if (!m_lift) return;
+
+        // Lift the whole LValue expression if it reads a forced variable. Must be handled before
+        // descending, as the condition also holds for every prefix of the select path.
+        if (isForcedRead(nodep)) {
+            {
+                VL_RESTORER(m_doNotLiftp);
+                // Mark the source of this path, it is a prefix of this read. The indices are
+                // ordinary reads though, and can be reads of forced variables in their own right.
+                m_doNotLiftp = nodep->cLValueFromp();
+                iterateChildren(nodep);
+            }
+            // Do not lift if already in normal form, or if this is only a prefix of an
+            // enclosing LValue expression, in which case it is part of that read
+            if (m_doNotLiftp == nodep) return;
+            ++m_statLiftedForcedReads;
+            extractExpr(nodep, "ForcedRd");
+            return;
+        }
 
         iterateChildren(nodep);
 
@@ -450,8 +497,6 @@ class LiftExprVisitor final : public VNVisitor {
 
     // VISITORS - Accelerate pure leaf expressions
     void visit(AstConst*) override {}
-    void visit(AstVarRef*) override {}
-    void visit(AstVarXRef*) override {}
 
     // VISITORS - Expression special cases
     // These return C++ references rather than values, cannot be lifted
@@ -479,6 +524,7 @@ public:
         V3Stats::addStat("LiftExpr, lifted LogAnd", m_statLiftedLogAnds);
         V3Stats::addStat("LiftExpr, lifted LogOr", m_statLiftedLogOrs);
         V3Stats::addStat("LiftExpr, lifted ExprStmt", m_statLiftedExprStmts);
+        V3Stats::addStat("LiftExpr, lifted forced reads", m_statLiftedForcedReads);
         V3Stats::addStat("LiftExpr, temporaries created", m_statTemporariesCreated);
         V3Stats::addStat("LiftExpr, temporaries reused", m_statTemporariesReused);
     }
