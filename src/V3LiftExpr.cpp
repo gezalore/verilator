@@ -109,10 +109,19 @@ class LiftExprVisitor final : public VNVisitor {
     VDouble0 m_statLiftedLogAnds;
     VDouble0 m_statLiftedLogOrs;
     VDouble0 m_statLiftedExprStmts;
+    VDouble0 m_statLiftedForcedVarReads;
     VDouble0 m_statTemporariesCreated;
     VDouble0 m_statTemporariesReused;
 
     // METHODS
+    bool isForcedVarRead(AstNodeExpr* nodep) {
+        AstNodeVarRef* const refp = VN_CAST(nodep, NodeVarRef);
+        if (!refp) return false;
+        if (!refp->access().isReadOnly()) return false;
+        if (!refp->varp()->isForced()) return false;
+        return true;
+    }
+
     AstVar* newVar(const char* baseName, const AstNodeExpr* exprp,
                    const std::string& suffix = "") {
         // Reuse existing temporary if available
@@ -171,6 +180,14 @@ class LiftExprVisitor final : public VNVisitor {
         // No need to process again, so mark
         for (AstNode* nodep = stmtp; nodep; nodep = nodep->nextp()) nodep->user1(1);
         m_newStmtps = AstNode::addNext(m_newStmtps, stmtp);
+    }
+
+    void extractExpr(AstNodeExpr* nodep, const char* baseName, const std::string& suffix = "") {
+        // Extract expression into a temporary variable
+        FileLine* const flp = nodep->fileline();
+        AstVar* const varp = newVar(baseName, nodep, suffix);
+        nodep->replaceWith(new AstVarRef{flp, varp, VAccess::READ});
+        addStmtps(new AstAssign{flp, new AstVarRef{flp, varp, VAccess::WRITE}, nodep});
     }
 
     // Lift expressions from expression, return lifted statements
@@ -273,7 +290,7 @@ class LiftExprVisitor final : public VNVisitor {
 
         // Do not lift if already in normal form
         if (m_doNotLiftp == nodep) return;
-        // No need to lift void expressions, these should be under StmtExpr, but just in case ...
+        // No need to lift void expressions, these should be under StmtExpr, but just in case
         if (VN_IS(nodep->dtypep()->skipRefp(), VoidDType)) return;
         // Do not lift if pure
         if (nodep->isPure()) return;
@@ -282,10 +299,7 @@ class LiftExprVisitor final : public VNVisitor {
 
         // Extract expression into a temporary variable
         ++m_statLiftedExprs;
-        FileLine* const flp = nodep->fileline();
-        AstVar* const varp = newVar("Expr", nodep);
-        nodep->replaceWith(new AstVarRef{flp, varp, VAccess::READ});
-        addStmtps(new AstAssign{flp, new AstVarRef{flp, varp, VAccess::WRITE}, nodep});
+        extractExpr(nodep, "Expr");
     }
     void visit(AstNodeFTaskRef* nodep) override {
         if (!m_lift) return;
@@ -294,17 +308,14 @@ class LiftExprVisitor final : public VNVisitor {
 
         // Do not lift if already in normal form
         if (m_doNotLiftp == nodep) return;
-        // No need to lift void functions, these should be under StmtExpr, but just in case ...
+        // No need to lift void expressions, these should be under StmtExpr, but just in case
         if (VN_IS(nodep->dtypep()->skipRefp(), VoidDType)) return;
         // Do not lift Taskref, it's always in statement position and cleanly inlineable.
         if (VN_IS(nodep, TaskRef)) return;
 
         // Extract expression into a temporary variable
         ++m_statLiftedCalls;
-        FileLine* const flp = nodep->fileline();
-        AstVar* const varp = newVar("Call", nodep, nodep->taskp()->name());
-        nodep->replaceWith(new AstVarRef{flp, varp, VAccess::READ});
-        addStmtps(new AstAssign{flp, new AstVarRef{flp, varp, VAccess::WRITE}, nodep});
+        extractExpr(nodep, "Call", nodep->taskp()->name());
     }
     void visit(AstMemberSel* nodep) override {
         if (!m_lift) return;
@@ -330,6 +341,65 @@ class LiftExprVisitor final : public VNVisitor {
                                 nodep->fromp()->unlinkFrBack()});
         // This one is a WRITE or READWRITE, same as the MemberSel
         nodep->fromp(new AstVarRef{flp, varp, nodep->access()});
+    }
+    void visit(AstNodeVarRef* nodep) override {
+        if (!m_lift) return;
+
+        // Lift reading a forced signal
+        if (isForcedVarRead(nodep)) {
+            // VarRef has no children
+
+            // Do not lift if already in normal form
+            if (m_doNotLiftp == nodep) return;
+            ++m_statLiftedForcedVarReads;
+            extractExpr(nodep, "ForcedRdVar");
+            return;
+        }
+
+        // Handle as common expression otherwise
+        visit(static_cast<AstNodeExpr*>(nodep));
+    }
+    void visit(AstSel* nodep) override {
+        if (!m_lift) return;
+
+        // Lift if reading a part of a forced signal
+        if (isForcedVarRead(nodep->fromp())) {
+            {
+                VL_RESTORER(m_doNotLiftp);
+                m_doNotLiftp = nodep->fromp();  // Do not lift the source itself
+                iterateChildren(nodep);
+            }
+
+            // Do not lift if already in normal form
+            if (m_doNotLiftp == nodep) return;
+            ++m_statLiftedForcedVarReads;
+            extractExpr(nodep, "ForcedRdSel");
+            return;
+        }
+
+        // Handle as common expression otherwise
+        visit(static_cast<AstNodeExpr*>(nodep));
+    }
+    void visit(AstArraySel* nodep) override {
+        if (!m_lift) return;
+
+        // Lift if reading an element of a forced array
+        if (isForcedVarRead(nodep->fromp())) {
+            {
+                VL_RESTORER(m_doNotLiftp);
+                m_doNotLiftp = nodep->fromp();  // Do not lift the source itself
+                iterateChildren(nodep);
+            }
+
+            // Do not lift if already in normal form
+            if (m_doNotLiftp == nodep) return;
+            ++m_statLiftedForcedVarReads;
+            extractExpr(nodep, "ForcedRdIdx");
+            return;
+        }
+
+        // Handle as common expression otherwise
+        visit(static_cast<AstNodeExpr*>(nodep));
     }
 
     // VISITORS - RValue expressions
@@ -448,8 +518,6 @@ class LiftExprVisitor final : public VNVisitor {
 
     // VISITORS - Accelerate pure leaf expressions
     void visit(AstConst*) override {}
-    void visit(AstVarRef*) override {}
-    void visit(AstVarXRef*) override {}
 
     // VISITORS - Expression special cases
     // These return C++ references rather than values, cannot be lifted
@@ -477,6 +545,7 @@ public:
         V3Stats::addStat("LiftExpr, lifted LogAnd", m_statLiftedLogAnds);
         V3Stats::addStat("LiftExpr, lifted LogOr", m_statLiftedLogOrs);
         V3Stats::addStat("LiftExpr, lifted ExprStmt", m_statLiftedExprStmts);
+        V3Stats::addStat("LiftExpr, lifted forced var reads", m_statLiftedForcedVarReads);
         V3Stats::addStat("LiftExpr, temporaries created", m_statTemporariesCreated);
         V3Stats::addStat("LiftExpr, temporaries reused", m_statTemporariesReused);
     }
