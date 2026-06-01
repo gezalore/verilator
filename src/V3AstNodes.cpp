@@ -3127,6 +3127,7 @@ void AstVar::dump(std::ostream& str) const {
     if (isInternal()) str << " [INTERNAL]";
     if (isLatched()) str << " [LATCHED]";
     if (isUsedLoopIdx()) str << " [LOOPIDX]";
+    if (isForced()) str << " [FORCED]";
     if (rand().isRandomizable()) str << " [" << rand() << "]";
     if (noCReset()) str << " [!CRST]";
     if (noReset()) str << " [!RST]";
@@ -3163,6 +3164,7 @@ void AstVar::dumpJson(std::ostream& str) const {
     dumpJsonBoolFuncIf(str, isSigPublic);
     dumpJsonBoolFuncIf(str, isLatched);
     dumpJsonBoolFuncIf(str, isUsedLoopIdx);
+    dumpJsonBoolFuncIf(str, isForced);
     dumpJsonBoolFuncIf(str, noCReset);
     dumpJsonBoolFuncIf(str, noReset);
     dumpJsonBoolFuncIf(str, processQueue);
