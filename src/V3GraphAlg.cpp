@@ -302,6 +302,46 @@ public:
 void V3Graph::rank() { rank(&V3GraphEdge::followAlwaysTrue); }
 void V3Graph::rank(V3EdgeFuncP edgeFuncp) { GraphAlgRank{this, edgeFuncp}; }
 
+class GraphAlgRankRev final : GraphAlg<> {
+    void main() {
+        // Rank each vertex, ignoring cutable edges
+        // Vertex::m_user begin: 1 indicates processing, 2 indicates completed
+        // Clear existing ranks
+        for (V3GraphVertex& vertex : m_graphp->vertices()) {
+            vertex.rank(0xffffffff);
+            vertex.user(0);
+        }
+        for (V3GraphVertex& vertex : m_graphp->vertices()) {
+            if (!vertex.user()) vertexIterate(&vertex, 0xffffffff - 1);
+        }
+    }
+    void vertexIterate(V3GraphVertex* vertexp, uint32_t currentRank) {
+        // Assign rank to each unvisited node
+        // If larger rank is found, assign it and loop back through
+        // If we hit a back node make a list of all loops
+
+        // If loop, return
+        if (vertexp->user() == 1) return;
+
+        if (vertexp->rank() <= currentRank) return;  // Already processed it
+        vertexp->user(1);
+        vertexp->rank(currentRank);
+        for (V3GraphEdge& edge : vertexp->inEdges()) {
+            if (followEdge(&edge)) vertexIterate(edge.fromp(), currentRank - 1);
+        }
+        vertexp->user(2);
+    }
+
+public:
+    GraphAlgRankRev(V3Graph* graphp, V3EdgeFuncP edgeFuncp)
+        : GraphAlg<>{graphp, edgeFuncp} {
+        main();
+    }
+    ~GraphAlgRankRev() = default;
+};
+
+void V3Graph::rank2() { GraphAlgRankRev{this, &V3GraphEdge::followAlwaysTrue}; }
+
 //######################################################################
 //######################################################################
 // Algorithms - ranking min
@@ -510,7 +550,7 @@ void V3Graph::order() {
     UINFO(2, "Order:");
 
     // Compute rankings again
-    rank(&V3GraphEdge::followAlwaysTrue);
+    rank2();
     orderPreRanked();
 }
 

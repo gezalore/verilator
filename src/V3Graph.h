@@ -387,6 +387,7 @@ public:
     /// Side-effect: changes user()
     void rank(V3EdgeFuncP edgeFuncp) VL_MT_DISABLED;
     void rank() VL_MT_DISABLED;
+    void rank2() VL_MT_DISABLED;
 
     /// Assign an ordering number to all vertexes in a tree.
     /// For multiple usages of a vertex, get the minimu of all inbound ranks + 1
