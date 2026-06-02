@@ -172,12 +172,16 @@ class OrderMoveGraphSerializer final {
 
     // METHODS
 
-    void ready(OrderMoveVertex* vtxp) {
+    void ready(OrderMoveVertex* vtxp, bool front) {
         UASSERT_OBJ(!vtxp->user(), vtxp, "'ready' called on vertex with pending dependencies");
         if (vtxp->logicp()) {
             // Add this vertex to the ready list of its DomScope
             OrderMoveDomScope& domScope = vtxp->domScope();
-            domScope.readyVertices().linkBack(vtxp);
+            if (front) {
+                domScope.readyVertices().linkFront(vtxp);
+            } else {
+                domScope.readyVertices().linkBack(vtxp);
+            }
             // Add the DomScope to the global ready list if not there yet
             if (!domScope.isOnList()) {
                 domScope.isOnList(true);
@@ -193,7 +197,7 @@ class OrderMoveGraphSerializer final {
                 const uint32_t nDeps = dVtxp->user() - 1;
                 dVtxp->user(nDeps);
                 // If no more dependencies, mark it ready
-                if (!nDeps) ready(dVtxp);
+                if (!nDeps) ready(dVtxp, front && dVtxp->inSize1());
             }
         }
     }
@@ -211,7 +215,7 @@ public:
     VL_UNCOPYABLE(OrderMoveGraphSerializer);
 
     // Add a seed vertex to the ready lists
-    void addSeed(OrderMoveVertex* vtxp) { ready(vtxp); }
+    void addSeed(OrderMoveVertex* vtxp) { ready(vtxp, false); }
 
     OrderMoveVertex* getNext() {
         if (!m_nextDomScopep) m_nextDomScopep = m_readyDomScopeps.frontp();
@@ -239,7 +243,7 @@ public:
             const uint32_t nDeps = dVtxp->user() - 1;
             dVtxp->user(nDeps);
             // If no more dependencies, mark it ready
-            if (!nDeps) ready(dVtxp);
+            if (!nDeps) ready(dVtxp, mVtxp->outSize1() && dVtxp->inSize1() && dVtxp->outSize1());
         }
 
         // If no more ready vertices in the current DomScope, prefer to continue with a new scope
