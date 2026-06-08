@@ -68,8 +68,12 @@ obj_dbg:
 
 .PHONY: ../bin/verilator_bin$(EXEEXT) ../bin/verilator_bin_dbg$(EXEEXT) ../bin/verilator_coverage_bin_dbg$(EXEEXT)
 
+ifeq ($(VERILATOR_NO_OPT_BUILD)$(VERILATOR_NO_DBG_BUILD),11)
+  $(error Cannot set both VERILATOR_NO_OPT_BUILD and VERILATOR_NO_DBG_BUILD)
+endif
+
 opt: ../bin/verilator_bin$(EXEEXT)
-ifeq ($(VERILATOR_NO_OPT_BUILD),1)  # Faster laptop development... One build
+ifeq ($(VERILATOR_NO_OPT_BUILD),1)  # Only one build, simply copy the other one
   ../bin/verilator_bin$(EXEEXT): ../bin/verilator_bin_dbg$(EXEEXT)
 	-cp -p $< $@.tmp
 	-mv -f $@.tmp $@
@@ -80,15 +84,21 @@ else
 endif
 
 dbg: ../bin/verilator_bin_dbg$(EXEEXT) ../bin/verilator_coverage_bin_dbg$(EXEEXT)
-../bin/verilator_bin_dbg$(EXEEXT): obj_dbg ../bin prefiles
+ifeq ($(VERILATOR_NO_DBG_BUILD),1)  # Only one build, simply copy the other one
+  ../bin/verilator_bin_dbg$(EXEEXT): ../bin/verilator_bin$(EXEEXT)
+	-cp -p $< $@.tmp
+	-mv -f $@.tmp $@
+else
+  ../bin/verilator_bin_dbg$(EXEEXT): obj_dbg ../bin prefiles
 	$(BEAR_OBJ_OPT) $(MAKE) -C obj_dbg -j 1  TGT=../$@ VL_DEBUG=1 -f ../Makefile_obj serial
 	$(BEAR_OBJ_OPT) $(MAKE) -C obj_dbg       TGT=../$@ VL_DEBUG=1 -f ../Makefile_obj
+endif
 
 ../bin/verilator_coverage_bin_dbg$(EXEEXT): obj_dbg ../bin prefiles
 	$(MAKE) -C obj_dbg       TGT=../$@ VL_DEBUG=1 VL_VLCOV=1 -f ../Makefile_obj serial_vlcov
 	$(MAKE) -C obj_dbg       TGT=../$@ VL_DEBUG=1 VL_VLCOV=1 -f ../Makefile_obj
 
-ifneq ($(VERILATOR_NO_OPT_BUILD),1)  # Faster laptop development... don't rebuild each commit
+ifeq (,$(filter 1,$(VERILATOR_NO_OPT_BUILD) $(VERILATOR_NO_DBG_BUILD)))  # Faster laptop development... don't rebuild each commit
   ifneq ($(UNDER_GIT),)  # If local git tree... else don't burden users
     GIT_CHANGE_DEP = ${srcdir}/../.git/logs/HEAD
   endif

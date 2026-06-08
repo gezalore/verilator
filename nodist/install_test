@@ -88,7 +88,7 @@ def write_verilog(odir: str) -> None:
 
 def cleanenv() -> None:
     for var in os.environ:
-        if var in ('VERILATOR_ROOT', 'VERILATOR_INCLUDE', 'VERILATOR_NO_OPT_BUILD'):
+        if var in ('VERILATOR_ROOT', 'VERILATOR_INCLUDE', 'VERILATOR_NO_OPT_BUILD', 'VERILATOR_NO_DBG_BUILD'):
             print("unset %s # Was '%s'" % (var, os.environ[var]))
             del os.environ[var]
 
