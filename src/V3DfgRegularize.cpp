@@ -104,7 +104,11 @@ class DfgRegularize final {
         if (aVtx.is<DfgCReset>()) return true;
 
         // Do not inline expressions into a loop body
-        if (const DfgAstRd* const astRdp = sink.cast<DfgAstRd>()) { return astRdp->inLoop(); }
+        if (const DfgAstRd* const astRdp = sink.cast<DfgAstRd>()) return astRdp->inLoop();
+
+        // If the single sink has multiple sinks itself, and is itself cheap, so it would
+        // not warrant a temporary, then add a temporary here to reuse this value
+        if (sink.hasMultipleSinks() && sink.isCheaperThanLoad()) return true;
 
         // Make sure roots of wide concatenation trees are written to variables,
         // this enables V3FuncOpt to split them which can be a big speed gain
