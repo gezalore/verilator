@@ -586,7 +586,6 @@ static void process() {
             // Mark evaluation functions as member functions, if needed.
             V3Depth::depthAll(v3Global.rootp());
 
-
             // Add C casts when longs need to become long-long and vice-versa
             // Note depth may insert something needing a cast, so this must be last.
             V3Cast::castAll(v3Global.rootp());
