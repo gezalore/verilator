@@ -405,7 +405,7 @@ class DataflowOptimize final {
             UASSERT_OBJ(nodep == senTreep, nodep, "Should not have been repalced");
             if (senTreep->sensesp()->isNever()) {
                 UASSERT_OBJ(!senTreep->sensesp()->nextp(), nodep,
-                "Never senitem should be alone, else the never should be eliminated.");
+                            "Never senitem should be alone, else the never should be eliminated.");
                 VL_DO_DANGLING(activep->unlinkFrBack()->deleteTree(), activep);
             }
         });
