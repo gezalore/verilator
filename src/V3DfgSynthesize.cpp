@@ -600,7 +600,6 @@ class AstToDfgSynthesize final {
     AstToDfgConverter m_converter;  // The convert instance to use for each construct
     size_t m_nBranchCond = 0;  // Sequence numbers for temporaries
     size_t m_nPathPred = 0;  // Sequence numbers for temporaries
-    DfgWorklist m_toRevert{m_dfg};  // We need a worklist for reverting synthesis
 
     // STATE - for current DfgLogic being synthesized
     DfgLogic* m_logicp = nullptr;  // Current logic vertex we are synthesizing
@@ -1673,11 +1672,13 @@ class AstToDfgSynthesize final {
         return true;
     }
 
-    // Revert all DfgLogic in m_toRevert, or DfgLogic driving the DfgUnresolved
-    // vertices in m_toRevert, and transitively the same for any DfgUnresolved
+    // Revert all DfgLogic in the given list, or DfgLogic driving the DfgUnresolved
+    // vertices in the given list, and transitively the same for any DfgUnresolved
     // driven by the reverted DfgLogic. Delete all DfgUnresolved involed.
-    void revert(VDouble0& statCountr) {
-        m_toRevert.foreach([&](DfgVertex& vtx) {
+    void revert(const std::vector<DfgVertex*>& vtxpe, VDouble0& statCountr) {
+        DfgWorklist workList{m_dfg};
+        for (DfgVertex* const vtxp : vtxpe) workList.push_front(*vtxp);
+        workList.foreach([&](DfgVertex& vtx) {
             // Process DfgLogic
             if (DfgLogic* const vtxp = vtx.cast<DfgLogic>()) {
                 UASSERT_OBJ(vtxp->selectedForSynthesis(), vtxp, "Shouldn't reach here unselected");
@@ -1689,7 +1690,7 @@ class AstToDfgSynthesize final {
                 vtxp->setReverted();
                 // Add all DfgUnresolved it drives to the work list
                 vtxp->foreachSink([&](DfgVertex& snk) {
-                    m_toRevert.push_front(*snk.as<DfgUnresolved>());
+                    workList.push_front(*snk.as<DfgUnresolved>());
                     return false;
                 });
                 return;
@@ -1702,7 +1703,7 @@ class AstToDfgSynthesize final {
                 // Add all driving DfgLogic to the work list
                 vtxp->foreachSource([&](DfgVertex& src) {
                     DfgLogic* const lp = src.cast<DfgLogic>();
-                    if (lp && !lp->reverted()) m_toRevert.push_front(*lp);
+                    if (lp && !lp->reverted()) workList.push_front(*lp);
                     return false;
                 });
                 // Delete the DfgUnresolved driver
@@ -1767,6 +1768,8 @@ class AstToDfgSynthesize final {
 
         //-------------------------------------------------------------------
         UINFO(5, "Step 1: Attempting to synthesize each of the selected DfgLogic");
+        // Non-synthesizable DfgLogic vertices tor revert synthesis of
+        std::vector<DfgVertex*> nonSynthesizableLogicps;
         for (DfgVertex& vtx : m_dfg.opVertices()) {
             DfgLogic* const logicp = vtx.cast<DfgLogic>();
             if (!logicp) continue;
@@ -1788,7 +1791,7 @@ class AstToDfgSynthesize final {
             // Synthesize it, if failed, enqueue for reversion
             if (!synthesize(*logicp)) {
                 logicp->setNonSynthesizable();
-                m_toRevert.push_front(*logicp);
+                nonSynthesizableLogicps.push_back(logicp);
             }
         }
         debugDump("synth-converted");
@@ -1796,13 +1799,17 @@ class AstToDfgSynthesize final {
         //-------------------------------------------------------------------
         UINFO(5, "Step 2: Revert drivers of variables with unsynthesizeable drivers");
         // We do this as the variables might be multi-driven, we can't know if synthesis failed
-        revert(m_ctx.m_synt.revertNonSyn);
+        revert(nonSynthesizableLogicps, m_ctx.m_synt.revertNonSyn);
+        nonSynthesizableLogicps.clear();
+        nonSynthesizableLogicps.shrink_to_fit();
         debugDump("synth-reverted");
 
         //-------------------------------------------------------------------
         UINFO(5, "Step 3: Resolve synthesized drivers of original (non-temporary) variables");
         // List of multi-driven variables
         std::vector<DfgVertexVar*> multidrivenps;
+        // DfgUnresolved vertices with multiple drivers
+        std::vector<DfgVertex*> multidrivenUndesolvedps;
         // Map from variable to its resolved driver
         std::unordered_map<const DfgVertexVar*, DfgVertexSplice*> resolvedDrivers;
         // Compute resolved drivers of all variablees
@@ -1824,7 +1831,7 @@ class AstToDfgSynthesize final {
                 if (normalizeDrivers(var, drivers)) return makeSplice(var, drivers);
                 // If mutlidriven, record and ignore
                 multidrivenps.emplace_back(&var);
-                m_toRevert.push_front(*unresolvedp);
+                multidrivenUndesolvedps.push_back(unresolvedp);
                 return nullptr;
             }();
             // Bail if multidriven
@@ -1834,7 +1841,9 @@ class AstToDfgSynthesize final {
             UASSERT_OBJ(newEntry, &var, "Duplicate driver");
         }
         // Revert and remove drivers of multi-driven variables
-        revert(m_ctx.m_synt.revertMultidrive);
+        revert(multidrivenUndesolvedps, m_ctx.m_synt.revertMultidrive);
+        multidrivenUndesolvedps.clear();
+        multidrivenUndesolvedps.shrink_to_fit();
         // Replace all DfgUnresolved with the resolved drivers
         for (const DfgVertexVar& var : m_dfg.varVertices()) {
             if (!var.srcp()) continue;
