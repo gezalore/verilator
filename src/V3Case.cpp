@@ -223,7 +223,7 @@ class CaseVisitor final : public VNVisitor {
         if (!nodep->unique0Pragma()) {
             std::ostringstream msg;
             msg << "Case values incompletely covered. Example values:\n";
-            for (const uint32_t value: uncoveredValues) {
+            for (const uint32_t value : uncoveredValues) {
                 msg << nodep->warnMore() << std::hex << value << '\n';
             }
             nodep->v3warn(CASEINCOMPLETE, msg.str());
