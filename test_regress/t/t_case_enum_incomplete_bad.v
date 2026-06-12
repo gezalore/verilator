@@ -9,8 +9,11 @@ module t;
   enum logic [2:0] {
     S0,
     S1,
-    S2
+    S2,
+    S3,
+    S4
   } state;
+
 
   initial begin
     state = S1;

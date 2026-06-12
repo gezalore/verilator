@@ -171,6 +171,8 @@ class CaseVisitor final : public VNVisitor {
     // Check and warn if case items are not complete over the given enum type.
     // Returns true iff the case items cover all enum values/patterns.
     bool checkExhaustiveEnum(const AstCase* const nodep, const AstEnumDType* const enump) {
+        // Gather all uncovered items
+        std::vector<const AstEnumItem*> uncoveredItems;
         const uint32_t numCases = 1UL << nodep->exprp()->width();
         for (AstEnumItem* eip = enump->itemsp(); eip; eip = VN_AS(eip->nextp(), EnumItem)) {
             AstConst* const econstp = VN_AS(eip->valuep(), Const);
@@ -187,34 +189,51 @@ class CaseVisitor final : public VNVisitor {
                 if ((i & mask) != val) continue;  // This case is not for this enum value
                 if (m_value2CaseRecord[i].itemp) continue;  // Covered case
                 // Warn unless unique0 case which allows no-match
-                if (!nodep->unique0Pragma()) {
-                    nodep->v3warn(CASEINCOMPLETE,
-                                  "Enum item " << eip->prettyNameQ() << " not covered by case");
-                }
-                // TODO: warn for all uncovered enum values, not just the first
-                return false;  // enum has uncovered value by case items
+                uncoveredItems.push_back(eip);
+                break;
             }
         }
-        return true;  // enum is fully covered
+
+        // Report all uncovered items unless 'unique0'
+        if (!nodep->unique0Pragma()) {
+            std::ostringstream msg;
+            msg << uncoveredItems.size() << " enum items not covered by case:\n";
+            for (const AstEnumItem* const eip : uncoveredItems) {
+                msg << nodep->warnMore() << eip->prettyNameQ() << " (defined at "
+                    << eip->fileline()->ascii() << ")\n";
+            }
+            nodep->v3warn(CASEINCOMPLETE, msg.str());
+        }
+
+        // Fully covered if no uncovered items
+        return uncoveredItems.empty();
     }
 
     // Check and warn if case items are not complete over all possible values.
     // Returns true iff the case items cover all values of the case expression.
     bool checkExhaustivePacked(AstCase* nodep) {
+        // Gather all uncovered values
+        std::vector<uint32_t> uncoveredValues;
         const uint32_t numCases = 1UL << nodep->exprp()->width();
         for (uint32_t i = 0; i < numCases; ++i) {
-            if (m_value2CaseRecord[i].itemp) continue;  // Covered case
-            if (!nodep->unique0Pragma()) {
-                nodep->v3warn(CASEINCOMPLETE,
-                              "Case values incompletely covered (example pattern 0x" << std::hex
-                                                                                     << i << ")");
-            }
-            // TODO: warn for more than one uncovered case, not just the first
-            return false;
+            if (!m_value2CaseRecord[i].itemp) uncoveredValues.push_back(i);
         }
 
-        // It's an exhaustive case statement
-        return true;
+        // Report all uncovered values unless 'unique0'
+        if (!nodep->unique0Pragma()) {
+            std::ostringstream msg;
+            msg << "Case values incompletely covered. Example values:\n";
+            for (const uint32_t value: uncoveredValues) {
+                msg << nodep->warnMore() << std::hex << value << '\n';
+            }
+            nodep->v3warn(CASEINCOMPLETE, msg.str());
+        }
+
+        // TODO: warn for more than one uncovered case, not just the first
+        return false;
+
+        // Fully covered if no uncovered values
+        return uncoveredValues.empty();
     }
 
     bool checkExhaustive(AstCase* nodep) {
