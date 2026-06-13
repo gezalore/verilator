@@ -483,6 +483,9 @@ module t (
   `signal(REPLACE_LTE_OF_ONES, ones <= rand_a);
   `signal(REPLACE_EQ_ZERO,     rand_a == zero);
   `signal(REPLACE_NEQ_ZERO,    rand_a != zero);
+  // '(x & MASK) ==/!= C' where C has a bit set outside MASK -> always false / true
+  `signal(REPLACE_EQ_CONST_OUTSIDE_MASK,  (rand_a & 64'h00ff) == 64'h0100);
+  `signal(REPLACE_NEQ_CONST_OUTSIDE_MASK, (rand_a & 64'h00ff) != 64'h0100);
 
   // Comparison normalization: a constant on the RHS is swapped to the LHS for all 8 types
   `signal(SWAP_LT_WITH_CONST_RHS,   rand_a < ones);

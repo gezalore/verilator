@@ -446,6 +446,21 @@ class V3DfgPeephole final : public DfgVisitor {
         return false;
     }
 
+    // True if 'constp' has any bit set outside the constant mask of 'andp' (a masked value
+    // 'x & MASK' can never equal a constant with a bit set where MASK is zero). 'andp' must
+    // have a constant operand for this to return true.
+    static bool constHasBitsOutsideAndMask(const DfgConst* constp, const DfgAnd* andp) {
+        const DfgConst* maskp = andp->lhsp()->cast<DfgConst>();
+        if (!maskp) maskp = andp->rhsp()->cast<DfgConst>();
+        if (!maskp) return false;
+        const int width = static_cast<int>(constp->width());
+        V3Number notMask{constp->fileline(), width, 0u};
+        notMask.opNot(maskp->num());
+        V3Number outside{constp->fileline(), width, 0u};
+        outside.opAnd(constp->num(), notMask);
+        return !outside.isEqZero();
+    }
+
     static bool areAdjacent(uint32_t& lsb, const DfgSel* lSelp, const DfgSel* rSelp) {
         if (!isSame(lSelp->srcp(), rSelp->srcp())) return false;
         if (lSelp->lsb() + lSelp->width() == rSelp->lsb()) {
@@ -2803,6 +2818,16 @@ class V3DfgPeephole final : public DfgVisitor {
                 if (tryPushCompareOpThroughConcat(vtxp, lhsConstp, rhsConcatp)) return;
             }
 
+            // '(x & MASK) == C' is false if C has a bit set outside MASK
+            if (DfgAnd* const rhsAndp = rhsp->cast<DfgAnd>()) {
+                if (constHasBitsOutsideAndMask(lhsConstp, rhsAndp)) {
+                    APPLYING(REPLACE_EQ_CONST_OUTSIDE_MASK) {
+                        replace(makeZero(flp, 1));
+                        return;
+                    }
+                }
+            }
+
             if (rhsp->dtype() == m_bitDType) {
                 if (isZero(lhsConstp)) {
                     APPLYING(REPLACE_EQ_BIT_0) {
@@ -2844,6 +2869,16 @@ class V3DfgPeephole final : public DfgVisitor {
         if (DfgConst* const lhsConstp = lhsp->cast<DfgConst>()) {
             if (DfgConcat* const rhsConcatp = rhsp->cast<DfgConcat>()) {
                 if (tryPushCompareOpThroughConcat(vtxp, lhsConstp, rhsConcatp)) return;
+            }
+
+            // '(x & MASK) != C' is true if C has a bit set outside MASK
+            if (DfgAnd* const rhsAndp = rhsp->cast<DfgAnd>()) {
+                if (constHasBitsOutsideAndMask(lhsConstp, rhsAndp)) {
+                    APPLYING(REPLACE_NEQ_CONST_OUTSIDE_MASK) {
+                        replace(makeOnes(flp, 1));
+                        return;
+                    }
+                }
             }
 
             if (rhsp->dtype() == m_bitDType) {
