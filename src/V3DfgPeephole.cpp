@@ -1320,6 +1320,14 @@ class V3DfgPeephole final : public DfgVisitor {
 
     void visit(DfgNegate* const vtxp) override {
         if (foldUnary(vtxp)) return;
+
+        // Negation of negation
+        if (DfgNegate* const negp = vtxp->srcp()->cast<DfgNegate>()) {
+            APPLYING(REMOVE_NEGATE_NEGATE) {
+                replace(negp->srcp());
+                return;
+            }
+        }
     }
 
     void visit(DfgNot* const vtxp) override {
@@ -1438,14 +1446,46 @@ class V3DfgPeephole final : public DfgVisitor {
 
     void visit(DfgRedOr* const vtxp) override {
         if (optimizeReduction(vtxp)) return;
+
+        // Or reduction of a replicate is the Or reduction of the source (all replicas equal)
+        if (DfgRep* const repp = vtxp->srcp()->cast<DfgRep>()) {
+            APPLYING(REPLACE_REDOR_OF_REP) {
+                replace(make<DfgRedOr>(vtxp->fileline(), m_bitDType, repp->srcp()));
+                return;
+            }
+        }
     }
 
     void visit(DfgRedAnd* const vtxp) override {
         if (optimizeReduction(vtxp)) return;
+
+        // And reduction of a replicate is the And reduction of the source (all replicas equal)
+        if (DfgRep* const repp = vtxp->srcp()->cast<DfgRep>()) {
+            APPLYING(REPLACE_REDAND_OF_REP) {
+                replace(make<DfgRedAnd>(vtxp->fileline(), m_bitDType, repp->srcp()));
+                return;
+            }
+        }
     }
 
     void visit(DfgRedXor* const vtxp) override {
         if (optimizeReduction(vtxp)) return;
+
+        // Xor reduction of a replicate is the parity of the source if the replication count is
+        // odd, and zero if it is even.
+        if (DfgRep* const repp = vtxp->srcp()->cast<DfgRep>()) {
+            if (repp->count() & 1) {
+                APPLYING(REPLACE_REDXOR_OF_REP_ODD) {
+                    replace(make<DfgRedXor>(vtxp->fileline(), m_bitDType, repp->srcp()));
+                    return;
+                }
+            } else {
+                APPLYING(REPLACE_REDXOR_OF_REP_EVEN) {
+                    replace(makeZero(vtxp->fileline(), 1));
+                    return;
+                }
+            }
+        }
     }
 
     void visit(DfgSel* const vtxp) override {
@@ -1592,6 +1632,42 @@ class V3DfgPeephole final : public DfgVisitor {
             }
         }
 
+        // Absorption (the Or is canonicalized onto the RHS):
+        //   'a & (a | b)' is 'a'
+        //   'a & (~a | b)' is 'a & b' (the complemented operand can be on either side)
+        if (DfgOr* const orp = rhsp->cast<DfgOr>()) {
+            if (isSame(orp->lhsp(), lhsp)) {
+                APPLYING(REMOVE_AND_ABSORBED_BY_OR_LHS) {
+                    replace(lhsp);
+                    return;
+                }
+            }
+            if (isSame(orp->rhsp(), lhsp)) {
+                APPLYING(REMOVE_AND_ABSORBED_BY_OR_RHS) {
+                    replace(lhsp);
+                    return;
+                }
+            }
+            if (!orp->hasMultipleSinks()) {
+                if (DfgNot* const np = orp->lhsp()->cast<DfgNot>()) {
+                    if (isSame(np->srcp(), lhsp)) {
+                        APPLYING(REPLACE_AND_OF_COMPLEMENTED_OR_LHS) {
+                            replace(make<DfgAnd>(vtxp, lhsp, orp->rhsp()));
+                            return;
+                        }
+                    }
+                }
+                if (DfgNot* const np = orp->rhsp()->cast<DfgNot>()) {
+                    if (isSame(np->srcp(), lhsp)) {
+                        APPLYING(REPLACE_AND_OF_COMPLEMENTED_OR_RHS) {
+                            replace(make<DfgAnd>(vtxp, lhsp, orp->lhsp()));
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
         if (DfgConst* const lConstp = lhsp->cast<DfgConst>()) {
             if (lConstp->isZero()) {
                 APPLYING(REPLACE_AND_WITH_ZERO) {
@@ -1696,6 +1772,42 @@ class V3DfgPeephole final : public DfgVisitor {
             }
         }
 
+        // Absorption (the And is canonicalized onto the RHS):
+        //   'a | (a & b)' is 'a'
+        //   'a | (~a & b)' is 'a | b' (the complemented operand can be on either side)
+        if (DfgAnd* const andp = rhsp->cast<DfgAnd>()) {
+            if (isSame(andp->lhsp(), lhsp)) {
+                APPLYING(REMOVE_OR_ABSORBED_BY_AND_LHS) {
+                    replace(lhsp);
+                    return;
+                }
+            }
+            if (isSame(andp->rhsp(), lhsp)) {
+                APPLYING(REMOVE_OR_ABSORBED_BY_AND_RHS) {
+                    replace(lhsp);
+                    return;
+                }
+            }
+            if (!andp->hasMultipleSinks()) {
+                if (DfgNot* const np = andp->lhsp()->cast<DfgNot>()) {
+                    if (isSame(np->srcp(), lhsp)) {
+                        APPLYING(REPLACE_OR_OF_COMPLEMENTED_AND_LHS) {
+                            replace(make<DfgOr>(vtxp, lhsp, andp->rhsp()));
+                            return;
+                        }
+                    }
+                }
+                if (DfgNot* const np = andp->rhsp()->cast<DfgNot>()) {
+                    if (isSame(np->srcp(), lhsp)) {
+                        APPLYING(REPLACE_OR_OF_COMPLEMENTED_AND_RHS) {
+                            replace(make<DfgOr>(vtxp, lhsp, andp->lhsp()));
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
         if (DfgConcat* const lhsConcatp = lhsp->cast<DfgConcat>()) {
             if (DfgConcat* const rhsConcatp = rhsp->cast<DfgConcat>()) {
                 if (lhsConcatp->lhsp()->dtype() == rhsConcatp->lhsp()->dtype()) {
@@ -1786,6 +1898,43 @@ class V3DfgPeephole final : public DfgVisitor {
             }
         }
 
+        // The complemented operand is canonicalized onto the LHS:
+        //   '~a ^ ~b' is 'a ^ b' (complementing both inputs cancels)
+        //   '~a ^ b'  is '~(a ^ b)' (consolidate the Not at the root)
+        if (DfgNot* const lNotp = lhsp->cast<DfgNot>()) {
+            if (DfgNot* const rNotp = rhsp->cast<DfgNot>()) {
+                APPLYING(REPLACE_XOR_OF_NOT_AND_NOT) {
+                    replace(make<DfgXor>(vtxp, lNotp->srcp(), rNotp->srcp()));
+                    return;
+                }
+            }
+            if (!lNotp->hasMultipleSinks()) {
+                APPLYING(REPLACE_XOR_OF_NOT) {
+                    replace(make<DfgNot>(vtxp, make<DfgXor>(vtxp, lNotp->srcp(), rhsp)));
+                    return;
+                }
+            }
+        }
+
+        // XOR cancellation: '(a ^ b) ^ a' is 'b' (a shared operand cancels). The inner Xor is
+        // canonicalized onto the RHS. This is not reached by the associative reordering, which
+        // declines to rotate when an operand of the child matches the other operand of the
+        // parent.
+        if (DfgXor* const xp = rhsp->cast<DfgXor>()) {
+            if (isSame(xp->lhsp(), lhsp)) {
+                APPLYING(REMOVE_XOR_CANCEL_LHS) {
+                    replace(xp->rhsp());
+                    return;
+                }
+            }
+            if (isSame(xp->rhsp(), lhsp)) {
+                APPLYING(REMOVE_XOR_CANCEL_RHS) {
+                    replace(xp->lhsp());
+                    return;
+                }
+            }
+        }
+
         if (DfgConst* const lConstp = lhsp->cast<DfgConst>()) {
             if (lConstp->isZero()) {
                 APPLYING(REMOVE_XOR_WITH_ZERO) {
@@ -1827,6 +1976,40 @@ class V3DfgPeephole final : public DfgVisitor {
         if (isZero(lhsp)) {
             APPLYING(REMOVE_ADD_ZERO) {
                 replace(rhsp);
+                return;
+            }
+        }
+
+        // Inverse cancellation: '(a - b) + b' is 'a'. The Sub is canonicalized onto the RHS
+        // when the other operand is a variable, but a common sub-expression operand can have a
+        // higher id and leave the Sub on the LHS, so cover both sides.
+        if (DfgSub* const subp = lhsp->cast<DfgSub>()) {
+            if (isSame(subp->rhsp(), rhsp)) {
+                APPLYING(REMOVE_ADD_OF_SUB_LHS) {
+                    replace(subp->lhsp());
+                    return;
+                }
+            }
+        }
+        if (DfgSub* const subp = rhsp->cast<DfgSub>()) {
+            if (isSame(subp->rhsp(), lhsp)) {
+                APPLYING(REMOVE_ADD_OF_SUB_RHS) {
+                    replace(subp->lhsp());
+                    return;
+                }
+            }
+        }
+
+        // Fold a negated operand into a subtraction: 'a + (-b)' is 'a - b'
+        if (DfgNegate* const np = lhsp->cast<DfgNegate>()) {
+            APPLYING(REPLACE_ADD_OF_NEGATE_LHS) {
+                replace(make<DfgSub>(vtxp, rhsp, np->srcp()));
+                return;
+            }
+        }
+        if (DfgNegate* const np = rhsp->cast<DfgNegate>()) {
+            APPLYING(REPLACE_ADD_OF_NEGATE_RHS) {
+                replace(make<DfgSub>(vtxp, lhsp, np->srcp()));
                 return;
             }
         }
@@ -2192,6 +2375,15 @@ class V3DfgPeephole final : public DfgVisitor {
                     return;
                 }
             }
+            // Unsigned division by a power of two is a right shift
+            if (rConstp->num().countOnes() == 1) {
+                APPLYING(REPLACE_DIV_WITH_SHIFTR) {
+                    const uint32_t shift = rConstp->num().mostSetBitP1() - 1;
+                    replace(make<DfgShiftR>(vtxp, vtxp->lhsp(),
+                                            makeI32(vtxp->fileline(), shift)));
+                    return;
+                }
+            }
         }
     }
 
@@ -2221,6 +2413,37 @@ class V3DfgPeephole final : public DfgVisitor {
                 return;
             }
         }
+
+        if (rhsp->is<DfgConst>()) {
+            APPLYING(SWAP_GT_WITH_CONST_RHS) {
+                replace(make<DfgLt>(flp, m_bitDType, rhsp, lhsp));
+                return;
+            }
+        }
+
+        if (DfgConst* const lConstp = lhsp->cast<DfgConst>()) {
+            // '0 > a' is always false
+            if (lConstp->isZero()) {
+                APPLYING(REPLACE_GT_OF_ZERO) {
+                    replace(makeZero(flp, 1));
+                    return;
+                }
+            }
+            // '1 > a' is the same as 'a == 0', i.e. the inverted reduction or of 'a'
+            if (isEqOne(lConstp)) {
+                APPLYING(REPLACE_GT_OF_ONE) {
+                    replace(make<DfgNot>(flp, m_bitDType, make<DfgRedOr>(flp, m_bitDType, rhsp)));
+                    return;
+                }
+            }
+            // '{all ones} > a' is the same as 'a != {all ones}', i.e. inverted reduction and
+            if (lConstp->isOnes()) {
+                APPLYING(REPLACE_GT_OF_ONES) {
+                    replace(make<DfgNot>(flp, m_bitDType, make<DfgRedAnd>(flp, m_bitDType, rhsp)));
+                    return;
+                }
+            }
+        }
     }
 
     void visit(DfgGtS* const vtxp) override {
@@ -2233,6 +2456,13 @@ class V3DfgPeephole final : public DfgVisitor {
         if (isSame(lhsp, rhsp)) {
             APPLYING(FOLD_SELF_GTS) {
                 replace(makeZero(flp, 1));
+                return;
+            }
+        }
+
+        if (rhsp->is<DfgConst>()) {
+            APPLYING(SWAP_GTS_WITH_CONST_RHS) {
+                replace(make<DfgLtS>(flp, m_bitDType, rhsp, lhsp));
                 return;
             }
         }
@@ -2251,6 +2481,30 @@ class V3DfgPeephole final : public DfgVisitor {
                 return;
             }
         }
+
+        if (rhsp->is<DfgConst>()) {
+            APPLYING(SWAP_GTE_WITH_CONST_RHS) {
+                replace(make<DfgLte>(flp, m_bitDType, rhsp, lhsp));
+                return;
+            }
+        }
+
+        if (DfgConst* const lConstp = lhsp->cast<DfgConst>()) {
+            // '0 >= a' is the same as 'a == 0', i.e. the inverted reduction or of 'a'
+            if (lConstp->isZero()) {
+                APPLYING(REPLACE_GTE_OF_ZERO) {
+                    replace(make<DfgNot>(flp, m_bitDType, make<DfgRedOr>(flp, m_bitDType, rhsp)));
+                    return;
+                }
+            }
+            // '{all ones} >= a' is always true
+            if (lConstp->isOnes()) {
+                APPLYING(REPLACE_GTE_OF_ONES) {
+                    replace(makeOnes(flp, 1));
+                    return;
+                }
+            }
+        }
     }
 
     void visit(DfgGteS* const vtxp) override {
@@ -2263,6 +2517,13 @@ class V3DfgPeephole final : public DfgVisitor {
         if (isSame(lhsp, rhsp)) {
             APPLYING(FOLD_SELF_GTES) {
                 replace(makeOnes(flp, 1));
+                return;
+            }
+        }
+
+        if (rhsp->is<DfgConst>()) {
+            APPLYING(SWAP_GTES_WITH_CONST_RHS) {
+                replace(make<DfgLteS>(flp, m_bitDType, rhsp, lhsp));
                 return;
             }
         }
@@ -2317,6 +2578,30 @@ class V3DfgPeephole final : public DfgVisitor {
                 return;
             }
         }
+
+        if (rhsp->is<DfgConst>()) {
+            APPLYING(SWAP_LT_WITH_CONST_RHS) {
+                replace(make<DfgGt>(flp, m_bitDType, rhsp, lhsp));
+                return;
+            }
+        }
+
+        if (DfgConst* const lConstp = lhsp->cast<DfgConst>()) {
+            // '0 < a' is the same as 'a != 0', i.e. the reduction or of 'a'
+            if (lConstp->isZero()) {
+                APPLYING(REPLACE_LT_OF_ZERO) {
+                    replace(make<DfgRedOr>(flp, m_bitDType, rhsp));
+                    return;
+                }
+            }
+            // '{all ones} < a' is always false
+            if (lConstp->isOnes()) {
+                APPLYING(REPLACE_LT_OF_ONES) {
+                    replace(makeZero(flp, 1));
+                    return;
+                }
+            }
+        }
     }
 
     void visit(DfgLtS* const vtxp) override {
@@ -2329,6 +2614,13 @@ class V3DfgPeephole final : public DfgVisitor {
         if (isSame(lhsp, rhsp)) {
             APPLYING(FOLD_SELF_LTS) {
                 replace(makeZero(flp, 1));
+                return;
+            }
+        }
+
+        if (rhsp->is<DfgConst>()) {
+            APPLYING(SWAP_LTS_WITH_CONST_RHS) {
+                replace(make<DfgGtS>(flp, m_bitDType, rhsp, lhsp));
                 return;
             }
         }
@@ -2347,6 +2639,37 @@ class V3DfgPeephole final : public DfgVisitor {
                 return;
             }
         }
+
+        if (rhsp->is<DfgConst>()) {
+            APPLYING(SWAP_LTE_WITH_CONST_RHS) {
+                replace(make<DfgGte>(flp, m_bitDType, rhsp, lhsp));
+                return;
+            }
+        }
+
+        if (DfgConst* const lConstp = lhsp->cast<DfgConst>()) {
+            // '0 <= a' is always true
+            if (lConstp->isZero()) {
+                APPLYING(REPLACE_LTE_OF_ZERO) {
+                    replace(makeOnes(flp, 1));
+                    return;
+                }
+            }
+            // '1 <= a' is the same as 'a != 0', i.e. the reduction or of 'a'
+            if (isEqOne(lConstp)) {
+                APPLYING(REPLACE_LTE_OF_ONE) {
+                    replace(make<DfgRedOr>(flp, m_bitDType, rhsp));
+                    return;
+                }
+            }
+            // '{all ones} <= a' is the same as 'a == {all ones}', i.e. the reduction and of 'a'
+            if (lConstp->isOnes()) {
+                APPLYING(REPLACE_LTE_OF_ONES) {
+                    replace(make<DfgRedAnd>(flp, m_bitDType, rhsp));
+                    return;
+                }
+            }
+        }
     }
 
     void visit(DfgLteS* const vtxp) override {
@@ -2362,10 +2685,31 @@ class V3DfgPeephole final : public DfgVisitor {
                 return;
             }
         }
+
+        if (rhsp->is<DfgConst>()) {
+            APPLYING(SWAP_LTES_WITH_CONST_RHS) {
+                replace(make<DfgGteS>(flp, m_bitDType, rhsp, lhsp));
+                return;
+            }
+        }
     }
 
     void visit(DfgModDiv* const vtxp) override {
         if (binary(vtxp)) return;
+
+        // Unsigned modulo by a power of two is a bitwise and with the mask of low bits
+        if (DfgConst* const rConstp = vtxp->rhsp()->cast<DfgConst>()) {
+            if (rConstp->num().countOnes() == 1) {
+                APPLYING(REPLACE_MODDIV_WITH_AND) {
+                    FileLine* const flp = vtxp->fileline();
+                    const uint32_t shift = rConstp->num().mostSetBitP1() - 1;
+                    DfgConst* const maskp = makeZero(flp, vtxp->width());
+                    maskp->num().setMask(shift);
+                    replace(make<DfgAnd>(vtxp, vtxp->lhsp(), maskp));
+                    return;
+                }
+            }
+        }
     }
 
     void visit(DfgModDivS* const vtxp) override {
@@ -2392,6 +2736,14 @@ class V3DfgPeephole final : public DfgVisitor {
                     return;
                 }
             }
+            // Multiplication by a power of two is a left shift
+            if (lConstp->num().countOnes() == 1) {
+                APPLYING(REPLACE_MUL_WITH_SHIFTL) {
+                    const uint32_t shift = lConstp->num().mostSetBitP1() - 1;
+                    replace(make<DfgShiftL>(vtxp, rhsp, makeI32(flp, shift)));
+                    return;
+                }
+            }
         }
     }
 
@@ -2412,6 +2764,15 @@ class V3DfgPeephole final : public DfgVisitor {
             if (isEqOne(lConstp)) {
                 APPLYING(REMOVE_MULS_ONE) {
                     replace(rhsp);
+                    return;
+                }
+            }
+            // Multiplication by a power of two is a left shift. The low bits of a product
+            // depend only on the operand bit patterns, so this holds for signed operands too.
+            if (lConstp->num().countOnes() == 1) {
+                APPLYING(REPLACE_MULS_WITH_SHIFTL) {
+                    const uint32_t shift = lConstp->num().mostSetBitP1() - 1;
+                    replace(make<DfgShiftL>(vtxp, rhsp, makeI32(flp, shift)));
                     return;
                 }
             }
@@ -2451,6 +2812,12 @@ class V3DfgPeephole final : public DfgVisitor {
                         return;
                     }
                 }
+            } else if (isZero(lhsConstp)) {
+                // 'a == 0' is the same as the inverted reduction or of 'a'
+                APPLYING(REPLACE_EQ_ZERO) {
+                    replace(make<DfgNot>(flp, m_bitDType, make<DfgRedOr>(flp, m_bitDType, rhsp)));
+                    return;
+                }
             }
         }
     }
@@ -2487,6 +2854,12 @@ class V3DfgPeephole final : public DfgVisitor {
                         replace(make<DfgNot>(vtxp, rhsp));
                         return;
                     }
+                }
+            } else if (isZero(lhsConstp)) {
+                // 'a != 0' is the same as the reduction or of 'a'
+                APPLYING(REPLACE_NEQ_ZERO) {
+                    replace(make<DfgRedOr>(flp, m_bitDType, rhsp));
+                    return;
                 }
             }
         }
@@ -2735,6 +3108,38 @@ class V3DfgPeephole final : public DfgVisitor {
             }
         }
 
+        // 0 - a is the negation of a
+        if (isZero(lhsp)) {
+            APPLYING(REPLACE_SUB_FROM_ZERO) {
+                replace(make<DfgNegate>(vtxp, rhsp));
+                return;
+            }
+        }
+
+        // Inverse cancellation: '(a + b) - b' is 'a', '(a + b) - a' is 'b'
+        if (DfgAdd* const addp = lhsp->cast<DfgAdd>()) {
+            if (isSame(addp->lhsp(), rhsp)) {
+                APPLYING(REMOVE_SUB_OF_ADD_LHS) {
+                    replace(addp->rhsp());
+                    return;
+                }
+            }
+            if (isSame(addp->rhsp(), rhsp)) {
+                APPLYING(REMOVE_SUB_OF_ADD_RHS) {
+                    replace(addp->lhsp());
+                    return;
+                }
+            }
+        }
+
+        // Fold a negated subtrahend into an addition: 'a - (-b)' is 'a + b'
+        if (DfgNegate* const np = rhsp->cast<DfgNegate>()) {
+            APPLYING(REPLACE_SUB_OF_NEGATE) {
+                replace(make<DfgAdd>(vtxp, lhsp, np->srcp()));
+                return;
+            }
+        }
+
         if (DfgConst* const rConstp = rhsp->cast<DfgConst>()) {
             if (rConstp->isZero()) {
                 APPLYING(REMOVE_SUB_ZERO) {
@@ -2747,6 +3152,14 @@ class V3DfgPeephole final : public DfgVisitor {
                     replace(make<DfgNot>(vtxp->fileline(), m_bitDType, lhsp));
                     return;
                 }
+            }
+            // Subtraction of a constant is addition of the negated constant. This puts the
+            // constant on a commutative Add, enabling constant merging across Add trees.
+            APPLYING(REPLACE_SUB_CONST_WITH_ADD) {
+                DfgConst* const negCp = makeZero(flp, vtxp->width());
+                negCp->num().opNegate(rConstp->num());
+                replace(make<DfgAdd>(vtxp, lhsp, negCp));
+                return;
             }
         }
     }

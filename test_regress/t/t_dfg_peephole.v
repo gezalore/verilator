@@ -105,6 +105,10 @@ module t (
   `signal(REMOVE_MUL_ONE,        rand_a * 64'd1);
   `signal(REMOVE_MULS_ZERO,      srand_a * 64'sd0);
   `signal(REMOVE_MULS_ONE,       srand_a * 64'sd1);
+  `signal(REPLACE_MUL_WITH_SHIFTL,  rand_a * 64'd8);
+  `signal(REPLACE_MULS_WITH_SHIFTL, srand_a * 64'sd8);
+  `signal(REPLACE_DIV_WITH_SHIFTR,  rand_a / 64'd8);
+  `signal(REPLACE_MODDIV_WITH_AND,  rand_a % 64'd8);
   `signal(FOLD_BINARY_Neq,       const_a != const_b);
   `signal(FOLD_BINARY_Or,        const_a | const_b);
   `signal(FOLD_BINARY_Pow,       const_a ** 64'd2);
@@ -202,6 +206,7 @@ module t (
   `signal(REPLACE_TAUTOLOGICAL_OR_3, ~(rand_a + 1) | ((rand_a + 1) | rand_b));
   `signal(FOLD_SELF_SUB, rand_a - rand_a);
   `signal(REMOVE_SUB_ZERO, rand_a - 64'd0);
+  `signal(REPLACE_SUB_FROM_ZERO, 64'd0 - rand_a);
   `signal(REPLACE_SUB_WITH_NOT, rand_a[0] - 1'b1);
   `signal(REMOVE_REDUNDANT_ZEXT_ON_RHS_OF_SHIFT, rand_a << {2'b0, rand_a[2:0]});
   `signal(REPLACE_EQ_OF_CONST_AND_CONST, 4'd0 == 4'd1);
@@ -249,7 +254,8 @@ module t (
   `signal(REMOVE_WIDTH_ONE_REDUCTION_OR,  |rand_a[0]);
   `signal(REMOVE_WIDTH_ONE_REDUCTION_XOR, ^rand_a[0]);
   `signal(REMOVE_XOR_WITH_ZERO, 64'd0 ^ rand_a);
-  `signal(REPLACE_XOR_WITH_SELF, ~rand_a ^ ~rand_a);
+  `signal(REPLACE_XOR_WITH_SELF, (rand_a + rand_b) ^ (rand_a + rand_b));
+  `signal(REPLACE_XOR_OF_NOT_AND_NOT, ~rand_a ^ ~rand_b);
   `signal(REPLACE_XOR_WITH_ONES, -64'd1 ^ rand_a);
   `signal(REPLACE_COND_DEC, randbit_a ? rand_b - 64'b1 : rand_b);
   `signal(REPLACE_COND_INC, randbit_a ? rand_b + 64'b1 : rand_b);
@@ -428,6 +434,65 @@ module t (
   `signal(NARROW_CONCAT_A, narrow_concat[5:1]);
   `signal(NARROW_CONCAT_B, narrow_concat[8:4]);
   `signal(NARROW_CONCAT_C, narrow_concat[5:4]);
+
+  // Boolean absorption (two signals each so both matched-operand variants fire)
+  `signal(REMOVE_AND_ABSORBED_BY_OR_A, rand_a & (rand_a | rand_b));
+  `signal(REMOVE_AND_ABSORBED_BY_OR_B, rand_b & (rand_a | rand_b));
+  `signal(REMOVE_OR_ABSORBED_BY_AND_A, rand_a | (rand_a & rand_b));
+  `signal(REMOVE_OR_ABSORBED_BY_AND_B, rand_b | (rand_a & rand_b));
+  // _RHS uses a constant other operand: swapSides keeps the constant on the left, so the
+  // complemented operand stays on the Or/And's RHS.
+  `signal(REPLACE_AND_OF_COMPLEMENTED_OR_LHS, rand_a & (~rand_a | rand_b));
+  `signal(REPLACE_AND_OF_COMPLEMENTED_OR_RHS, rand_a & (64'h5555555555555555 | ~rand_a));
+  `signal(REPLACE_OR_OF_COMPLEMENTED_AND_LHS, rand_a | (~rand_a & rand_b));
+  `signal(REPLACE_OR_OF_COMPLEMENTED_AND_RHS, rand_a | (64'h5555555555555555 & ~rand_a));
+
+  // Negation and xor cancellation (two signals so both matched-operand variants fire)
+  `signal(REMOVE_NEGATE_NEGATE, -(-rand_a));
+  `signal(REMOVE_XOR_CANCEL_A, (rand_a ^ rand_b) ^ rand_a);
+  `signal(REMOVE_XOR_CANCEL_B, (rand_a ^ rand_b) ^ rand_b);
+  `signal(REPLACE_XOR_OF_NOT, rand_a ^ ~srand_a);
+
+  // Add/Sub inverse cancellation and negate/const folding
+  `signal(REMOVE_ADD_OF_SUB_RHS, (rand_a - rand_b) + rand_b);
+  `signal(REMOVE_ADD_OF_SUB_LHS, (rand_a - (rand_b + rand_a)) + (rand_a + rand_b));
+  `signal(REMOVE_SUB_OF_ADD_A, (rand_a + rand_b) - rand_a);
+  `signal(REMOVE_SUB_OF_ADD_B, (rand_a + rand_b) - rand_b);
+  `signal(REPLACE_ADD_OF_NEGATE_LHS, (-rand_a) + (-rand_b));
+  `signal(REPLACE_ADD_OF_NEGATE_RHS, rand_a + (-rand_b));
+  `signal(REPLACE_SUB_OF_NEGATE, rand_a - (-rand_b));
+  `signal(REPLACE_SUB_CONST_WITH_ADD, rand_a - 64'd7);
+
+  // Reduction of a replicate (and/or reduce to the source, xor depends on count parity)
+  `signal(REPLACE_REDAND_OF_REP, &{2{rand_a}});
+  `signal(REPLACE_REDOR_OF_REP,  |{2{rand_a}});
+  `signal(REPLACE_REDXOR_OF_REP_ODD,  ^{3{rand_a}});
+  `signal(REPLACE_REDXOR_OF_REP_EVEN, ^{2{rand_a}});
+
+  // Unsigned comparison against extreme constants, in normalized constant-on-LHS form
+  // (using zero/ones wires to avoid early folding by other passes)
+  `signal(REPLACE_GT_OF_ZERO,  zero > rand_a);
+  `signal(REPLACE_GT_OF_ONE,   64'd1 > rand_a);
+  `signal(REPLACE_GT_OF_ONES,  ones > rand_a);
+  `signal(REPLACE_LT_OF_ZERO,  zero < rand_a);
+  `signal(REPLACE_LT_OF_ONES,  ones < rand_a);
+  `signal(REPLACE_GTE_OF_ZERO, zero >= rand_a);
+  `signal(REPLACE_GTE_OF_ONES, ones >= rand_a);
+  `signal(REPLACE_LTE_OF_ZERO, zero <= rand_a);
+  `signal(REPLACE_LTE_OF_ONE,  64'd1 <= rand_a);
+  `signal(REPLACE_LTE_OF_ONES, ones <= rand_a);
+  `signal(REPLACE_EQ_ZERO,     rand_a == zero);
+  `signal(REPLACE_NEQ_ZERO,    rand_a != zero);
+
+  // Comparison normalization: a constant on the RHS is swapped to the LHS for all 8 types
+  `signal(SWAP_LT_WITH_CONST_RHS,   rand_a < ones);
+  `signal(SWAP_GT_WITH_CONST_RHS,   rand_a > zero);
+  `signal(SWAP_LTE_WITH_CONST_RHS,  rand_a <= ones);
+  `signal(SWAP_GTE_WITH_CONST_RHS,  rand_a >= zero);
+  `signal(SWAP_LTS_WITH_CONST_RHS,  srand_a < 64'sd5);
+  `signal(SWAP_GTS_WITH_CONST_RHS,  srand_a > 64'sd5);
+  `signal(SWAP_LTES_WITH_CONST_RHS, srand_a <= 64'sd5);
+  `signal(SWAP_GTES_WITH_CONST_RHS, srand_a >= 64'sd5);
 
   // Assigned at the end to avoid inlining by other passes
   assign const_a  = 64'h0123456789abcdef;
