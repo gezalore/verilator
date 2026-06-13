@@ -195,6 +195,9 @@ class V3DfgPeephole final : public DfgVisitor {
         size_t m_iterListIndex = 0;  // Position of this vertx m_iterList (0 means not in list)
         size_t m_generation = 0;  // Generation number of this vertex - for uniqueness check
         size_t m_id = 0;  // Unique vertex ID (0 means unassigned) - for sorting
+        // True if the inputs are unchanged since the last CSE cache check, so the (expensive)
+        // cache lookup can be skipped. Cleared when the inputs change or the vertex is new.
+        bool m_noCse = false;
     };
 
     // STATE
@@ -348,8 +351,10 @@ class V3DfgPeephole final : public DfgVisitor {
         });
         // Replace vertex with the replacement
         m_vtxp->replaceWith(resp);
-        // Re-cache all sinks of the replacement
+        // Re-cache all sinks of the replacement - their inputs changed, so they need a fresh
+        // cache entry and a renewed CSE check when next processed.
         resp->foreachSink([&](DfgVertex& dst) {
+            m_vInfo[dst].m_noCse = false;
             m_cache.cache(&dst);
             return false;
         });
@@ -3556,11 +3561,17 @@ class V3DfgPeephole final : public DfgVisitor {
                 // Unsued vertices should have been removed immediately
                 UASSERT_OBJ(m_vtxp->hasSinks(), m_vtxp, "Operation vertex should have sinks");
 
-                // Check if an equivalent vertex exists, if so replace this vertex with it
-                if (DfgVertex* const sampep = m_cache.cache(m_vtxp)) {
-                    APPLYING(REPLACE_WITH_EQUIVALENT) {
-                        replace(sampep);
-                        continue;
+                // Check if an equivalent vertex exists, if so replace this vertex with it.
+                // Only needed when the inputs changed (or the vertex is new) since the last
+                // check - re-enqueued unchanged vertices would just re-find the same entry.
+                VertexInfo& vInfo = m_vInfo[m_vtxp];
+                if (!vInfo.m_noCse) {
+                    vInfo.m_noCse = true;
+                    if (DfgVertex* const sampep = m_cache.cache(m_vtxp)) {
+                        APPLYING(REPLACE_WITH_EQUIVALENT) {
+                            replace(sampep);
+                            continue;
+                        }
                     }
                 }
 
