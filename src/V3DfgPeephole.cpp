@@ -741,17 +741,30 @@ class V3DfgPeephole final : public DfgVisitor {
     tryPushBitwiseOpThroughConcat(Vertex* const vtxp, DfgConst* constp, DfgConcat* concatp) {
         FileLine* const flp = vtxp->fileline();
 
-        // If at least one of the sides of the Concat constant, then push Vertex past Concat
         DfgConst* const catLConstp = concatp->lhsp()->cast<DfgConst>();
         DfgConst* const catRConstp = concatp->rhsp()->cast<DfgConst>();
-        if (catLConstp || catRConstp) {
-            APPLYING(PUSH_BITWISE_OP_THROUGH_CONCAT) {
-                const uint32_t width = concatp->width();
-                const DfgDataType& lDtype = concatp->lhsp()->dtype();
-                const DfgDataType& rDtype = concatp->rhsp()->dtype();
-                const uint32_t lWidth = lDtype.size();
-                const uint32_t rWidth = rDtype.size();
 
+        const uint32_t width = concatp->width();
+        const DfgDataType& lDtype = concatp->lhsp()->dtype();
+        const DfgDataType& rDtype = concatp->rhsp()->dtype();
+        const uint32_t lWidth = lDtype.size();
+        const uint32_t rWidth = rDtype.size();
+
+        // Push the Vertex past the Concat if one of the Concat arms is constant (the Vertex
+        // folds into it), or - for a single-sink Concat - if the constant's slice for an arm
+        // is all-zeroes or all-ones, so the per-arm Vertex folds and a fully masked field
+        // collapses.
+        bool push = catLConstp || catRConstp;
+        if (!push && !concatp->hasMultipleSinks()) {
+            V3Number lSlice{flp, static_cast<int>(lWidth), 0u};
+            lSlice.opSel(constp->num(), width - 1, rWidth);
+            V3Number rSlice{flp, static_cast<int>(rWidth), 0u};
+            rSlice.opSel(constp->num(), rWidth - 1, 0);
+            push = lSlice.isEqZero() || lSlice.isEqAllOnes(lWidth)  //
+                   || rSlice.isEqZero() || rSlice.isEqAllOnes(rWidth);
+        }
+        if (push) {
+            APPLYING(PUSH_BITWISE_OP_THROUGH_CONCAT) {
                 // The new Lhs vertex
                 DfgVertex* const newLhsp = [&]() -> DfgVertex* {
                     DfgConst* const newLhsConstp = makeZero(constp->fileline(), lWidth);

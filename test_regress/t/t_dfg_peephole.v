@@ -152,6 +152,8 @@ module t (
   `signal(SWAP_VAR_IN_COMMUTATIVE_BINARY, rand_b + rand_a);
   `signal(PUSH_BITWISE_OP_THROUGH_CONCAT, 32'h12345678 ^ {8'h0, rand_a[23:0]});
   `signal(PUSH_BITWISE_OP_THROUGH_CONCAT_2, 32'h12345678 ^ {rand_b[7:0], rand_a[23:0]});
+  // No constant Concat arm, but the mask's slices are trivial (all-ones / all-zero)
+  `signal(PUSH_BITWISE_OP_THROUGH_CONCAT_3, 16'hff00 & {rand_a[7:0], rand_b[7:0]});
   `signal(PUSH_COMPARE_OP_THROUGH_CONCAT_EQ, 4'b1011 == {2'b10, rand_a[1:0]});
   `signal(PUSH_COMPARE_OP_THROUGH_CONCAT_NE, 4'b1011 != {2'b10, rand_a[1:0]});
   `signal(PUSH_REDUCTION_THROUGH_COND_WITH_CONST_BRANCH, |(rand_a[32] ? rand_a[3:0] : 4'h0));
