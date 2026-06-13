@@ -2384,8 +2384,7 @@ class V3DfgPeephole final : public DfgVisitor {
             if (rConstp->num().countOnes() == 1) {
                 APPLYING(REPLACE_DIV_WITH_SHIFTR) {
                     const uint32_t shift = rConstp->num().mostSetBitP1() - 1;
-                    replace(make<DfgShiftR>(vtxp, vtxp->lhsp(),
-                                            makeI32(vtxp->fileline(), shift)));
+                    replace(make<DfgShiftR>(vtxp, vtxp->lhsp(), makeI32(vtxp->fileline(), shift)));
                     return;
                 }
             }
