@@ -3893,7 +3893,7 @@ void VerilatedImp::versionDump() VL_MT_SAFE {
 VerilatedModel::VerilatedModel(VerilatedContext& context)
     : m_context{context} {}
 
-std::unique_ptr<VerilatedTraceConfig> VerilatedModel::traceConfig() const { return nullptr; }
+std::unique_ptr<VerilatedTraceConfig> VerilatedModel::traceConfig() const noexcept { return nullptr; }
 
 //======================================================================
 // VerilatedVar:: Methods

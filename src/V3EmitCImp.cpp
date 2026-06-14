@@ -94,7 +94,7 @@ class EmitCImp final : public EmitCFunc {
         puts("\n");
         if (modp->ctorVarReset())
             m_lazyDecls.emit("void " + modName + "__", protect("_ctor_var_reset"),
-                             "(" + modName + "* vlSelf);");
+                             "(" + modName + "* vlSelf) noexcept;");
         puts("\n");
 
         const std::string ctorArgs = EmitCUtil::symClassName() + "* symsp, const char* namep";
@@ -160,7 +160,7 @@ class EmitCImp final : public EmitCFunc {
         if (v3Global.opt.coverage()) {
             puts("\n");
             m_lazyDecls.emit("void " + modName + "__", protect("_configure_coverage"),
-                             "(" + modName + "* vlSelf, bool first);");
+                             "(" + modName + "* vlSelf, bool first) noexcept;");
         }
 
         puts("\nvoid " + modName + "::" + protect("__Vconfigure") + "(bool first) {\n");
@@ -517,7 +517,7 @@ class EmitCTraceTypes final : public EmitCFunc {
         puts("\n");
         puts("\nvoid " + EmitCUtil::prefixNameProtect(m_modp) + "__"
              + protect("traceDeclTypesSub" + std::to_string(m_traceTypeSubs++)) + "("
-             + v3Global.opt.traceClassBase() + "* tracep) {\n");
+             + v3Global.opt.traceClassBase() + "* tracep) noexcept {\n");
     }
 
 public:
@@ -574,11 +574,11 @@ public:
         // Forward declarations for subs in other files
         for (int i = 0; i < m_traceTypeSubs - 1; ++i) {
             puts("void " + modName + "__" + protect("traceDeclTypesSub" + std::to_string(i)) + "("
-                 + args + ");\n");
+                 + args + ") noexcept;\n");
         }
 
         // Create top level trace_decl_types function and call each sub-function
-        puts("\nvoid " + modName + "__" + protect("trace_decl_types") + "(" + args + ") {\n");
+        puts("\nvoid " + modName + "__" + protect("trace_decl_types") + "(" + args + ") noexcept {\n");
         for (int i = 0; i < m_traceTypeSubs; ++i) {
             puts(modName + "__" + protect("traceDeclTypesSub" + std::to_string(i))
                  + "(tracep);\n");

@@ -187,7 +187,7 @@ class EmitCModel final : public EmitCFunc {
         if (!optSystemC()) {
             puts("/// Evaluate at end of a timestep for tracing, when using eval_step().\n");
             puts("/// Application must call after all eval() and before time changes.\n");
-            puts("void eval_end_step()");
+            puts("void eval_end_step() noexcept");
             if (callEvalEndStep == "") {
                 puts(" {}\n");
             } else {
@@ -199,12 +199,12 @@ class EmitCModel final : public EmitCFunc {
                  "must call on completion.\n");
         }
         ofp()->putsPrivate(false);  // public:
-        puts("void final();\n");
+        puts("void final() noexcept;\n");
 
         puts("/// Are there scheduled events to handle?\n");
-        puts("bool eventsPending();\n");
+        puts("bool eventsPending() noexcept;\n");
         puts("/// Returns time at next time slot. Aborts if !eventsPending()\n");
-        puts("uint64_t nextTimeSlot();\n");
+        puts("uint64_t nextTimeSlot() noexcept;\n");
 
         if (v3Global.opt.trace() || !optSystemC()) {
             puts("/// Trace signals in the model; called by application code\n");
@@ -220,7 +220,7 @@ class EmitCModel final : public EmitCFunc {
 
         if (!optSystemC()) {
             puts("/// Retrieve name of this model instance (as passed to constructor).\n");
-            puts("const char* name() const;\n");
+            puts("const char* name() const noexcept;\n");
         }
 
         // Emit DPI export dispatcher declarations
@@ -237,23 +237,23 @@ class EmitCModel final : public EmitCFunc {
             puts("\n");
             puts("// Serialization functions\n");
             puts("friend VerilatedSerialize& operator<<(VerilatedSerialize& os, "  //
-                 + EmitCUtil::topClassName() + "& rhs);\n");
+                 + EmitCUtil::topClassName() + "& rhs) noexcept;\n");
             puts("friend VerilatedDeserialize& operator>>(VerilatedDeserialize& os, "
-                 + EmitCUtil::topClassName() + "& rhs);\n");
+                 + EmitCUtil::topClassName() + "& rhs) noexcept;\n");
         }
 
         puts("\n// Abstract methods from VerilatedModel\n");
-        puts("const char* hierName() const override final;\n");
-        puts("const char* modelName() const override final;\n");
-        puts("unsigned threads() const override final;\n");
+        puts("const char* hierName() const noexcept override final;\n");
+        puts("const char* modelName() const noexcept override final;\n");
+        puts("unsigned threads() const noexcept override final;\n");
         puts("/// Prepare for cloning the model at the process level (e.g. fork in Linux)\n");
         puts("/// Release necessary resources. Called before cloning.\n");
-        puts("void prepareClone() const;\n");
+        puts("void prepareClone() const noexcept;\n");
         puts("/// Re-init after cloning the model at the process level (e.g. fork in Linux)\n");
         puts("/// Re-allocate necessary resources. Called after cloning.\n");
-        puts("void atClone() const;\n");
+        puts("void atClone() const noexcept;\n");
         if (v3Global.opt.trace()) {
-            puts("std::unique_ptr<VerilatedTraceConfig> traceConfig() const override final;\n");
+            puts("std::unique_ptr<VerilatedTraceConfig> traceConfig() const noexcept override final;\n");
         }
 
         ofp()->putsPrivate(true);  // private:
@@ -371,7 +371,7 @@ class EmitCModel final : public EmitCFunc {
         UASSERT_OBJ(modp->isTop(), modp, "Attempting to emitWrapEval for non-top class");
 
         const string topModNameProtected = EmitCUtil::prefixNameProtect(modp);
-        const string selfDecl = "(" + topModNameProtected + "* vlSelf)";
+        const string selfDecl = "(" + topModNameProtected + "* vlSelf) noexcept";
 
         putSectionDelimiter("Evaluation function");
 
@@ -443,7 +443,7 @@ class EmitCModel final : public EmitCFunc {
         // ::eval_end_step
         if (v3Global.needTraceDumper() && !optSystemC()) {
             puts("\n");
-            putns(modp, "void " + EmitCUtil::topClassName() + "::eval_end_step() {\n");
+            putns(modp, "void " + EmitCUtil::topClassName() + "::eval_end_step() noexcept {\n");
             puts("VL_DEBUG_IF(VL_DBG_MSGF(\"+eval_end_step " + EmitCUtil::topClassName()
                  + "::eval_end_step\\n\"); );\n");
             puts("#ifdef VM_TRACE\n");
@@ -457,18 +457,18 @@ class EmitCModel final : public EmitCFunc {
         putSectionDelimiter("Events and timing");
         if (auto* const delaySchedp = v3Global.rootp()->delaySchedulerp()) {
             putns(modp, "bool " + EmitCUtil::topClassName()
-                            + "::eventsPending() { return !vlSymsp->TOP.");
+                            + "::eventsPending() noexcept { return !vlSymsp->TOP.");
             puts(delaySchedp->nameProtect());
             puts(".empty() && !contextp()->gotFinish(); }\n\n");
 
             putns(modp, "uint64_t " + EmitCUtil::topClassName()
-                            + "::nextTimeSlot() { return vlSymsp->TOP.");
+                            + "::nextTimeSlot() noexcept { return vlSymsp->TOP.");
             puts(delaySchedp->nameProtect());
             puts(".nextTimeSlot(); }\n");
         } else {
             putns(modp,
-                  "bool " + EmitCUtil::topClassName() + "::eventsPending() { return false; }\n\n");
-            puts("uint64_t " + EmitCUtil::topClassName() + "::nextTimeSlot() {\n");
+                  "bool " + EmitCUtil::topClassName() + "::eventsPending() noexcept { return false; }\n\n");
+            puts("uint64_t " + EmitCUtil::topClassName() + "::nextTimeSlot() noexcept {\n");
             puts("VL_FATAL_MT(__FILE__, __LINE__, \"\", \"No delays in the design\");\n");
             puts("return 0;\n}\n");
         }
@@ -478,7 +478,7 @@ class EmitCModel final : public EmitCFunc {
         if (!optSystemC()) {
             // ::name
             puts("\n");
-            putns(modp, "const char* " + EmitCUtil::topClassName() + "::name() const {\n");
+            putns(modp, "const char* " + EmitCUtil::topClassName() + "::name() const noexcept {\n");
             puts(/**/ "return vlSymsp->name();\n");
             puts("}\n");
         }
@@ -489,7 +489,7 @@ class EmitCModel final : public EmitCFunc {
         putns(modp,
               "void " + topModNameProtected + "__" + protect("_eval_final") + selfDecl + ";\n");
         // ::final
-        puts("\nVL_ATTR_COLD void " + EmitCUtil::topClassName() + "::final() {\n");
+        puts("\nVL_ATTR_COLD void " + EmitCUtil::topClassName() + "::final() noexcept {\n");
         puts("contextp()->executingFinal(true);\n");
         puts(/**/ topModNameProtected + "__" + protect("_eval_final") + "(&(vlSymsp->TOP));\n");
         puts("contextp()->executingFinal(false);\n");
@@ -497,17 +497,17 @@ class EmitCModel final : public EmitCFunc {
 
         putSectionDelimiter("Implementations of abstract methods from VerilatedModel\n");
         putns(modp, "const char* " + EmitCUtil::topClassName()
-                        + "::hierName() const { return vlSymsp->name(); }\n");
-        putns(modp, "const char* " + EmitCUtil::topClassName() + "::modelName() const { return \""
+                        + "::hierName() const noexcept { return vlSymsp->name(); }\n");
+        putns(modp, "const char* " + EmitCUtil::topClassName() + "::modelName() const noexcept { return \""
                         + EmitCUtil::topClassName() + "\"; }\n");
         const int threads = v3Global.opt.hierChild()
                                 ? v3Global.opt.threads()
                                 : std::max(v3Global.opt.threads(), v3Global.opt.hierThreads());
-        putns(modp, "unsigned " + EmitCUtil::topClassName() + "::threads() const { return "
+        putns(modp, "unsigned " + EmitCUtil::topClassName() + "::threads() const noexcept { return "
                         + cvtToStr(threads) + "; }\n");
         putns(modp, "void " + EmitCUtil::topClassName()
-                        + "::prepareClone() const { contextp()->prepareClone(); }\n");
-        putns(modp, "void " + EmitCUtil::topClassName() + "::atClone() const {\n");
+                        + "::prepareClone() const noexcept { contextp()->prepareClone(); }\n");
+        putns(modp, "void " + EmitCUtil::topClassName() + "::atClone() const noexcept {\n");
         if (v3Global.opt.threads() > 1) {
             puts("vlSymsp->__Vm_threadPoolp = static_cast<VlThreadPool*>(");
         }
@@ -517,7 +517,7 @@ class EmitCModel final : public EmitCFunc {
 
         if (v3Global.opt.trace()) {
             putns(modp, "std::unique_ptr<VerilatedTraceConfig> " + EmitCUtil::topClassName()
-                            + "::traceConfig() const {\n");
+                            + "::traceConfig() const noexcept {\n");
             puts("return std::unique_ptr<VerilatedTraceConfig>{new VerilatedTraceConfig{");
             puts(v3Global.opt.useTraceParallel() ? "true" : "false");
             puts("}};\n");
@@ -536,18 +536,18 @@ class EmitCModel final : public EmitCFunc {
         if (!v3Global.opt.libCreate().empty()) {
             putns(modp, "\nvoid " + topModNameProtected + "__" + protect("trace_init_root") + "("
                             + topModNameProtected + "* vlSelf, " + v3Global.opt.traceClassBase()
-                            + "* tracep);\n");
+                            + "* tracep) noexcept;\n");
         }
         putns(modp, "\nvoid " + topModNameProtected + "__" + protect("trace_decl_types") + "("
-                        + v3Global.opt.traceClassBase() + "* tracep);\n");
+                        + v3Global.opt.traceClassBase() + "* tracep) noexcept;\n");
         putns(modp, "\nvoid " + topModNameProtected + "__" + protect("trace_init_top") + "("
                         + topModNameProtected + "* vlSelf, " + v3Global.opt.traceClassBase()
-                        + "* tracep);\n");
+                        + "* tracep) noexcept;\n");
 
         // Static helper function
         puts("\n");
         putns(modp, "VL_ATTR_COLD static void " + protect("trace_init") + "(void* voidSelf, "
-                        + v3Global.opt.traceClassBase() + "* tracep, uint32_t code) {\n");
+                        + v3Global.opt.traceClassBase() + "* tracep, uint32_t code) noexcept {\n");
         putsDecoration(modp, "// Callback from tracep->open()\n");
         puts(EmitCUtil::voidSelfAssign(modp));
         puts(EmitCUtil::symClassAssign());
@@ -583,7 +583,7 @@ class EmitCModel final : public EmitCFunc {
         puts("\n");
         putns(modp, "VL_ATTR_COLD void " + topModNameProtected + "__" + protect("trace_register")
                         + "(" + topModNameProtected + "* vlSelf, " + v3Global.opt.traceClassBase()
-                        + "* tracep);\n");
+                        + "* tracep) noexcept;\n");
 
         // ::traceRegisterModel
         puts("\n");
@@ -623,14 +623,14 @@ class EmitCModel final : public EmitCFunc {
         putSectionDelimiter("Model serialization");
 
         puts("\nVerilatedSerialize& operator<<(VerilatedSerialize& os, "
-             + EmitCUtil::topClassName() + "& rhs) {\n");
+             + EmitCUtil::topClassName() + "& rhs) noexcept {\n");
         puts(/**/ "Verilated::quiesce();\n");
         puts(/**/ "rhs.vlSymsp->" + protect("__Vserialize") + "(os);\n");
         puts(/**/ "return os;\n");
         puts("}\n");
 
         puts("\nVerilatedDeserialize& operator>>(VerilatedDeserialize& os, "
-             + EmitCUtil::topClassName() + "& rhs) {\n");
+             + EmitCUtil::topClassName() + "& rhs) noexcept {\n");
         puts(/**/ "Verilated::quiesce();\n");
         puts(/**/ "rhs.vlSymsp->" + protect("__Vdeserialize") + "(os);\n");
         puts(/**/ "return os;\n");

@@ -294,18 +294,18 @@ public:
     /// Used to get to e.g. simulation time via contextp()->time()
     VerilatedContext* contextp() const VL_MT_SAFE { return &m_context; }
     /// Returns the hierarchical name of this module instance.
-    virtual const char* hierName() const = 0;
+    virtual const char* hierName() const noexcept = 0;
     /// Returns the name of this model (the name of the generated model class).
-    virtual const char* modelName() const = 0;
+    virtual const char* modelName() const noexcept = 0;
     /// Returns the thread level parallelism, this model was Verilated with. Always 1 or higher.
-    virtual unsigned threads() const = 0;
+    virtual unsigned threads() const noexcept = 0;
 
 private:
     // The following are for use by Verilator internals only
     template <typename, typename>
     friend class VerilatedTrace;
     // Run-time trace configuration requested by this model
-    virtual std::unique_ptr<VerilatedTraceConfig> traceConfig() const;
+    virtual std::unique_ptr<VerilatedTraceConfig> traceConfig() const noexcept;
 };
 
 //=========================================================================

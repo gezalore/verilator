@@ -151,6 +151,9 @@ void EmitCBaseVisitorConst::emitCFuncHeader(const AstCFunc* funcp, const AstNode
     putns(funcp, funcNameProtect(funcp, modp));
     puts("(" + cFuncArgs(funcp) + ")");
     if (funcp->isConst().trueKnown() && funcp->isProperMethod()) puts(" const");
+    // DPI import prototypes and export dispatchers have C linkage and are declared in the
+    // C-includable __Dpi.h header, so they must not carry a (C++ only) 'noexcept' specifier.
+    if (!funcp->dpiImportPrototype() && !funcp->dpiExportDispatcher()) puts(" noexcept");
 }
 
 void EmitCBaseVisitorConst::emitCFuncDecl(const AstCFunc* funcp, const AstNodeModule* modp,
