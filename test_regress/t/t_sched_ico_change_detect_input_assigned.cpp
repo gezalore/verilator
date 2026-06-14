@@ -30,7 +30,8 @@ int main(int argc, char** argv) {
         topp->i = 500000;
         topp->eval();
         if (topp->o != topp->i + 10) {
-            const std::string msg = "%Error: incorrect output, got: " + std::to_string(topp->o) + " expected: " + std::to_string(topp->i + 10);
+            const std::string msg = "%Error: incorrect output, got: " + std::to_string(topp->o)
+                                    + " expected: " + std::to_string(topp->i + 10);
             vl_fatal(__FILE__, __LINE__, "main", msg.c_str());
             break;
         }

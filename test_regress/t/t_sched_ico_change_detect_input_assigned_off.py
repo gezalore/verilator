@@ -17,8 +17,7 @@ test.compile(make_top_shell=False,
              make_main=False,
              verilator_flags2=[
                  "--exe", "--stats", "-Wno-ASSIGNIN",
-                 "t/t_sched_ico_change_detect_input_assigned.cpp",
-                 "-fno-ico-change-detect"
+                 "t/t_sched_ico_change_detect_input_assigned.cpp", "-fno-ico-change-detect"
              ])
 
 test.file_grep(test.stats, r"Scheduling, 'ico' change detect triggers\s+(\d+)", 0)

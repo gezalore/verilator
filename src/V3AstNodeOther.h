@@ -2151,7 +2151,7 @@ class AstVar final : public AstNode {
     bool m_isDpiOpenArray : 1;  // DPI import open array
     bool m_isHideLocal : 1;  // Verilog local
     bool m_isHideProtected : 1;  // Verilog protected
-    bool m_maybeWritten: 1;  // Design might write to this signal (conservative)
+    bool m_maybeWritten : 1;  // Design might write to this signal (conservative)
     bool m_noCReset : 1;  // Do not do automated CReset creation
     bool m_noReset : 1;  // Do not do automated reset/randomization
     bool m_noSubst : 1;  // Do not substitute out references
