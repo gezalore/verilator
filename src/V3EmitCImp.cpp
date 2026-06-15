@@ -578,7 +578,8 @@ public:
         }
 
         // Create top level trace_decl_types function and call each sub-function
-        puts("\nvoid " + modName + "__" + protect("trace_decl_types") + "(" + args + ") noexcept {\n");
+        puts("\nvoid " + modName + "__" + protect("trace_decl_types") + "(" + args
+             + ") noexcept {\n");
         for (int i = 0; i < m_traceTypeSubs; ++i) {
             puts(modName + "__" + protect("traceDeclTypesSub" + std::to_string(i))
                  + "(tracep);\n");

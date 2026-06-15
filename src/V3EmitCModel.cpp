@@ -253,7 +253,8 @@ class EmitCModel final : public EmitCFunc {
         puts("/// Re-allocate necessary resources. Called after cloning.\n");
         puts("void atClone() const noexcept;\n");
         if (v3Global.opt.trace()) {
-            puts("std::unique_ptr<VerilatedTraceConfig> traceConfig() const noexcept override final;\n");
+            puts("std::unique_ptr<VerilatedTraceConfig> traceConfig() const noexcept override "
+                 "final;\n");
         }
 
         ofp()->putsPrivate(true);  // private:
@@ -466,8 +467,8 @@ class EmitCModel final : public EmitCFunc {
             puts(delaySchedp->nameProtect());
             puts(".nextTimeSlot(); }\n");
         } else {
-            putns(modp,
-                  "bool " + EmitCUtil::topClassName() + "::eventsPending() noexcept { return false; }\n\n");
+            putns(modp, "bool " + EmitCUtil::topClassName()
+                            + "::eventsPending() noexcept { return false; }\n\n");
             puts("uint64_t " + EmitCUtil::topClassName() + "::nextTimeSlot() noexcept {\n");
             puts("VL_FATAL_MT(__FILE__, __LINE__, \"\", \"No delays in the design\");\n");
             puts("return 0;\n}\n");
@@ -478,7 +479,8 @@ class EmitCModel final : public EmitCFunc {
         if (!optSystemC()) {
             // ::name
             puts("\n");
-            putns(modp, "const char* " + EmitCUtil::topClassName() + "::name() const noexcept {\n");
+            putns(modp,
+                  "const char* " + EmitCUtil::topClassName() + "::name() const noexcept {\n");
             puts(/**/ "return vlSymsp->name();\n");
             puts("}\n");
         }
@@ -498,13 +500,14 @@ class EmitCModel final : public EmitCFunc {
         putSectionDelimiter("Implementations of abstract methods from VerilatedModel\n");
         putns(modp, "const char* " + EmitCUtil::topClassName()
                         + "::hierName() const noexcept { return vlSymsp->name(); }\n");
-        putns(modp, "const char* " + EmitCUtil::topClassName() + "::modelName() const noexcept { return \""
-                        + EmitCUtil::topClassName() + "\"; }\n");
+        putns(modp, "const char* " + EmitCUtil::topClassName()
+                        + "::modelName() const noexcept { return \"" + EmitCUtil::topClassName()
+                        + "\"; }\n");
         const int threads = v3Global.opt.hierChild()
                                 ? v3Global.opt.threads()
                                 : std::max(v3Global.opt.threads(), v3Global.opt.hierThreads());
-        putns(modp, "unsigned " + EmitCUtil::topClassName() + "::threads() const noexcept { return "
-                        + cvtToStr(threads) + "; }\n");
+        putns(modp, "unsigned " + EmitCUtil::topClassName()
+                        + "::threads() const noexcept { return " + cvtToStr(threads) + "; }\n");
         putns(modp, "void " + EmitCUtil::topClassName()
                         + "::prepareClone() const noexcept { contextp()->prepareClone(); }\n");
         putns(modp, "void " + EmitCUtil::topClassName() + "::atClone() const noexcept {\n");
