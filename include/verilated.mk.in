@@ -286,21 +286,21 @@ ifneq ($(VM_DEFAULT_RULES),0)
 	$(OBJCACHE) $(CXX) $(OPT_FAST) $(CXXFLAGS) $(CPPFLAGS) -c -o $@ $<
 
   $(VK_OBJS_FAST): %.o: %.cpp $(VK_PCH_H).fast.gch
-	$(OBJCACHE) $(CXX) $(OPT_FAST) $(CXXFLAGS) $(CPPFLAGS) $(VK_PCH_I_FAST) -c $<
+	$(OBJCACHE) $(CXX) -fno-exceptions $(OPT_FAST) $(CXXFLAGS) $(CPPFLAGS) $(VK_PCH_I_FAST) -c $<
 
   $(VK_OBJS_SLOW): %.o: %.cpp $(VK_PCH_H).slow.gch
-	$(OBJCACHE) $(CXX) $(OPT_SLOW) $(CXXFLAGS) $(CPPFLAGS) $(VK_PCH_I_SLOW) -c $<
+	$(OBJCACHE) $(CXX) -fno-exceptions $(OPT_SLOW) $(CXXFLAGS) $(CPPFLAGS) $(VK_PCH_I_SLOW) -c $<
 
   $(VK_GLOBAL_OBJS): %.o: %.cpp
-	$(OBJCACHE) $(CXX) $(OPT_GLOBAL) $(CXXFLAGS) $(CPPFLAGS) -c -o $@ $<
+	$(OBJCACHE) $(CXX) -fno-exceptions $(OPT_GLOBAL) $(CXXFLAGS) $(CPPFLAGS) -c -o $@ $<
 
 # Precompile a header file
 # PCH's compiler flags must match exactly the rules' above FAST/SLOW
 # arguments used for the .cpp files, or the PCH file won't be used.
   %.fast.gch: %
-	$(OBJCACHE) $(CXX) $(OPT_FAST) $(CXXFLAGS) $(CPPFLAGS) $(CFG_CXXFLAGS_PCH) $< -o $@
+	$(OBJCACHE) $(CXX) -fno-exceptions $(OPT_FAST) $(CXXFLAGS) $(CPPFLAGS) $(CFG_CXXFLAGS_PCH) $< -o $@
   %.slow.gch: %
-	$(OBJCACHE) $(CXX) $(OPT_SLOW) $(CXXFLAGS) $(CPPFLAGS) $(CFG_CXXFLAGS_PCH) $< -o $@
+	$(OBJCACHE) $(CXX) -fno-exceptions $(OPT_SLOW) $(CXXFLAGS) $(CPPFLAGS) $(CFG_CXXFLAGS_PCH) $< -o $@
 
 endif
 
