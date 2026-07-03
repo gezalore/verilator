@@ -192,14 +192,6 @@ class ExtractCyclicComponents final {
                     srcComponent = varComponent;
                 }
             }
-            if (DfgVertex* const defp = vtx.defaultp()) {
-                if (!defp->is<DfgVertexVar>()) {
-                    uint64_t& defComponent = m_component.at(defp);
-                    UASSERT_OBJ(!defComponent || defComponent == varComponent, defp,
-                                "Cycle through 'defaultp' that does not go through variable");
-                    defComponent = varComponent;
-                }
-            }
         }
         // To ensure all component boundaries are at variables, expand
         // components to include all reachable non-variable vertices. Constants
@@ -235,21 +227,13 @@ class ExtractCyclicComponents final {
     void fixEdges(DfgVertexVar& vtx) {
         const uint64_t component = m_component.at(vtx);
 
-        // Fix up srcp and dstp (they must be the same component, or variable)
+        // Fix up srcp (must be the same component, or variable)
         if (DfgVertex* const sp = vtx.srcp()) {
             const uint64_t srcComponent = m_component.at(sp);
             if (srcComponent != component) {
                 UASSERT_OBJ(sp->is<DfgVertexVar>(), &vtx, "'srcp' in different component");
                 getClone(vtx, srcComponent)->srcp(sp);
                 vtx.srcp(nullptr);
-            }
-        }
-        if (DfgVertex* const dp = vtx.defaultp()) {
-            const uint64_t defaultComponent = m_component.at(dp);
-            if (defaultComponent != component) {
-                UASSERT_OBJ(dp->is<DfgVertexVar>(), &vtx, "'defaultp' in different component");
-                getClone(vtx, defaultComponent)->defaultp(dp);
-                vtx.defaultp(nullptr);
             }
         }
         // Fix up sinks in a different component to read the clone

@@ -315,11 +315,9 @@ public:
         VDouble0 nonSynMultidrive;  // Non-synthesizable: multidriven value within statement
         VDouble0 nonSynArray;  // Non-synthesizable: array type unhandled
         VDouble0 nonSynLatch;  // Non-synthesizable: maybe latch
-        VDouble0 nonSynJoinInput;  // Non-synthesizable: needing to join input variable
         VDouble0 nonSynFalseWrite;  // Non-synthesizable: does not write output
         // Reverted
         VDouble0 revertNonSyn;  // Reverted due to being driven from non-synthesizable vertex
-        VDouble0 revertMultidrive;  // Reverted due to multiple drivers
         // Additional stats
         VDouble0 cfgTrivial;  // Trivial input CFGs
         VDouble0 cfgSp;  // Series-paralel input CFGs
@@ -370,10 +368,8 @@ private:
         addStat("synt / non-synthesizable (multidrive)", m_synt.nonSynMultidrive);
         addStat("synt / non-synthesizable (array)", m_synt.nonSynArray);
         addStat("synt / non-synthesizable (latch)", m_synt.nonSynLatch);
-        addStat("synt / non-synthesizable (join input)", m_synt.nonSynJoinInput);
         addStat("synt / non-synthesizable (false write)", m_synt.nonSynFalseWrite);
         addStat("synt / reverted (non-synthesizable)", m_synt.revertNonSyn);
-        addStat("synt / reverted (multidrive)", m_synt.revertMultidrive);
 
         VDouble0 nSyntNonSyn;
         nSyntNonSyn += m_synt.nonSynConv;
@@ -383,7 +379,6 @@ private:
         nSyntNonSyn += m_synt.nonSynMultidrive;
         nSyntNonSyn += m_synt.nonSynArray;
         nSyntNonSyn += m_synt.nonSynLatch;
-        nSyntNonSyn += m_synt.nonSynJoinInput;
         nSyntNonSyn += m_synt.nonSynFalseWrite;
         VDouble0 nSyntExpect;
         nSyntExpect += m_synt.inputAlways;

@@ -42,7 +42,7 @@ class DfgRegularize final {
         // so no need to process them here, they are where they must be.
         for (DfgVertex& vtx : m_dfg.opVertices()) {
             // Don't process LValue operations
-            if (vtx.is<DfgVertexSplice>()) continue;
+            if (vtx.is<DfgInsert>()) continue;
             if (vtx.is<DfgUnitArray>()) continue;
 
             // The prefered result variable is the canonical one if exists
@@ -177,8 +177,7 @@ class DfgRegularize final {
 
             // Do not inline if partially driven (the partial driver network can't be fed into
             // arbitrary logic. TODO: we should peeophole these away entirely)
-            if (varp->defaultp()) return;
-            if (srcp->is<DfgVertexSplice>()) return;
+            if (srcp->is<DfgInsert>()) return;
             if (srcp->is<DfgUnitArray>()) return;
 
             // Do not eliminate variables that are driven from a vertex that needs a temporary
@@ -202,7 +201,7 @@ class DfgRegularize final {
         std::vector<std::vector<DfgVertex*>> fanout2Vtxps;
         for (DfgVertex& vtx : m_dfg.opVertices()) {
             // LValue vertices feed into variables eventually and need no temporaries
-            if (vtx.is<DfgVertexSplice>()) continue;
+            if (vtx.is<DfgInsert>()) continue;
             if (vtx.is<DfgUnitArray>()) continue;
             // Add to map
             const uint32_t fanout = vtx.fanout();

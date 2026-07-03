@@ -22,7 +22,6 @@ pdeclFile = test.obj_dir + "/portdecl.vh"
 checkFile = test.obj_dir + "/checks.h"
 nAlwaysSynthesized = 0
 nAlwaysNotSynthesized = 0
-nAlwaysReverted = 0
 with open(rdFile, 'r', encoding="utf8") as rdFh, \
      open(plistFile, 'w', encoding="utf8") as plistFh, \
      open(pdeclFile, 'w', encoding="utf8") as pdeclFh, \
@@ -30,8 +29,6 @@ with open(rdFile, 'r', encoding="utf8") as rdFh, \
     for line in rdFh:
         if re.search(r'^\s*always.*//\s*nosynth$', line):
             nAlwaysNotSynthesized += 1
-        elif re.search(r'^\s*always.*//\s*revert$', line):
-            nAlwaysReverted += 1
         elif re.search(r'^\s*always', line):
             nAlwaysSynthesized += 1
         elif re.search(r'^\s*wire.*=', line):
@@ -83,12 +80,10 @@ test.compile(verilator_flags2=[
 
 test.file_grep(test.obj_dir + "/obj_opt/Vopt__stats.txt",
                r'DFG, Synthesis, synt / always blocks considered\s+(\d+)$',
-               nAlwaysSynthesized + nAlwaysReverted + nAlwaysNotSynthesized)
+               nAlwaysSynthesized + nAlwaysNotSynthesized)
 test.file_grep(test.obj_dir + "/obj_opt/Vopt__stats.txt",
                r'DFG, Synthesis, synt / always blocks synthesized\s+(\d+)$',
-               nAlwaysSynthesized + nAlwaysReverted)
-test.file_grep(test.obj_dir + "/obj_opt/Vopt__stats.txt",
-               r'DFG, Synthesis, synt / reverted \(multidrive\)\s+(\d)$', nAlwaysReverted)
+               nAlwaysSynthesized)
 
 # Execute test to check equivalence
 test.execute(executable=test.obj_dir + "/obj_opt/Vopt")

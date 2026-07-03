@@ -42,11 +42,11 @@ class ColorStronglyConnectedComponents final {
     // METHODS
     // Use the bottom 32-bit word as the component number
     uint32_t& component(const DfgVertex& vtx) {  //
-        return reinterpret_cast<uint32_t(&)[2]>(m_map[vtx])[0];
+        return reinterpret_cast<uint32_t (&)[2]>(m_map[vtx])[0];
     }
     // Use the top 32-bit word as the visitation index
     uint32_t& index(const DfgVertex& vtx) {  //
-        return reinterpret_cast<uint32_t(&)[2]>(m_map[vtx])[1];
+        return reinterpret_cast<uint32_t (&)[2]>(m_map[vtx])[1];
     }
 
     void visitColorSCCs(const DfgVertex& vtx) {
@@ -114,7 +114,7 @@ class ColorStronglyConnectedComponents final {
         // Initialize state of variable vertices
         for (const DfgVertexVar& vtx : m_dfg.varVertices()) {
             // If it has no inputs or no outputs, it cannot be part of a non-trivial SCC.
-            if ((!vtx.srcp() && !vtx.defaultp()) || !vtx.hasSinks()) {
+            if (!vtx.srcp() || !vtx.hasSinks()) {
                 index(vtx) = 0;
                 component(vtx) = 0;
                 continue;

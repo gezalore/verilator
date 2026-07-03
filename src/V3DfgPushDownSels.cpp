@@ -85,7 +85,7 @@ class V3DfgPushDownSels final {
         // Start from all vertices with no inputs
         m_stack.reserve(m_dfg.size());
         for (DfgVertexVar& vtx : m_dfg.varVertices()) {
-            if (vtx.srcp() || vtx.defaultp()) continue;
+            if (vtx.srcp()) continue;
             m_stack.push_back(&vtx);
         }
         for (DfgConst& vtx : m_dfg.constVertices()) m_stack.push_back(&vtx);

@@ -130,7 +130,7 @@ module t (
 
   // verilator lint_off LATCH
   logic [3:0] conditional_c;
-  always_comb begin // nosynth
+  always_comb begin
     if (rand_a[0]) begin
       conditional_c = rand_b[3:0];
     end
@@ -389,7 +389,7 @@ module t (
   // verilator lint_off LATCH
   logic [3:0] latch_a;
   logic [3:0] latch_b;
-  always_comb begin // nosynth
+  always_comb begin
     if (rand_b[0]) begin
       latch_a[3:1] = ~rand_a[3:1];
     end
@@ -403,11 +403,11 @@ module t (
   logic static_temporary_a;
   logic static_temporary_b;
   logic static_temporary_tmp;
-  always_comb begin // revert
+  always_comb begin
     static_temporary_tmp = rand_a[0];
     static_temporary_a = ~static_temporary_tmp;
   end
-  always_comb begin // revert
+  always_comb begin
     static_temporary_tmp = static_temporary_a;
     static_temporary_b = ~static_temporary_tmp;
   end

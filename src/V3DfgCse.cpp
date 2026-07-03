@@ -60,16 +60,7 @@ class V3DfgCse final {
 
         // Vertices with internal information
         case VDfgType::Sel: return V3Hash{vtx.as<DfgSel>()->lsb()};
-
-        case VDfgType::SpliceArray:
-        case VDfgType::SplicePacked: {
-            V3Hash hash;
-            vtx.as<DfgVertexSplice>()->foreachDriver([&](const DfgVertex&, uint32_t lo) {
-                hash += lo;
-                return false;
-            });
-            return hash;
-        }
+        case VDfgType::Insert: return V3Hash{vtx.as<DfgInsert>()->lo()};
 
         // Vertices with no internal information
         case VDfgType::MatchMasked:
@@ -180,22 +171,7 @@ class V3DfgCse final {
 
         // Vertices with internal information
         case VDfgType::Sel: return a.as<DfgSel>()->lsb() == b.as<DfgSel>()->lsb();
-
-        case VDfgType::SpliceArray:
-        case VDfgType::SplicePacked: {
-            const DfgVertexSplice* const ap = a.as<DfgVertexSplice>();
-            // Gather indices of drivers of 'a'
-            std::vector<uint32_t> aLo;
-            aLo.reserve(ap->nInputs());
-            ap->foreachDriver([&](const DfgVertex&, uint32_t lo) {
-                aLo.push_back(lo);
-                return false;
-            });
-            // Compare indices of drivers of 'b'
-            uint32_t* aLop = aLo.data();
-            return !b.as<DfgVertexSplice>()->foreachDriver(
-                [&](const DfgVertex&, uint32_t lo) { return *aLop++ != lo; });
-        }
+        case VDfgType::Insert: return a.as<DfgInsert>()->lo() == b.as<DfgInsert>()->lo();
 
         // Vertices with no internal information
         case VDfgType::MatchMasked:

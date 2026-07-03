@@ -1156,31 +1156,31 @@ class V3DfgPeephole final : public DfgVisitor {
                 }
             }
 
-            // Sel from a partial variable (including narrowed vertex)
-            if (DfgVarPacked* const varp = fromp->cast<DfgVarPacked>()) {
-                if (varp->srcp() && !varp->isVolatile() && !varp->srcp()->is<DfgCReset>()) {
-                    // Must be a splice, otherwise it would have been inlined
-                    DfgSplicePacked* splicep = varp->srcp()->as<DfgSplicePacked>();
-                    DfgVertex* driverp = nullptr;
-                    uint32_t driverLsb = 0;
-                    splicep->foreachDriver([&](DfgVertex& src, const uint32_t dLsb) {
-                        const uint32_t dMsb = dLsb + src.width() - 1;
-                        // If it does not cover the whole searched bit range, move on
-                        if (lsb < dLsb || dMsb < msb) return false;
-                        // Save the driver
-                        driverp = &src;
-                        driverLsb = dLsb;
-                        return true;
-                    });
-                    if (driverp) {
-                        APPLYING(PUSH_SEL_THROUGH_SPLICE) {
-                            fromp = driverp;
-                            lsb -= driverLsb;
-                            continue;
-                        }
-                    }
-                }
-            }
+            // // Sel from a partial variable (including narrowed vertex)
+            // if (DfgVarPacked* const varp = fromp->cast<DfgVarPacked>()) {
+            //     if (varp->srcp() && !varp->isVolatile() && !varp->srcp()->is<DfgCReset>()) {
+            //         // Must be a splice, otherwise it would have been inlined
+            //         DfgSplicePacked* splicep = varp->srcp()->as<DfgSplicePacked>();
+            //         DfgVertex* driverp = nullptr;
+            //         uint32_t driverLsb = 0;
+            //         splicep->foreachDriver([&](DfgVertex& src, const uint32_t dLsb) {
+            //             const uint32_t dMsb = dLsb + src.width() - 1;
+            //             // If it does not cover the whole searched bit range, move on
+            //             if (lsb < dLsb || dMsb < msb) return false;
+            //             // Save the driver
+            //             driverp = &src;
+            //             driverLsb = dLsb;
+            //             return true;
+            //         });
+            //         if (driverp) {
+            //             APPLYING(PUSH_SEL_THROUGH_SPLICE) {
+            //                 fromp = driverp;
+            //                 lsb -= driverLsb;
+            //                 continue;
+            //             }
+            //         }
+            //     }
+            // }
 
             // No patterns matched, stop
             break;
@@ -1904,34 +1904,34 @@ class V3DfgPeephole final : public DfgVisitor {
             return;
         }
 
-        if (DfgSpliceArray* const splicep = srcp->cast<DfgSpliceArray>()) {
-            DfgVertex* const driverp = splicep->driverAt(idxp->toSizeT());
-            if (!driverp) return;
-            DfgUnitArray* const uap = driverp->cast<DfgUnitArray>();
-            if (!uap) return;
-            if (uap->srcp()->is<DfgVertexSplice>()) return;
-            // If driven by a variable that had a Driver in DFG, it is partial
-            if (DfgVertexVar* const dvarp = uap->srcp()->cast<DfgVertexVar>()) {
-                if (dvarp->srcp()) return;
-            }
-            APPLYING(INLINE_ARRAYSEL_SPLICE) {
-                replace(uap->srcp());
-                return;
-            }
-        }
+        // if (DfgSpliceArray* const splicep = srcp->cast<DfgSpliceArray>()) {
+        //     DfgVertex* const driverp = splicep->driverAt(idxp->toSizeT());
+        //     if (!driverp) return;
+        //     DfgUnitArray* const uap = driverp->cast<DfgUnitArray>();
+        //     if (!uap) return;
+        //     if (uap->srcp()->is<DfgVertexSplice>()) return;
+        //     // If driven by a variable that had a Driver in DFG, it is partial
+        //     if (DfgVertexVar* const dvarp = uap->srcp()->cast<DfgVertexVar>()) {
+        //         if (dvarp->srcp()) return;
+        //     }
+        //     APPLYING(INLINE_ARRAYSEL_SPLICE) {
+        //         replace(uap->srcp());
+        //         return;
+        //     }
+        // }
 
-        if (DfgUnitArray* const uap = srcp->cast<DfgUnitArray>()) {
-            UASSERT_OBJ(idxp->toSizeT() == 0, vtxp, "Array index out of range");
-            if (uap->srcp()->is<DfgSplicePacked>()) return;
-            // If driven by a variable that had a Driver in DFG, it is partial
-            if (DfgVertexVar* const dvarp = uap->srcp()->cast<DfgVertexVar>()) {
-                if (dvarp->srcp()) return;
-            }
-            APPLYING(INLINE_ARRAYSEL_UNIT) {
-                replace(uap->srcp());
-                return;
-            }
-        }
+        // if (DfgUnitArray* const uap = srcp->cast<DfgUnitArray>()) {
+        //     UASSERT_OBJ(idxp->toSizeT() == 0, vtxp, "Array index out of range");
+        //     if (uap->srcp()->is<DfgSplicePacked>()) return;
+        //     // If driven by a variable that had a Driver in DFG, it is partial
+        //     if (DfgVertexVar* const dvarp = uap->srcp()->cast<DfgVertexVar>()) {
+        //         if (dvarp->srcp()) return;
+        //     }
+        //     APPLYING(INLINE_ARRAYSEL_UNIT) {
+        //         replace(uap->srcp());
+        //         return;
+        //     }
+        // }
     }
 
     void visit(DfgConcat* const vtxp) override {
@@ -2097,65 +2097,65 @@ class V3DfgPeephole final : public DfgVisitor {
             }
         }
 
-        // Attempt to narrow a concatenation that produces unused bits on the edges
-        {
-            const uint32_t vMsb = vtxp->width() - 1;  // MSB of the concatenation
-            const uint32_t lLsb = vtxp->rhsp()->width();  // LSB of the LHS
-            const uint32_t rMsb = lLsb - 1;  // MSB of the RHS
-            // Check each sink, and record the range of bits used by them
-            uint32_t lsb = vMsb;  // LSB used by a sink
-            uint32_t msb = 0;  // MSB used by a sink
-            bool hasCrossSink = false;  // True if some sinks use bits from both sides
-            vtxp->foreachSink([&](DfgVertex& sink) {
-                // Record bits used by DfgSel sinks
-                if (const DfgSel* const selp = sink.cast<DfgSel>()) {
-                    const uint32_t selLsb = selp->lsb();
-                    const uint32_t selMsb = selLsb + selp->width() - 1;
-                    lsb = std::min(lsb, selLsb);
-                    msb = std::max(msb, selMsb);
-                    hasCrossSink |= selMsb >= lLsb && rMsb >= selLsb;
-                    return false;
-                }
-                // Ignore non-observable variable sinks. These will be eliminated.
-                if (const DfgVarPacked* const varp = sink.cast<DfgVarPacked>()) {
-                    if (!varp->hasSinks() && !varp->isObserved()) return false;
-                }
-                // Otherwise the whole value is used
-                lsb = 0;
-                msb = vMsb;
-                return true;
-            });
-            if (hasCrossSink && (vMsb > msb || lsb > 0)) {
-                APPLYING(NARROW_CONCAT) {
-                    // Narrowed RHS
-                    DfgVertex* nRhsp = rhsp;
-                    if (lsb != 0)
-                        nRhsp = make<DfgSel>(flp, DfgDataType::packed(rMsb - lsb + 1), rhsp, lsb);
-                    // Narrowed LHS
-                    DfgVertex* nLhsp = lhsp;
-                    if (msb != vMsb)
-                        nLhsp = make<DfgSel>(flp, DfgDataType::packed(msb - lLsb + 1), lhsp, 0U);
-                    // Narrowed concatenation
-                    DfgVertex* const catp
-                        = make<DfgConcat>(flp, DfgDataType::packed(msb - lsb + 1), nLhsp, nRhsp);
+        // // Attempt to narrow a concatenation that produces unused bits on the edges
+        // {
+        //     const uint32_t vMsb = vtxp->width() - 1;  // MSB of the concatenation
+        //     const uint32_t lLsb = vtxp->rhsp()->width();  // LSB of the LHS
+        //     const uint32_t rMsb = lLsb - 1;  // MSB of the RHS
+        //     // Check each sink, and record the range of bits used by them
+        //     uint32_t lsb = vMsb;  // LSB used by a sink
+        //     uint32_t msb = 0;  // MSB used by a sink
+        //     bool hasCrossSink = false;  // True if some sinks use bits from both sides
+        //     vtxp->foreachSink([&](DfgVertex& sink) {
+        //         // Record bits used by DfgSel sinks
+        //         if (const DfgSel* const selp = sink.cast<DfgSel>()) {
+        //             const uint32_t selLsb = selp->lsb();
+        //             const uint32_t selMsb = selLsb + selp->width() - 1;
+        //             lsb = std::min(lsb, selLsb);
+        //             msb = std::max(msb, selMsb);
+        //             hasCrossSink |= selMsb >= lLsb && rMsb >= selLsb;
+        //             return false;
+        //         }
+        //         // Ignore non-observable variable sinks. These will be eliminated.
+        //         if (const DfgVarPacked* const varp = sink.cast<DfgVarPacked>()) {
+        //             if (!varp->hasSinks() && !varp->isObserved()) return false;
+        //         }
+        //         // Otherwise the whole value is used
+        //         lsb = 0;
+        //         msb = vMsb;
+        //         return true;
+        //     });
+        //     if (hasCrossSink && (vMsb > msb || lsb > 0)) {
+        //         APPLYING(NARROW_CONCAT) {
+        //             // Narrowed RHS
+        //             DfgVertex* nRhsp = rhsp;
+        //             if (lsb != 0)
+        //                 nRhsp = make<DfgSel>(flp, DfgDataType::packed(rMsb - lsb + 1), rhsp, lsb);
+        //             // Narrowed LHS
+        //             DfgVertex* nLhsp = lhsp;
+        //             if (msb != vMsb)
+        //                 nLhsp = make<DfgSel>(flp, DfgDataType::packed(msb - lLsb + 1), lhsp, 0U);
+        //             // Narrowed concatenation
+        //             DfgVertex* const catp
+        //                 = make<DfgConcat>(flp, DfgDataType::packed(msb - lsb + 1), nLhsp, nRhsp);
 
-                    // Need to insert via a partial splice to avoid infinite matching,
-                    // this splice will be eliminated on later visits to its sinks.
-                    DfgSplicePacked* const sp = new DfgSplicePacked{m_dfg, flp, vtxp->dtype()};
-                    m_vInfo[sp].m_id = ++m_lastId;
-                    sp->addDriver(catp, lsb, flp);
-                    const std::string name = m_dfg.makeUniqueName("PeepholeNarrow", m_nTemps++);
-                    DfgVertexVar* const varp
-                        = m_dfg.makeNewVar(flp, name, vtxp->dtype(), m_tmpScopep);
-                    varp->tmpForp(varp->vscp());
-                    m_vInfo[varp].m_id = ++m_lastId;
-                    varp->vscp()->varp()->isInternal(true);
-                    varp->srcp(sp);
-                    replace(varp);
-                    return;
-                }
-            }
-        }
+        //             // Need to insert via a partial splice to avoid infinite matching,
+        //             // this splice will be eliminated on later visits to its sinks.
+        //             DfgSplicePacked* const sp = new DfgSplicePacked{m_dfg, flp, vtxp->dtype()};
+        //             m_vInfo[sp].m_id = ++m_lastId;
+        //             sp->addDriver(catp, lsb, flp);
+        //             const std::string name = m_dfg.makeUniqueName("PeepholeNarrow", m_nTemps++);
+        //             DfgVertexVar* const varp
+        //                 = m_dfg.makeNewVar(flp, name, vtxp->dtype(), m_tmpScopep);
+        //             varp->tmpForp(varp->vscp());
+        //             m_vInfo[varp].m_id = ++m_lastId;
+        //             varp->vscp()->varp()->isInternal(true);
+        //             varp->srcp(sp);
+        //             replace(varp);
+        //             return;
+        //         }
+        //     }
+        // }
 
         // Convert various forms to REPLICATE
         if (isSame(lhsp, rhsp)) {
@@ -3076,7 +3076,6 @@ class V3DfgPeephole final : public DfgVisitor {
     void visit(DfgVertexVar* const vtxp) override {
         if (vtxp->hasSinks()) return;
         if (vtxp->isObserved()) return;
-        if (vtxp->defaultp()) return;
 
         // If undriven, or driven from another var, it is completely redundant.
         if (!vtxp->srcp() || vtxp->srcp()->is<DfgVertexVar>()) {

@@ -30,6 +30,7 @@
 
 #include "V3Dfg.h"
 #include "V3DfgPasses.h"
+#include "V3Error.h"
 #include "V3UniqueNames.h"
 
 VL_DEFINE_DEBUG_FUNCTIONS;
@@ -160,39 +161,27 @@ class DfgToAstVisitor final : DfgVisitor {
     }
 
     void convertDriver(FileLine* flp, AstNodeExpr* lhsp, DfgVertex* driverp) {
-        if (DfgSplicePacked* const sPackedp = driverp->cast<DfgSplicePacked>()) {
-            // Partial assignment of packed value
-            sPackedp->foreachDriver([&](DfgVertex& src, uint32_t lo, FileLine* dflp) {
-                // Create Sel
-                AstConst* const lsbp = new AstConst{dflp, lo};
-                const int width = static_cast<int>(src.width());
-                AstSel* const nLhsp = new AstSel{dflp, lhsp->cloneTreePure(false), lsbp, width};
-                // Convert source
-                convertDriver(dflp, nLhsp, &src);
-                // Delete Sel - was cloned
-                VL_DO_DANGLING(nLhsp->deleteTree(), nLhsp);
-                return false;
-            });
-            return;
-        }
-
-        if (DfgSpliceArray* const sArrayp = driverp->cast<DfgSpliceArray>()) {
-            // Partial assignment of array variable
-            sArrayp->foreachDriver([&](DfgVertex& src, uint32_t lo, FileLine* dflp) {
-                UASSERT_OBJ(src.size() == 1, &src, "We only handle single elements");
-                // Create ArraySel
-                AstConst* const idxp = new AstConst{dflp, lo};
-                AstArraySel* const nLhsp = new AstArraySel{dflp, lhsp->cloneTreePure(false), idxp};
-                // Convert source
-                if (const DfgUnitArray* const uap = src.cast<DfgUnitArray>()) {
-                    convertDriver(dflp, nLhsp, uap->srcp());
+        if (const DfgInsert* const insp = driverp->cast<DfgInsert>()) {
+            // Partial update of variable. First convert the default value
+            convertDriver(flp, lhsp, insp->defaultp());
+            // Then convert the part update
+            DfgVertex* const srcp = insp->srcp();
+            AstConst* const idxp = new AstConst{flp, insp->lo()};
+            if (insp->isArray()) {
+                AstArraySel* const nLhsp = new AstArraySel{flp, lhsp->cloneTreePure(false), idxp};
+                if (const DfgUnitArray* const uap = srcp->cast<DfgUnitArray>()) {
+                    convertDriver(flp, nLhsp, uap->srcp());
                 } else {
-                    convertDriver(dflp, nLhsp, &src);
+                    convertDriver(flp, nLhsp, srcp);
                 }
-                // Delete ArraySel - was cloned
-                VL_DO_DANGLING(nLhsp->deleteTree(), nLhsp);
-                return false;
-            });
+                VL_DO_DANGLING(nLhsp->deleteTree(), nLhsp);  // was cloned
+            } else {
+                UASSERT_OBJ(insp->isPacked(), flp, "Expected packed insert");
+                const int width = static_cast<int>(srcp->width());
+                AstSel* const nLhsp = new AstSel{flp, lhsp->cloneTreePure(false), idxp, width};
+                convertDriver(flp, nLhsp, srcp);
+                VL_DO_DANGLING(nLhsp->deleteTree(), nLhsp);  // was cloned
+            }
             return;
         }
 
@@ -200,10 +189,8 @@ class DfgToAstVisitor final : DfgVisitor {
             // Single element array being assigned a unit array. Needs an ArraySel.
             AstConst* const idxp = new AstConst{flp, 0};
             AstArraySel* const nLhsp = new AstArraySel{flp, lhsp->cloneTreePure(false), idxp};
-            // Convert source
             convertDriver(flp, nLhsp, uap->srcp());
-            // Delete ArraySel - was cloned
-            VL_DO_DANGLING(nLhsp->deleteTree(), nLhsp);
+            VL_DO_DANGLING(nLhsp->deleteTree(), nLhsp);  // was cloned
             return;
         }
 
@@ -275,10 +262,7 @@ class DfgToAstVisitor final : DfgVisitor {
         // Render variable assignments
         for (DfgVertexVar& vtx : dfg.varVertices()) {
             // If there is no driver (this vertex is an input to the graph), then nothing to do.
-            if (!vtx.srcp()) {
-                UASSERT_OBJ(!vtx.defaultp(), &vtx, "Only default driver on variable");
-                continue;
-            }
+            if (!vtx.srcp()) continue;
 
             ++m_ctx.m_outputVariables;
 
@@ -292,12 +276,10 @@ class DfgToAstVisitor final : DfgVisitor {
 
             // If there is a default value, render all drivers under an AstAlways
             VL_RESTORER(m_alwaysp);
-            if (DfgVertex* const defaultp = vtx.defaultp()) {
+            if (vtx.srcp()->is<DfgInsert>()) {
                 ++m_ctx.m_outputVariablesWithDefault;
                 m_alwaysp = new AstAlways{vtx.fileline(), VAlwaysKwd::ALWAYS_COMB, nullptr};
                 m_activep->addStmtsp(m_alwaysp);
-                // The default assignment needs to go first
-                createAssignment(vtx.fileline(), lhsp->cloneTreePure(false), defaultp);
             }
 
             // Render the drivers

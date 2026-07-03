@@ -96,6 +96,12 @@ std::unique_ptr<DfgGraph> DfgGraph::clone() const {
             vtxp2clonep.emplace(&vtx, cp);
             break;
         }  // LCOV_EXCL_STOP
+        case VDfgType::Insert: {
+            DfgInsert* const cp = new DfgInsert{*clonep, vtx.fileline(), vtx.dtype()};
+            cp->lo(vtx.as<DfgInsert>()->lo());
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
         case VDfgType::MatchMasked: {
             DfgMatchMasked* const cp = new DfgMatchMasked{*clonep, vtx.fileline(), vtx.dtype()};
             vtxp2clonep.emplace(&vtx, cp);
@@ -119,16 +125,6 @@ std::unique_ptr<DfgGraph> DfgGraph::clone() const {
         }
         case VDfgType::Mux: {
             DfgMux* const cp = new DfgMux{*clonep, vtx.fileline(), vtx.dtype()};
-            vtxp2clonep.emplace(&vtx, cp);
-            break;
-        }
-        case VDfgType::SpliceArray: {
-            DfgSpliceArray* const cp = new DfgSpliceArray{*clonep, vtx.fileline(), vtx.dtype()};
-            vtxp2clonep.emplace(&vtx, cp);
-            break;
-        }
-        case VDfgType::SplicePacked: {
-            DfgSplicePacked* const cp = new DfgSplicePacked{*clonep, vtx.fileline(), vtx.dtype()};
             vtxp2clonep.emplace(&vtx, cp);
             break;
         }
@@ -159,7 +155,6 @@ std::unique_ptr<DfgGraph> DfgGraph::clone() const {
     for (const DfgVertexVar& vtx : m_varVertices) {
         DfgVertexVar* const cp = vtxp2clonep.at(&vtx)->as<DfgVertexVar>();
         if (const DfgVertex* const srcp = vtx.srcp()) cp->srcp(vtxp2clonep.at(srcp));
-        if (const DfgVertex* const defp = vtx.defaultp()) cp->defaultp(vtxp2clonep.at(defp));
     }
     // Hook up inputs of cloned ast references
     for (const DfgVertexAst& vtx : m_astVertices) {  // LCOV_EXCL_START
@@ -181,16 +176,6 @@ std::unique_ptr<DfgGraph> DfgGraph::clone() const {
     for (const DfgVertex& vtx : m_opVertices) {
         if (vtx.is<DfgVertexVariadic>()) {
             switch (vtx.type()) {
-            case VDfgType::SpliceArray:
-            case VDfgType::SplicePacked: {
-                const DfgVertexSplice* const vp = vtx.as<DfgVertexSplice>();
-                DfgVertexSplice* const cp = vtxp2clonep.at(vp)->as<DfgVertexSplice>();
-                vp->foreachDriver([&](const DfgVertex& src, uint32_t lo, FileLine* flp) {
-                    cp->addDriver(vtxp2clonep.at(&src), lo, flp);
-                    return false;
-                });
-                break;
-            }
             default: {
                 vtx.v3fatalSrc("Unhandled DfgVertexVariadic sub type: " + vtx.typeName());
                 VL_UNREACHABLE;
@@ -225,12 +210,9 @@ void DfgGraph::mergeGraphs(std::vector<std::unique_ptr<DfgGraph>>&& otherps) {
             // Variabels that are present in 'this', make them use the DfgVertexVar in 'this'.
             if (DfgVertexVar* const altp = vtxp->vscp()->user2u().to<DfgVertexVar*>()) {
                 DfgVertex* const srcp = vtxp->srcp();
-                DfgVertex* const defaultp = vtxp->defaultp();
-                UASSERT_OBJ(!(srcp || defaultp) || (!altp->srcp() && !altp->defaultp()), vtxp,
-                            "At most one alias should be driven");
+                UASSERT_OBJ(!srcp || !altp->srcp(), vtxp, "At most one alias should be driven");
                 vtxp->replaceWith(altp);
                 if (srcp) altp->srcp(srcp);
-                if (defaultp) altp->defaultp(defaultp);
                 VL_DO_DANGLING(vtxp->unlinkDelete(*otherp), vtxp);
                 continue;
             }
@@ -373,7 +355,7 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
 
     if (const DfgSel* const selVtxp = vtx.cast<DfgSel>()) {
         const uint32_t lsb = selVtxp->lsb();
-        const uint32_t msb = lsb + selVtxp->width() - 1;
+        const uint32_t msb = selVtxp->msb();
         os << toDotId(vtx);
         os << " [label=\"SEL _[" << msb << ":" << lsb << "]\n";
         os << cvtToHex(selVtxp) << '\n';
@@ -388,7 +370,24 @@ static void dumpDotVertex(std::ostream& os, const DfgVertex& vtx) {
         return;
     }
 
-    if (vtx.is<DfgVertexSplice>() || vtx.is<DfgUnitArray>() || vtx.is<DfgUnresolved>()) {
+    if (const DfgInsert* const insVtxp = vtx.cast<DfgInsert>()) {
+        const uint32_t lo = insVtxp->lo();
+        const std::string hiStr = insVtxp->srcp() ? std::to_string(insVtxp->hi()) : "?";
+        os << toDotId(vtx);
+        os << " [label=\"INSERT _[" << hiStr << ":" << lo << "]\n";
+        os << cvtToHex(insVtxp) << '\n';
+        vtx.dtype().astDtypep()->dumpSmall(os);
+        os << " / F" << vtx.fanout() << '"';
+        if (vtx.hasMultipleSinks()) {
+            os << ", shape=doubleoctagon";
+        } else {
+            os << ", shape=octagon";
+        }
+        os << "]\n";
+        return;
+    }
+
+    if (vtx.is<DfgUnitArray>() || vtx.is<DfgUnresolved>()) {
         os << toDotId(vtx);
         os << " [label=\"" << vtx.typeName() << '\n';
         os << cvtToHex(&vtx) << '\n';
@@ -649,17 +648,16 @@ void DfgVertex::typeCheck(const DfgGraph& dfg) const {
     case VDfgType::VarArray:
     case VDfgType::VarPacked: {
         const DfgVertexVar& v = *as<DfgVertexVar>();
-        CHECK(!v.defaultp() || v.defaultp()->dtype() == v.dtype(), "'defaultp' should match");
         CHECK(!v.srcp() || v.srcp()->dtype() == v.dtype(), "'srcp' should match");
         return;
     }
-    case VDfgType::SpliceArray:
-    case VDfgType::SplicePacked: {
-        const DfgVertexSplice& v = *as<DfgVertexSplice>();
-        v.foreachDriver([&](const DfgVertex& src, uint32_t lo) {
-            CHECK(src.dtype() == DfgDataType::select(v.dtype(), lo, src.size()), "driver");
-            return false;
-        });
+    case VDfgType::Insert: {
+        const DfgInsert& v = *as<DfgInsert>();
+        CHECK(v.srcp(), "Source should be present");
+        CHECK(v.defaultp(), "Default should be present");
+        CHECK(v.defaultp()->dtype() == dtype(), "Default should be same type");
+        CHECK(v.srcp()->dtype() == DfgDataType::select(dtype(), v.lo(), v.srcp()->size()),
+              "Source should be the inserted slice type");
         return;
     }
     case VDfgType::Logic: {
@@ -1064,6 +1062,14 @@ class DfgPatternString final {
                     m_os << '0';
                 } else {
                     m_os << internSelLsb(selp->lsb());
+                }
+            }
+            if (const DfgInsert* const insp = vtx.cast<DfgInsert>()) {
+                m_os << '@';
+                if (insp->lo() == 0) {
+                    m_os << '0';
+                } else {
+                    m_os << internSelLsb(insp->lo());
                 }
             }
             // Operands

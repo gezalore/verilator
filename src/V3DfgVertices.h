@@ -46,7 +46,7 @@
 // Variable vertices - represent a variables
 
 class DfgVertexVar VL_NOT_FINAL : public DfgVertex {
-    // Represents a variable. It has 2 optional inputs, 'srcp' and 'defaultp'.
+    // Represents a variable. It has 1 optional input, 'srcp', the driver of the variable.
 
     AstVarScope* const m_vscp;  // The AstVarScope associated with this vertex (not owned)
     // Location of driver of this variable. Only used for converting back to Ast. Might be nullptr.
@@ -66,7 +66,6 @@ protected:
         UASSERT_OBJ((m_vscp->user1() >> 5) > 0, m_vscp, "Reference count overflow");
         // Allocate sources
         newInput();
-        newInput();
     }
 
 public:
@@ -80,14 +79,10 @@ public:
     // The driver of the variable. Might be nullptr if driven exernally (input to DfgGraph).
     DfgVertex* srcp() const { return inputp(0); }
     void srcp(DfgVertex* vtxp) { inputp(0, vtxp); }
-    // The default value of the variable. This defines the parts not driven by 'srcp', maybe null
-    DfgVertex* defaultp() const { return inputp(1); }
-    void defaultp(DfgVertex* vtxp) { inputp(1, vtxp); }
 
-    std::string srcName(size_t idx) const override final { return idx ? "defaultp" : "srcp"; }
+    std::string srcName(size_t) const override final { return "srcp"; }
 
     // The Ast variable this vertex representess
-    // AstVar* varp() const { return m_varp; }
     AstVarScope* vscp() const { return m_vscp; }
 
     // If this is a temporary, the Ast variable it stands for,  or same as
@@ -95,7 +90,7 @@ public:
     AstVarScope* tmpForp() const { return m_tmpForp; }
     void tmpForp(AstVarScope* nodep) { m_tmpForp = nodep; }
 
-    // Location of driver of variable (only used if 'srcp' is not a splice)
+    // Location of driver of variable (only used if 'srcp' is not a DfgInsert)
     FileLine* driverFileLine() const { return m_driverFileLine; }
     void driverFileLine(FileLine* flp) { m_driverFileLine = flp; }
 
@@ -125,7 +120,7 @@ public:
     bool isObserved() const {
         // A DfgVarVertex is written in exactly one DfgGraph, and might be read in an arbitrary
         // number of other DfgGraphs. If it's driven in this DfgGraph, it's read in others.
-        if (hasDfgRefs()) return srcp() || defaultp();
+        if (hasDfgRefs()) return srcp();
         return hasExtRdRefs();
     }
 
@@ -329,6 +324,27 @@ public:
     ASTGEN_MEMBERS_DfgVertexBinary;
 };
 
+class DfgInsert final : public DfgVertexBinary {
+    // Represents a partial assignment: takes the old value ('defaultp') and the
+    // new value ('srcp') to insert into it. The index at which to insert is a
+    // constant field ('m_lo').
+    uint32_t m_lo = 0;  // The low index of the inserted range
+public:
+    DfgInsert(DfgGraph& dfg, FileLine* flp, const DfgDataType& dtype)
+        : DfgVertexBinary{dfg, dfgType(), flp, dtype} {}
+    ASTGEN_MEMBERS_DfgInsert;
+
+    DfgVertex* defaultp() const { return inputp(0); }
+    void defaultp(DfgVertex* vtxp) { inputp(0, vtxp); }
+    DfgVertex* srcp() const { return inputp(1); }
+    void srcp(DfgVertex* vtxp) { inputp(1, vtxp); }
+    uint32_t lo() const { return m_lo; }
+    void lo(uint32_t value) { m_lo = value; }
+    uint32_t hi() const { return m_lo + srcp()->size() - 1; }
+
+    std::string srcName(size_t idx) const override { return idx ? "srcp" : "defaultp"; }
+};
+
 class DfgMatchMasked final : public DfgVertexBinary {
     // Dfg equivalent of AstMatchMasked
 public:
@@ -389,122 +405,122 @@ public:
     ASTGEN_MEMBERS_DfgVertexVariadic;
 };
 
-class DfgVertexSplice VL_NOT_FINAL : public DfgVertexVariadic {
-    // Represents a partial update to a varibale
+// class DfgVertexSplice VL_NOT_FINAL : public DfgVertexVariadic {
+//     // Represents a partial update to a varibale
 
-    struct DriverData final {
-        uint32_t m_lo;  // Low index of range driven by this driver
-        FileLine* m_flp;  // Location of this driver
-        DriverData() = delete;
-        DriverData(uint32_t lo, FileLine* flp)
-            : m_lo{lo}
-            , m_flp{flp} {}
-    };
-    std::vector<DriverData> m_driverData;  // Additional data associated with each driver
+//     struct DriverData final {
+//         uint32_t m_lo;  // Low index of range driven by this driver
+//         FileLine* m_flp;  // Location of this driver
+//         DriverData() = delete;
+//         DriverData(uint32_t lo, FileLine* flp)
+//             : m_lo{lo}
+//             , m_flp{flp} {}
+//     };
+//     std::vector<DriverData> m_driverData;  // Additional data associated with each driver
 
-protected:
-    DfgVertexSplice(DfgGraph& dfg, VDfgType type, FileLine* flp, const DfgDataType& dtype)
-        : DfgVertexVariadic{dfg, type, flp, dtype} {}
+// protected:
+//     DfgVertexSplice(DfgGraph& dfg, VDfgType type, FileLine* flp, const DfgDataType& dtype)
+//         : DfgVertexVariadic{dfg, type, flp, dtype} {}
 
-public:
-    ASTGEN_MEMBERS_DfgVertexSplice;
+// public:
+//     ASTGEN_MEMBERS_DfgVertexSplice;
 
-    // Add driver
-    void addDriver(DfgVertex* vtxp, uint32_t lo, FileLine* flp) {
-        UASSERT_OBJ(!vtxp->is<DfgLogic>(), vtxp, "addDriver called with DfgLogic");
-        m_driverData.emplace_back(lo, flp);
-        newInput()->relinkSrcp(vtxp);
-    }
+//     // Add driver
+//     void addDriver(DfgVertex* vtxp, uint32_t lo, FileLine* flp) {
+//         UASSERT_OBJ(!vtxp->is<DfgLogic>(), vtxp, "addDriver called with DfgLogic");
+//         m_driverData.emplace_back(lo, flp);
+//         newInput()->relinkSrcp(vtxp);
+//     }
 
-    void resetDrivers() {
-        resetInputs();
-        m_driverData.clear();
-    }
+//     void resetDrivers() {
+//         resetInputs();
+//         m_driverData.clear();
+//     }
 
-    std::string srcName(size_t idx) const override final {
-        const uint32_t lo = m_driverData[idx].m_lo;
-        const uint32_t hi = lo + inputp(idx)->size() - 1;
-        return '[' + std::to_string(hi) + ':' + std::to_string(lo) + ']';
-    }
+//     std::string srcName(size_t idx) const override final {
+//         const uint32_t lo = m_driverData[idx].m_lo;
+//         const uint32_t hi = lo + inputp(idx)->size() - 1;
+//         return '[' + std::to_string(hi) + ':' + std::to_string(lo) + ']';
+//     }
 
-    FileLine* driverFileLine(size_t idx) const { return m_driverData.at(idx).m_flp; }
+//     FileLine* driverFileLine(size_t idx) const { return m_driverData.at(idx).m_flp; }
 
-    DfgVertex* driverAt(size_t idx) const {
-        const size_t n = nInputs();
-        for (size_t i = 0; i < n; ++i) {
-            if (m_driverData[i].m_lo == idx) return inputp(i);
-        }
-        return nullptr;
-    }
+//     DfgVertex* driverAt(size_t idx) const {
+//         const size_t n = nInputs();
+//         for (size_t i = 0; i < n; ++i) {
+//             if (m_driverData[i].m_lo == idx) return inputp(i);
+//         }
+//         return nullptr;
+//     }
 
-    // If drives the whole result explicitly (not through defaultp), this is
-    // the actual driver this DfgVertexSplice can be replaced with.
-    DfgVertex* wholep() {
-        if (nInputs() != 1) return nullptr;
-        if (m_driverData[0].m_lo != 0) return nullptr;
-        DfgVertex* const vtxp = inputp(0);
-        if (vtxp->size() != size()) return nullptr;
-        if (const DfgUnitArray* const uap = vtxp->cast<DfgUnitArray>()) {
-            if (DfgVertexSplice* const splicep = uap->srcp()->cast<DfgVertexSplice>()) {
-                if (!splicep->wholep()) return nullptr;
-            }
-        }
-        return vtxp;
-    }
+//     // If drives the whole result explicitly (not through defaultp), this is
+//     // the actual driver this DfgVertexSplice can be replaced with.
+//     DfgVertex* wholep() {
+//         if (nInputs() != 1) return nullptr;
+//         if (m_driverData[0].m_lo != 0) return nullptr;
+//         DfgVertex* const vtxp = inputp(0);
+//         if (vtxp->size() != size()) return nullptr;
+//         if (const DfgUnitArray* const uap = vtxp->cast<DfgUnitArray>()) {
+//             if (DfgVertexSplice* const splicep = uap->srcp()->cast<DfgVertexSplice>()) {
+//                 if (!splicep->wholep()) return nullptr;
+//             }
+//         }
+//         return vtxp;
+//     }
 
-    bool foreachDriver(std::function<bool(DfgVertex&, uint32_t, FileLine*)> f) {
-        const size_t n = nInputs();
-        for (size_t i = 0; i < n; ++i) {
-            if (f(*inputp(i), m_driverData[i].m_lo, m_driverData[i].m_flp)) return true;
-        }
-        return false;
-    }
-    bool foreachDriver(std::function<bool(const DfgVertex&, uint32_t, FileLine*)> f) const {
-        const size_t n = nInputs();
-        for (size_t i = 0; i < n; ++i) {
-            if (f(*inputp(i), m_driverData[i].m_lo, m_driverData[i].m_flp)) return true;
-        }
-        return false;
-    }
-    bool foreachDriver(std::function<bool(DfgVertex&, uint32_t)> f) {
-        const size_t n = nInputs();
-        for (size_t i = 0; i < n; ++i) {
-            if (f(*inputp(i), m_driverData[i].m_lo)) return true;
-        }
-        return false;
-    }
-    bool foreachDriver(std::function<bool(const DfgVertex&, uint32_t)> f) const {
-        const size_t n = nInputs();
-        for (size_t i = 0; i < n; ++i) {
-            if (f(*inputp(i), m_driverData[i].m_lo)) return true;
-        }
-        return false;
-    }
-};
+//     bool foreachDriver(std::function<bool(DfgVertex&, uint32_t, FileLine*)> f) {
+//         const size_t n = nInputs();
+//         for (size_t i = 0; i < n; ++i) {
+//             if (f(*inputp(i), m_driverData[i].m_lo, m_driverData[i].m_flp)) return true;
+//         }
+//         return false;
+//     }
+//     bool foreachDriver(std::function<bool(const DfgVertex&, uint32_t, FileLine*)> f) const {
+//         const size_t n = nInputs();
+//         for (size_t i = 0; i < n; ++i) {
+//             if (f(*inputp(i), m_driverData[i].m_lo, m_driverData[i].m_flp)) return true;
+//         }
+//         return false;
+//     }
+//     bool foreachDriver(std::function<bool(DfgVertex&, uint32_t)> f) {
+//         const size_t n = nInputs();
+//         for (size_t i = 0; i < n; ++i) {
+//             if (f(*inputp(i), m_driverData[i].m_lo)) return true;
+//         }
+//         return false;
+//     }
+//     bool foreachDriver(std::function<bool(const DfgVertex&, uint32_t)> f) const {
+//         const size_t n = nInputs();
+//         for (size_t i = 0; i < n; ++i) {
+//             if (f(*inputp(i), m_driverData[i].m_lo)) return true;
+//         }
+//         return false;
+//     }
+// };
 
-class DfgSpliceArray final : public DfgVertexSplice {
-    friend class DfgVertex;
-    friend class DfgVisitor;
+// class DfgSpliceArray final : public DfgVertexSplice {
+//     friend class DfgVertex;
+//     friend class DfgVisitor;
 
-public:
-    DfgSpliceArray(DfgGraph& dfg, FileLine* flp, const DfgDataType& dtype)
-        : DfgVertexSplice{dfg, dfgType(), flp, dtype} {
-        UASSERT_OBJ(isArray(), flp, "Non-array DfgSpliceArray");
-    }
-    ASTGEN_MEMBERS_DfgSpliceArray;
-};
+// public:
+//     DfgSpliceArray(DfgGraph& dfg, FileLine* flp, const DfgDataType& dtype)
+//         : DfgVertexSplice{dfg, dfgType(), flp, dtype} {
+//         UASSERT_OBJ(isArray(), flp, "Non-array DfgSpliceArray");
+//     }
+//     ASTGEN_MEMBERS_DfgSpliceArray;
+// };
 
-class DfgSplicePacked final : public DfgVertexSplice {
-    friend class DfgVertex;
-    friend class DfgVisitor;
+// class DfgSplicePacked final : public DfgVertexSplice {
+//     friend class DfgVertex;
+//     friend class DfgVisitor;
 
-public:
-    DfgSplicePacked(DfgGraph& dfg, FileLine* flp, const DfgDataType& dtype)
-        : DfgVertexSplice{dfg, dfgType(), flp, dtype} {
-        UASSERT_OBJ(isPacked(), flp, "Non-packed DfgSplicePacked");
-    }
-    ASTGEN_MEMBERS_DfgSplicePacked;
-};
+// public:
+//     DfgSplicePacked(DfgGraph& dfg, FileLine* flp, const DfgDataType& dtype)
+//         : DfgVertexSplice{dfg, dfgType(), flp, dtype} {
+//         UASSERT_OBJ(isPacked(), flp, "Non-packed DfgSplicePacked");
+//     }
+//     ASTGEN_MEMBERS_DfgSplicePacked;
+// };
 
 class DfgLogic final : public DfgVertexVariadic {
     // Generic vertex representing a whole combinational process
@@ -565,9 +581,9 @@ public:
 
     std::string srcName(size_t) const override final { return ""; }
 
-    // Can only be driven by DfgLogic or DfgVertexSplice
+    // Can only be driven by DfgLogic or DfgVertexVar
     void addDriver(DfgLogic* vtxp) { newInput()->relinkSrcp(vtxp); }
-    void addDriver(DfgVertexSplice* vtxp) { newInput()->relinkSrcp(vtxp); }
+    void addDriver(DfgVertexVar* vtxp) { newInput()->relinkSrcp(vtxp); }
 };
 
 //------------------------------------------------------------------------------
