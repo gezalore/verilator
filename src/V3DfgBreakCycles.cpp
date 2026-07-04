@@ -347,89 +347,53 @@ class TraceDriver final : public DfgVisitor {
         vtxp->v3fatalSrc("TraceDriver - Unhandled vertex type: " << vtxp->typeName());
     }  // LCOV_EXCL_STOP
 
-    // void visit(DfgSplicePacked* vtxp) override {
-    //     struct Driver final {
-    //         DfgVertex* m_vtxp;
-    //         uint32_t m_lsb;  // LSB of driven range (internal, not Verilog)
-    //         uint32_t m_msb;  // MSB of driven range (internal, not Verilog)
-    //         Driver() = delete;
-    //         Driver(DfgVertex* vtxp, uint32_t lsb, uint32_t msb)
-    //             : m_vtxp{vtxp}
-    //             , m_lsb{lsb}
-    //             , m_msb{msb} {}
-    //     };
-    //     std::vector<Driver> drivers;
-
-    //     // Look at all the drivers, one might cover the whole range, but also gather all drivers
-    //     bool tryWholeDefault = false;
-    //     const bool done = vtxp->foreachDriver([&](DfgVertex& src, uint32_t lsb) {
-    //         const uint32_t msb = lsb + src.width() - 1;
-    //         drivers.emplace_back(&src, lsb, msb);
-    //         // Check if this driver covers any of the bits, then we can't use whole default
-    //         if (m_msb >= lsb && msb >= m_lsb) tryWholeDefault = false;
-    //         // If it does not cover the whole searched bit range, move on
-    //         if (m_lsb < lsb || msb < m_msb) return false;
-    //         // Driver covers whole search range, trace that and we are done
-    //         SET_RESULT(trace(&src, m_msb - lsb, m_lsb - lsb));
-    //         return true;
-    //     });
-    //     if (done) return;
-
-    //     // // Trace the default driver if no other drivers cover the searched range
-    //     // if (tryWholeDefault) {
-    //     //     SET_RESULT(trace(m_defaultp, m_msb, m_lsb));
-    //     //     return;
-    //     // }
-
-    //     // Hard case: We need to combine multiple drivers to produce the searched bit range
-
-    //     // Sort drivers (they are non-overlapping)
-    //     std::sort(drivers.begin(), drivers.end(), [](const Driver& a, const Driver& b) {  //
-    //         return a.m_lsb < b.m_lsb;
-    //     });
-
-    //     // Gather terms
-    //     std::vector<DfgVertex*> termps;
-    //     for (const Driver& driver : drivers) {
-    //         // Driver is below the searched LSB, move on
-    //         if (m_lsb > driver.m_msb) continue;
-    //         // Driver is above the searched MSB, done
-    //         if (driver.m_lsb > m_msb) break;
-    //         // Gap below this driver, trace default to fill it
-    //         if (driver.m_lsb > m_lsb) {
-    //             UASSERT_OBJ(m_defaultp, vtxp, "Should have a default driver if needs tracing");
-    //             termps.emplace_back(trace(m_defaultp, driver.m_lsb - 1, m_lsb));
-    //             m_lsb = driver.m_lsb;
-    //         }
-    //         // Driver covers searched range, pick the needed/available bits
-    //         const uint32_t lim = std::min(m_msb, driver.m_msb);
-    //         termps.emplace_back(trace(driver.m_vtxp, lim - driver.m_lsb, m_lsb - driver.m_lsb));
-    //         m_lsb = lim + 1;
-    //     }
-    //     if (m_msb >= m_lsb) {
-    //         UASSERT_OBJ(m_defaultp, vtxp, "Should have a default driver if needs tracing");
-    //         termps.emplace_back(trace(m_defaultp, m_msb, m_lsb));
-    //     }
-
-    //     // The earlier cheks cover the case when either a whole driver or the default covers
-    //     // the whole range, so there should be at least 2 terms required here.
-    //     UASSERT_OBJ(termps.size() >= 2, vtxp, "Should have returned in special cases");
-
-    //     // Concatenate all terms and set result
-    //     DfgVertex* resp = termps.front();
-    //     for (size_t i = 1; i < termps.size(); ++i) {
-    //         DfgVertex* const termp = termps[i];
-    //         DfgConcat* const catp = make<DfgConcat>(termp, resp->width() + termp->width());
-    //         catp->rhsp(resp);
-    //         catp->lhsp(termp);
-    //         resp = catp;
-    //     }
-    //     SET_RESULT(resp);
-    // }
-
     void visit(DfgVarPacked* vtxp) override {
         UASSERT_OBJ(!vtxp->isVolatile(), vtxp, "Should not trace through volatile VarPacked");
         SET_RESULT(trace(vtxp->srcp(), m_msb, m_lsb));
+    }
+
+    void visit(DfgInsert* vtxp) override {
+        // FIXME: Claude, review
+
+        // Only the packed case is handled for now (TraceDriver only traces packed vertices).
+        DfgVertex* const defaultp = vtxp->defaultp();
+        DfgVertex* const srcp = vtxp->srcp();
+        const uint32_t lo = vtxp->lo();  // LSB of the inserted range
+        const uint32_t hi = vtxp->hi();  // MSB of the inserted range
+
+        // If the traced bits are wholly outside the inserted range, they come from 'defaultp'
+        if (m_msb < lo || m_lsb > hi) {
+            SET_RESULT(trace(defaultp, m_msb, m_lsb));
+            return;
+        }
+        // If the traced bits are wholly within the inserted range, they come from 'srcp'
+        if (m_lsb >= lo && m_msb <= hi) {
+            SET_RESULT(trace(srcp, m_msb - lo, m_lsb - lo));
+            return;
+        }
+
+        // Otherwise the traced range spans the boundary of the inserted range.
+        // Gather the sub-terms from LSB to MSB and concatenate them.
+        std::vector<DfgVertex*> termps;
+        // Low part from 'defaultp', below the inserted range
+        if (m_lsb < lo) termps.push_back(trace(defaultp, lo - 1, m_lsb));
+        // Middle part from 'srcp', within the inserted range
+        {
+            const uint32_t sLsb = m_lsb < lo ? 0 : m_lsb - lo;
+            const uint32_t sMsb = (m_msb < hi ? m_msb : hi) - lo;
+            termps.push_back(trace(srcp, sMsb, sLsb));
+        }
+        // High part from 'defaultp', above the inserted range
+        if (m_msb > hi) termps.push_back(trace(defaultp, m_msb, hi + 1));
+        // Concatenate the terms ('rhsp' is the low part, 'lhsp' is the high part)
+        DfgVertex* resp = termps.front();
+        for (size_t i = 1; i < termps.size(); ++i) {
+            DfgConcat* const catp = make<DfgConcat>(vtxp, resp->width() + termps[i]->width());
+            catp->rhsp(resp);
+            catp->lhsp(termps[i]);
+            resp = catp;
+        }
+        SET_RESULT(resp);
     }
 
     void visit(DfgArraySel* vtxp) override {
@@ -451,7 +415,6 @@ class TraceDriver final : public DfgVisitor {
         }
 
         // Trace the relevant driver based on the static index
-        // const DfgConst* const idxp = vtxp->bitp()->as<DfgConst>();
         UASSERT_OBJ(!varp->isVolatile(), vtxp, "Should not trace through volatile VarArray");
         // Skip through intermediate variables
         while (varp->srcp() && varp->srcp()->is<DfgVarArray>()) {
@@ -905,11 +868,6 @@ class IndependentBits final : public DfgVisitor {
 #endif
 
     // METHODS
-<<<<<<< HEAD
-=======
-    // Predicate to check if a vertex should be analysed directly
-    bool handledDirectly(const DfgVertex& vtx) const { return vtx.isPacked(); }
->>>>>>> 423beb7ea (DfgInsert)
 
     // Retrieve the mask for the given vertex (create it with value 0 if needed)
     BitMask& mask(const DfgVertex& vtx) {
@@ -951,83 +909,31 @@ class IndependentBits final : public DfgVisitor {
         }
     }
 
-<<<<<<< HEAD
-    void propagateFromDriver(BitMask& m, const DfgVertex* srcp) {
-        // If there is no driver, we are done
-        if (!srcp) return;
-        // If it is driven by a splice, we need to combine the masks of the drivers
-        if (const DfgSplicePacked* const splicep = srcp->cast<DfgSplicePacked>()) {
-            splicep->foreachDriver([&](const DfgVertex& src, uint32_t lo) {
-                m.num().opSelInto(MASK(&src).num(), lo, src.width());
-                return false;
-            });
-            return;
-        }
-        if (const DfgSpliceArray* const splicep = srcp->cast<DfgSpliceArray>()) {
-            splicep->foreachDriver([&](const DfgVertex& src, uint32_t lo) {
-                if (const DfgUnitArray* const uap = src.cast<DfgUnitArray>()) {
-                    m.sub().at(lo) = MASK(uap->srcp());
-                } else {
-                    // m.sub().at(lo) = Can't happen MASK(&src);
-                }
-                return false;
-            });
-            return;
-        }
-=======
-    void propagateFromDriver(V3Number& m, const DfgVertex* srcp) {
-        UASSERT_OBJ(false, &m, "Expected a driver");
-        // If there is no driver, we are done
-        if (!srcp) return;
-        // // If it is driven by a splice, we need to combine the masks of the drivers
-        // if (const DfgSplicePacked* const splicep = srcp->cast<DfgSplicePacked>()) {
-        //     splicep->foreachDriver([&](const DfgVertex& src, uint32_t lo) {
-        //         m.opSelInto(MASK(&src), lo, src.width());
-        //         return false;
-        //     });
-        //     return;
-        // }
->>>>>>> 423beb7ea (DfgInsert)
-        // Otherwise, we just use the mask of the single driver
-        m = MASK(srcp);
-    }
-
     // VISITORS
     void visit(DfgVertex* vtxp) override {  // LCOV_EXCL_START
         UINFO(9, "IndependentBits - Unhandled vertex type: " << vtxp->typeName());
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
+        // FIXME: remove before landing
         vtxp->v3fatalSrc("IndependentBits - Unhandled vertex type: " << vtxp->typeName());
-=======
-        UASSERT_OBJ(false, vtxp, "Unhandled vertex type: " << vtxp->typeName());
->>>>>>> 423beb7ea (DfgInsert)
->>>>>>> 943a7dab9 (DfgInsert)
         // Conservative assumption about all bits being dependent prevails
     }  // LCOV_EXCL_STOP
 
     void visit(DfgVertexVar* vtxp) override {
         // We cannot trace through a volatile variable, so pretend all bits are dependent
         if (vtxp->isVolatile()) return;
-<<<<<<< HEAD
-
-        BitMask& m = MASK(vtxp);
-        DfgVertex* const srcp = vtxp->srcp();
-        DfgVertex* const defaultp = vtxp->defaultp();
-        // If there is a default driver, we start from that
-        if (defaultp) m = MASK(defaultp);
-        // Then propagate mask from the driver
-        propagateFromDriver(m, srcp);
-=======
         MASK(vtxp) = MASK(vtxp->srcp());
->>>>>>> 423beb7ea (DfgInsert)
     }
 
-    void visit(DfgVertexSplice* vtxp) override {
-        propagateFromDriver(MASK(vtxp), vtxp);  // Needed to continue traversal
+    void visit(DfgInsert* vtxp) override {
+        BitMask& m = MASK(vtxp);
+        m = MASK(vtxp->defaultp());
+        DfgVertex* const srcp = vtxp->srcp();
+        if (vtxp->isPacked()) {
+            m.num().opSelInto(MASK(srcp).num(), vtxp->lo(), srcp->width());
+        } else {
+            m.sub().at(vtxp->lo()) = MASK(vtxp->srcp()).sub().at(0);
+        }
     }
 
-<<<<<<< HEAD
     void visit(DfgUnitArray* vtxp) override { MASK(vtxp).sub().at(0) = MASK(vtxp->srcp()); }
 
     void visit(DfgArraySel* vtxp) override {
@@ -1042,41 +948,6 @@ class IndependentBits final : public DfgVisitor {
         // If index is not constant, independent only if the index is indenpendent, and the array
         // is independent. TODO: could relax by '&' reducing, not sure if worth it.
         if (MASK(vtxp->bitp()).isOnes() && MASK(fromp).isOnes()) MASK(vtxp).setOnes();
-=======
-        // We cannot trace through a volatile variable, so pretend all bits are dependent
-        if (varp->isVolatile()) return;
-
-        // If index is not constant, independent only if the variable index
-        // is indenpendent and the array is independent. We don't track arrays,
-        // so we will assume an array is only independent if it has no drivers
-        // in the graph. TODO: could check all drivers.
-        if (!vtxp->bitp()->is<DfgConst>()) {
-            if (MASK(vtxp->bitp()).isEqAllOnes() && !varp->srcp()) MASK(vtxp).setAllBits1();
-            return;
-        }
-
-
-
-        // Trace the relevant driver based on the static index
-        // const DfgConst* const idxp = vtxp->bitp()->as<DfgConst>();
-        // Skip through intermediate variables
-        while (varp->srcp() && varp->srcp()->is<DfgVarArray>()) {
-            varp = varp->srcp()->as<DfgVarArray>();
-            if (varp->isVolatile()) return;
-        }
-        // Find driver
-        const DfgVertex* srcp = varp->srcp();
-        if (!srcp) return;
-        // if (const DfgSpliceArray* const splicep = srcp->cast<DfgSpliceArray>()) {
-        //     srcp = splicep->driverAt(idxp->toSizeT());
-        //     if (!srcp) return;
-        // }
-        const DfgUnitArray* uap = srcp->cast<DfgUnitArray>();
-        if (!uap) return;
-        srcp = uap->srcp();
-        // Propagate from driver
-        propagateFromDriver(MASK(vtxp), srcp);
->>>>>>> 423beb7ea (DfgInsert)
     }
 
     void visit(DfgConcat* vtxp) override {
@@ -1191,9 +1062,7 @@ class IndependentBits final : public DfgVisitor {
         if (DfgConst* const rConstp = rhsp->cast<DfgConst>()) {
             const uint32_t shiftAmount = rConstp->toU32();
             if (shiftAmount >= width) {
-                if (MASK(lhsp).num().bitIs1(width - 1)) {
-                    MASK(vtxp).setOnes();
-                }
+                if (MASK(lhsp).num().bitIs1(width - 1)) { MASK(vtxp).setOnes(); }
             } else {
                 V3Number& m = MASK(vtxp).num();
                 m.opShiftRS(MASK(lhsp).num(), rConstp->num(), width);
