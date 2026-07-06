@@ -82,8 +82,7 @@ test.file_grep(test.obj_dir + "/obj_opt/Vopt__stats.txt",
                r'DFG, Synthesis, synt / always blocks considered\s+(\d+)$',
                nAlwaysSynthesized + nAlwaysNotSynthesized)
 test.file_grep(test.obj_dir + "/obj_opt/Vopt__stats.txt",
-               r'DFG, Synthesis, synt / always blocks synthesized\s+(\d+)$',
-               nAlwaysSynthesized)
+               r'DFG, Synthesis, synt / always blocks synthesized\s+(\d+)$', nAlwaysSynthesized)
 
 # Execute test to check equivalence
 test.execute(executable=test.obj_dir + "/obj_opt/Vopt")

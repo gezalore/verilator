@@ -2130,14 +2130,17 @@ class V3DfgPeephole final : public DfgVisitor {
         //             // Narrowed RHS
         //             DfgVertex* nRhsp = rhsp;
         //             if (lsb != 0)
-        //                 nRhsp = make<DfgSel>(flp, DfgDataType::packed(rMsb - lsb + 1), rhsp, lsb);
+        //                 nRhsp = make<DfgSel>(flp, DfgDataType::packed(rMsb - lsb + 1), rhsp,
+        //                 lsb);
         //             // Narrowed LHS
         //             DfgVertex* nLhsp = lhsp;
         //             if (msb != vMsb)
-        //                 nLhsp = make<DfgSel>(flp, DfgDataType::packed(msb - lLsb + 1), lhsp, 0U);
+        //                 nLhsp = make<DfgSel>(flp, DfgDataType::packed(msb - lLsb + 1), lhsp,
+        //                 0U);
         //             // Narrowed concatenation
         //             DfgVertex* const catp
-        //                 = make<DfgConcat>(flp, DfgDataType::packed(msb - lsb + 1), nLhsp, nRhsp);
+        //                 = make<DfgConcat>(flp, DfgDataType::packed(msb - lsb + 1), nLhsp,
+        //                 nRhsp);
 
         //             // Need to insert via a partial splice to avoid infinite matching,
         //             // this splice will be eliminated on later visits to its sinks.
