@@ -430,6 +430,10 @@ module t (
   wire        sel_from_not = sel_from_not_tmp[2];
   always @(posedge randbit_a) if ($c(0)) $display(sel_from_not); // Do not remove signal
 
+  // And of a replicated bit with a value that has a zero part
+  `signal(NARROW_AND_OF_REPLICATED_BIT_HI, {8{rand_a[1]}} & {4'd0, rand_b[3:0]});
+  `signal(NARROW_AND_OF_REPLICATED_BIT_LO, {8{rand_a[2]}} & {rand_b[7:4], 4'd0});
+
   // Narrow concatenation
   wire [9:0] narrow_concat = {5'd0, ~rand_a[44 +: 5]};
   `signal(NARROW_CONCAT_A, narrow_concat[5:1]);

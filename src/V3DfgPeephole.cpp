@@ -1612,6 +1612,35 @@ class V3DfgPeephole final : public DfgVisitor {
             }
         }
 
+        // And of a mask made by replicating a single bit, with a value that has
+        // a zero part. The result is zero over that part whatever the mask is,
+        // so mask only the rest. This needs a narrower replication of the bit,
+        // or none at all when a single bit is left.
+        for (size_t i = 0; i < 2; ++i) {
+            DfgRep* const repp = vtxp->inputp(i)->cast<DfgRep>();
+            if (!repp || repp->srcp()->width() != 1) continue;
+            DfgConcat* const catp = vtxp->inputp(1 - i)->cast<DfgConcat>();
+            if (!catp) continue;
+            const DfgConst* const catLConstp = catp->lhsp()->cast<DfgConst>();
+            const DfgConst* const catRConstp = catp->rhsp()->cast<DfgConst>();
+            const bool zeroLhs = catLConstp && catLConstp->isZero();
+            const bool zeroRhs = catRConstp && catRConstp->isZero();
+            // With both parts zero, the whole And folds away instead
+            if (zeroLhs == zeroRhs) continue;
+            DfgVertex* const keepp = zeroLhs ? catp->rhsp() : catp->lhsp();
+            // Skip if this would only move the mask: when the replication is
+            // used elsewhere it stays, and a narrower one is not free, unless a
+            // single bit is left, which needs no replication at all.
+            if (keepp->width() != 1 && repp->hasMultipleSinks()) continue;
+            APPLYING(NARROW_AND_OF_REPLICATED_BIT) {
+                DfgVertex* const maskp = replicate(keepp, repp->srcp());
+                DfgAnd* const newAndp = make<DfgAnd>(flp, keepp->dtype(), maskp, keepp);
+                replace(zeroLhs ? make<DfgConcat>(catp, catp->lhsp(), newAndp)
+                                : make<DfgConcat>(catp, newAndp, catp->rhsp()));
+                return;
+            }
+        }
+
         if (distributiveAndAssociativeBinary<DfgOr, DfgAnd>(vtxp)) return;
 
         if (tryPushBitwiseOpThroughReductions(vtxp)) return;
