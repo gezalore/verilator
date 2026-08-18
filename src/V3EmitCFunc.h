@@ -1666,6 +1666,13 @@ public:
         //TODO: This might need to handle more cases like the visit(AstStreamR) function
         emitOpName(nodep, nodep->emitC(), nodep->lhsp(), nodep->rhsp(), nullptr);
     }
+    // Width of one element of the queue nodep is, or zero if it is not a queue.
+    // The runtime needs this to align a stream within a wider element.
+    static int queueElementWidth(const AstNode* nodep) {
+        const AstQueueDType* const qDTypep = VN_CAST(nodep->dtypep()->skipRefp(), QueueDType);
+        if (!qDTypep) return 0;
+        return qDTypep->subDTypep()->skipRefp()->width();
+    }
     void visit(AstStreamR* nodep) override {
         //The parrent node of our AstStreamR will give just enough info for what streamR should
         //output if nodep->backp() is not the parent then emitStreamR should have been used. throw
@@ -1673,8 +1680,10 @@ public:
         bool backpIsParent = (nodep->backp()->op1p() == nodep || nodep->backp()->op2p() == nodep);
         UASSERT(backpIsParent, "can not find return type for streamR");
         if ((VN_IS(nodep->backp()->dtypep()->skipRefp(), QueueDType))) {
-            emitOpName(nodep, "VL_STREAMR_%nq%lq%rq(%lw, %P, %li, %ri)", nodep->lhsp(),
-                       nodep->rhsp(), nullptr);
+            emitOpName(nodep,
+                       "VL_STREAMR_%nq%lq%rq(%lw, "
+                           + std::to_string(queueElementWidth(nodep->backp())) + ", %P, %li, %ri)",
+                       nodep->lhsp(), nodep->rhsp(), nullptr);
         } else if (VN_IS(nodep->lhsp()->dtypep()->skipRefp(), QueueDType)) {
             if (!((nodep->backp()->op1p() && nodep->backp()->op1p()->isWide())
                   || (nodep->backp()->op2p() && nodep->backp()->op2p()->isWide()))) {
@@ -1725,9 +1734,8 @@ public:
         }
         if (VN_IS(nodep->backp(), Assign)
             && VN_IS(nodep->backp()->op2p()->dtypep()->skipRefp(), QueueDType)) {
-            int queueWidth
-                = nodep->backp()->op2p()->dtypep()->subDTypep()->width();  //We need to know the
-                                                                           //width of both sides
+            //We need to know the width of both sides
+            const int queueWidth = queueElementWidth(nodep->backp()->op2p());
             emitOpName(nodep,
                        "VL_STREAML_%nq%lq%rq(%lw," + std::to_string(queueWidth)
                            + ", %P, %li, %ri)",

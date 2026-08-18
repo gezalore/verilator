@@ -978,6 +978,15 @@ class ConstVisitor final : public VNVisitor {
         return dtypep->isStreamableFixedAggregate() && dtypep->containsUnpackedStruct();
     }
 
+    // True if the streamed source is an array, so that a stream into a dynamically
+    // sized destination is a reblocking of its elements rather than the assignment
+    // of a packed value
+    static bool streamsArraySource(const AstNodeStream* const streamp) {
+        const AstNodeDType* const dtypep = streamp->lhsp()->dtypep()->skipRefp();
+        return VN_IS(dtypep, QueueDType) || VN_IS(dtypep, DynArrayDType)
+               || VN_IS(dtypep, UnpackArrayDType);
+    }
+
     AstStructSel* newStructSel(AstNodeExpr* const fromp, const AstMemberDType* const itemp) {
         AstStructSel* const selp = new AstStructSel{fromp->fileline(), fromp, itemp->name()};
         selp->dtypeFrom(itemp->dtypep());
@@ -2572,8 +2581,14 @@ class ConstVisitor final : public VNVisitor {
             VL_DO_DANGLING(pushDeletep(cvtp), cvtp);
             replaceAssignToFixedAggregate(nodep, nodep->lhsp()->unlinkFrBack(), srcp);
             return true;
-        } else if (m_doV && VN_IS(nodep->rhsp(), StreamR)
-                   && !VN_IS(nodep->lhsp()->dtypep()->skipRefp(), QueueDType)) {
+        } else if (m_doV
+                   && VN_IS(nodep->rhsp(), StreamR)
+                   // A queue destination keeps the stream, as the runtime unpacks the
+                   // packed source into it. Unless the source is itself dynamically
+                   // sized, in which case the two are reblocked element by element,
+                   // as the left streaming operator also does.
+                   && (!VN_IS(nodep->lhsp()->dtypep()->skipRefp(), QueueDType)
+                       || streamsArraySource(VN_AS(nodep->rhsp(), NodeStream)))) {
             // The right-streaming operator on rhs of assignment does not
             // change the order of bits. Eliminate stream but keep its lhsp.
             // Add a cast if needed.
@@ -2599,6 +2614,20 @@ class ConstVisitor final : public VNVisitor {
                 } else {
                     srcp = new AstCvtArrayToPacked{srcp->fileline(), srcp, nodep->dtypep()};
                 }
+            } else if (VN_IS(srcDTypep, UnpackArrayDType)
+                       && (VN_IS(dstDTypep, QueueDType) || VN_IS(dstDTypep, DynArrayDType))) {
+                // Reblock the elements of the unpacked array into the dynamically
+                // sized destination, as the left streaming operator also does
+                const int srcElementBits = srcDTypep->subDTypep()->width();
+                int dstElementBits = 0;
+                if (const AstNodeDType* const elemDtp = dstDTypep->subDTypep()) {
+                    dstElementBits = elemDtp->width();
+                }
+                // Descending unpacked arrays need element reversal
+                const bool reverse = !VN_AS(srcDTypep, UnpackArrayDType)->declRange().ascending();
+                srcp = new AstCvtArrayToArray{srcp->fileline(), srcp, nodep->dtypep(),
+                                              reverse,          1,    dstElementBits,
+                                              srcElementBits};
             } else if (VN_IS(srcDTypep, UnpackArrayDType)) {
                 srcp = new AstCvtArrayToPacked{srcp->fileline(), srcp, srcDTypep};
                 // Handling the case where lhs is wider than rhs by inserting zeros. StreamL does
@@ -2732,6 +2761,7 @@ class ConstVisitor final : public VNVisitor {
             }
             const int sWidth = srcp->width();
             const int dWidth = dstp->width();
+            const AstNodeDType* const srcDTypep = srcp->dtypep()->skipRefp();
             if (VN_IS(dstDTypep, UnpackArrayDType)) {
                 const int dstBitWidth
                     = dWidth * VN_AS(dstDTypep, UnpackArrayDType)->arrayUnpackedElements();
@@ -2743,6 +2773,11 @@ class ConstVisitor final : public VNVisitor {
                         = new AstSel{streamp->fileline(), srcp, sWidth - dstBitWidth, dstBitWidth};
                 }
                 srcp = new AstCvtPackedToArray{nodep->fileline(), srcp, dstDTypep};
+            } else if (VN_IS(srcDTypep, QueueDType) || VN_IS(srcDTypep, DynArrayDType)) {
+                // A dynamically sized source is packed into the fixed size destination,
+                // left aligned as the destination may be wider than the stream
+                // (IEEE 1800-2023 11.4.14.3)
+                srcp = new AstCvtArrayToPacked{srcp->fileline(), srcp, dstp->dtypep()};
             } else {
                 if (dWidth == 0) {
                     srcp = new AstCvtPackedToArray{nodep->fileline(), srcp, dstDTypep};
@@ -2783,7 +2818,22 @@ class ConstVisitor final : public VNVisitor {
                 srcp = packedp;
             } else if ((VN_IS(srcDTypep, QueueDType) || VN_IS(srcDTypep, DynArrayDType)
                         || VN_IS(srcDTypep, UnpackArrayDType))) {
-                if (VN_IS(dstDTypep, QueueDType) || VN_IS(dstDTypep, DynArrayDType)) {
+                if (VN_IS(srcDTypep, UnpackArrayDType)
+                    && (VN_IS(dstDTypep, QueueDType) || VN_IS(dstDTypep, DynArrayDType))) {
+                    // Pack the statically sized source, which also puts its elements in
+                    // declaration order, so that the stream reverses the whole of it in
+                    // slices of its own size. The stream is then unpacked into the
+                    // dynamically sized destination.
+                    const AstUnpackArrayDType* const unpackDTypep
+                        = VN_AS(srcDTypep, UnpackArrayDType);
+                    const int packedBits = unpackDTypep->arrayUnpackedElements()
+                                           * unpackDTypep->subDTypep()->width();
+                    AstNodeDType* const packedDTypep
+                        = nodep->findLogicDType(packedBits, packedBits, VSigning::UNSIGNED);
+                    streamp->lhsp(new AstCvtArrayToPacked{srcp->fileline(), srcp->unlinkFrBack(),
+                                                          packedDTypep});
+                    streamp->dtypeFrom(packedDTypep);
+                } else if (VN_IS(dstDTypep, QueueDType) || VN_IS(dstDTypep, DynArrayDType)) {
                     int blockSize = 1;
                     if (const AstConst* const constp = VN_CAST(streamp->rhsp(), Const)) {
                         blockSize = constp->toSInt();

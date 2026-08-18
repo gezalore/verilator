@@ -241,6 +241,18 @@ class CleanVisitor final : public VNVisitor {
         operandBiop(nodep);
         setClean(nodep, nodep->cleanOut());
     }
+    void visit(AstStreamR* nodep) override {
+        // A right stream does not reorder bits, so it is emitted as its operand,
+        // or, with a dynamically sized destination, as a runtime function that
+        // is given the stream width and cleans what it writes. So clean the
+        // operand rather than the stream. A clean inserted above the stream
+        // would separate it from the assignment it is emitted as part of, which
+        // is how the destination is found.
+        iterateChildren(nodep);
+        computeCppWidth(nodep);
+        ensureClean(nodep->lhsp());
+        setClean(nodep, true);
+    }
     void visit(AstCExprUser* nodep) override {
         iterateChildren(nodep);
         computeCppWidth(nodep);
