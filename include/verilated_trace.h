@@ -26,6 +26,8 @@
 
 #include "verilated.h"
 
+#include "verilated_rtmd.h"
+
 #include <bitset>
 #include <condition_variable>
 #include <memory>
@@ -49,14 +51,14 @@ class VerilatedTraceBuffer;
 
 enum class VerilatedTracePrefixType : uint8_t {
     // Note: Entries must match VTracePrefixType (by name, not necessarily by value)
-    ARRAY_PACKED,
-    ARRAY_UNPACKED,
+    PACKED_ARRAY,
+    UNPACKED_ARRAY,
     ROOTIO_WRAPPER,  // $rootio suppressed due to name()!=""
     SCOPE_MODULE,
     SCOPE_INTERFACE,
-    STRUCT_PACKED,
-    STRUCT_UNPACKED,
-    UNION_PACKED
+    PACKED_STRUCT,
+    UNPACKED_STRUCT,
+    PACKED_UNION
 };
 
 // Direction attribute for ports
@@ -97,6 +99,74 @@ enum class VerilatedTraceSigType : uint8_t {
 };
 
 //=============================================================================
+// Conversion from RTMD attributes to trace attributes
+
+inline VerilatedTracePrefixType vlRtmdToPrefixType(VlRtmdHierRow::Push::Kind kind) VL_PURE {
+    switch (kind) {
+    case VlRtmdHierRow::Push::Kind::INTERFACE: return VerilatedTracePrefixType::SCOPE_INTERFACE;
+    case VlRtmdHierRow::Push::Kind::ROOT:
+    case VlRtmdHierRow::Push::Kind::MODULE:
+    case VlRtmdHierRow::Push::Kind::PACKAGE:
+    case VlRtmdHierRow::Push::Kind::GENERATE:
+    case VlRtmdHierRow::Push::Kind::BEGIN:
+    case VlRtmdHierRow::Push::Kind::FORK:
+    case VlRtmdHierRow::Push::Kind::FUNCTION:
+    case VlRtmdHierRow::Push::Kind::TASK: break;
+    }
+    return VerilatedTracePrefixType::SCOPE_MODULE;
+}
+
+inline VerilatedTraceSigDirection
+vlRtmdToSigDirection(VlRtmdSignalTypeRow::Signal::Direction dir) VL_PURE {
+    switch (dir) {
+    case VlRtmdSignalTypeRow::Signal::Direction::INPUT:
+    case VlRtmdSignalTypeRow::Signal::Direction::CONSTREF:
+        return VerilatedTraceSigDirection::INPUT;
+    case VlRtmdSignalTypeRow::Signal::Direction::OUTPUT:
+    case VlRtmdSignalTypeRow::Signal::Direction::REF: return VerilatedTraceSigDirection::OUTPUT;
+    case VlRtmdSignalTypeRow::Signal::Direction::INOUT: return VerilatedTraceSigDirection::INOUT;
+    case VlRtmdSignalTypeRow::Signal::Direction::NONE: break;
+    }
+    return VerilatedTraceSigDirection::NONE;
+}
+
+inline VerilatedTraceSigKind vlRtmdToSigKind(VlRtmdSignalTypeRow::Signal::Kind kind) VL_PURE {
+    switch (kind) {
+    case VlRtmdSignalTypeRow::Signal::Kind::GPARAM:
+    case VlRtmdSignalTypeRow::Signal::Kind::LPARAM:
+    case VlRtmdSignalTypeRow::Signal::Kind::SPECPARAM:
+    case VlRtmdSignalTypeRow::Signal::Kind::GENVAR: return VerilatedTraceSigKind::PARAMETER;
+    case VlRtmdSignalTypeRow::Signal::Kind::WIRE:
+    case VlRtmdSignalTypeRow::Signal::Kind::WREAL: return VerilatedTraceSigKind::WIRE;
+    case VlRtmdSignalTypeRow::Signal::Kind::SUPPLY0: return VerilatedTraceSigKind::SUPPLY0;
+    case VlRtmdSignalTypeRow::Signal::Kind::SUPPLY1: return VerilatedTraceSigKind::SUPPLY1;
+    case VlRtmdSignalTypeRow::Signal::Kind::TRI: return VerilatedTraceSigKind::TRI;
+    case VlRtmdSignalTypeRow::Signal::Kind::TRI0: return VerilatedTraceSigKind::TRI0;
+    case VlRtmdSignalTypeRow::Signal::Kind::TRI1: return VerilatedTraceSigKind::TRI1;
+    case VlRtmdSignalTypeRow::Signal::Kind::TRIAND: return VerilatedTraceSigKind::TRIAND;
+    case VlRtmdSignalTypeRow::Signal::Kind::TRIOR: return VerilatedTraceSigKind::TRIOR;
+    case VlRtmdSignalTypeRow::Signal::Kind::VAR: break;
+    }
+    return VerilatedTraceSigKind::VAR;
+}
+
+inline VerilatedTraceSigType vlRtmdToSigType(VlRtmdDataTypeRow::Atom::Kind type) VL_PURE {
+    switch (type) {
+    case VlRtmdDataTypeRow::Atom::Kind::DOUBLE: return VerilatedTraceSigType::DOUBLE;
+    case VlRtmdDataTypeRow::Atom::Kind::INTEGER: return VerilatedTraceSigType::INTEGER;
+    case VlRtmdDataTypeRow::Atom::Kind::BIT: return VerilatedTraceSigType::BIT;
+    case VlRtmdDataTypeRow::Atom::Kind::INT: return VerilatedTraceSigType::INT;
+    case VlRtmdDataTypeRow::Atom::Kind::SHORTINT: return VerilatedTraceSigType::SHORTINT;
+    case VlRtmdDataTypeRow::Atom::Kind::LONGINT: return VerilatedTraceSigType::LONGINT;
+    case VlRtmdDataTypeRow::Atom::Kind::BYTE: return VerilatedTraceSigType::BYTE;
+    case VlRtmdDataTypeRow::Atom::Kind::EVENT: return VerilatedTraceSigType::EVENT;
+    case VlRtmdDataTypeRow::Atom::Kind::TIME: return VerilatedTraceSigType::TIME;
+    case VlRtmdDataTypeRow::Atom::Kind::LOGIC: break;
+    }
+    return VerilatedTraceSigType::LOGIC;
+}
+
+//=============================================================================
 // VerilatedTraceConfig
 
 // Simple data representing trace configuration required by generated models.
@@ -117,6 +187,9 @@ class VerilatedTraceBaseC VL_NOT_FINAL {
 public:
     /// True if file currently open
     virtual bool isOpen() const VL_MT_SAFE = 0;
+
+    // Register a traced model and its descriptor tables
+    virtual void addModel(const VerilatedModel* modelp, const VlRtmd& tables) VL_MT_SAFE = 0;
 
     // internal use only
     bool modelConnected() const VL_MT_SAFE { return m_modelConnected; }
@@ -230,6 +303,37 @@ private:
     bool m_didSomeDump = false;  // Did at least one dump (i.e.: m_timeLastDump is valid)
     VerilatedContext* m_contextp = nullptr;  // The context used by the traced models
     std::set<const VerilatedModel*> m_models;  // The collection of models being traced
+    // Descriptor tables of each traced model
+    std::vector<VlRtmd> m_rtmdTables;
+    // One value to dump
+    struct RtmdLeaf final {
+        const void* m_datap;  // Address of the value
+        uint32_t m_code;  // Trace code
+        uint32_t m_bits;  // Width of the value
+        uint32_t m_actSetId;  // Activity set
+        VlRtmdRead m_read;  // How to read it
+    };
+    std::vector<RtmdLeaf> m_rtmdLeaves;
+    // A run of leaves with the same activity set
+    struct RtmdGroup final {
+        const VlRtmd* m_tablesp;  // Tables of the model
+        uint32_t m_actSetId;  // Activity set
+        size_t m_first;  // First leaf of the run
+        size_t m_count;
+    };
+    std::vector<RtmdGroup> m_rtmdGroups;
+
+    // A signal being declared, shared by the values it is made of
+    struct RtmdSignal final {
+        const VlRtmdSignalTypeRow::Signal* m_typep;  // Signal type
+        uint32_t m_actSetId;  // Activity set
+        bool m_global;  // In a global variable, so never shares a trace code
+    };
+
+    // The library of each PARTITION row of each model, in row order, nullptr if not registered
+    std::map<const VlRtmd*, std::vector<const VlRtmd*>> m_rtmdPartitionLibs;
+    // Trace code of each (address, width) of the model being elaborated
+    std::map<std::pair<const uint8_t*, uint32_t>, uint32_t> m_rtmdValueCodes;
 
     void addCallbackRecord(std::vector<CallbackRecord>& cbVec, CallbackRecord&& cbRec)
         VL_MT_SAFE_EXCLUDES(m_mutex);
@@ -329,7 +433,7 @@ public:
     // Non-hot path internal interface to Verilator generated code
 
     bool rootInit() const VL_MT_UNSAFE { return m_rootInit; }
-    void addModel(VerilatedModel*) VL_MT_SAFE_EXCLUDES(m_mutex);
+    void addModel(const VerilatedModel*) VL_MT_SAFE_EXCLUDES(m_mutex);
     void addInitCb(initCb_t cb, void* userp, const std::string& name, bool isLibInstance,
                    uint32_t nTraceCodes) VL_MT_SAFE;
     void addConstCb(dumpCb_t cb, uint32_t fidx, void* userp) VL_MT_SAFE;
@@ -337,6 +441,34 @@ public:
     void addChgCb(dumpCb_t cb, uint32_t fidx, void* userp) VL_MT_SAFE;
     void addCleanupCb(cleanupCb_t cb, void* userp) VL_MT_SAFE;
     void initLib(const std::string& name) VL_MT_UNSAFE;
+    // Register the descriptor tables of a traced model. Defined here, not in the imp header, as
+    // the trace format classes call it from inline methods.
+    void addRtmdTables(const VlRtmd& tables) VL_MT_SAFE {
+        const VerilatedLockGuard lock{m_mutex};
+        m_rtmdTables.push_back(tables);
+    }
+
+private:
+    // Declare the signals of the registered descriptor tables
+    void elaborateRtmd() VL_MT_UNSAFE;
+    // Find the library of each PARTITION row, and return the models that are such libraries
+    std::set<const VlRtmd*> findRtmdPartitionLibs() VL_MT_UNSAFE;
+    // Declare the hierarchy of the given tables, naming its root level 'rootNamep'
+    void declareRtmdHier(const VlRtmd& tables, const char* rootNamep) VL_MT_UNSAFE;
+    void declareRtmdSignal(const VlRtmd& tables, const char* name, uint32_t sigIdx,
+                           uint32_t actSetId, bool global, const uint8_t* datap) VL_MT_UNSAFE;
+    // Declare a value of the given type. 'arraynum' is the index within an enclosing unpacked
+    // array, or VL_RTMD_NO_INDEX.
+    void declareRtmdValue(const VlRtmd& tables, uint32_t typeIdx, const char* name, int arraynum,
+                          const RtmdSignal& signal, const uint8_t* datap) VL_MT_UNSAFE;
+    // Dump all values (full), or only the changed ones
+    void dumpDescriptors(Buffer* bufp, bool full) VL_MT_UNSAFE;
+    // Whether any value in the group might have changed since the last dump
+    bool rtmdGroupActive(const RtmdGroup& group) const VL_MT_UNSAFE;
+    // Dump one value
+    void dumpRtmdLeaf(Buffer* bufp, const RtmdLeaf& leaf, bool full) VL_MT_UNSAFE;
+
+public:
 };
 
 //=============================================================================

@@ -198,6 +198,11 @@ class LocalizeVisitor final : public VNVisitor {
         // No iterate; Don't want varrefs under it (e.g.: in child dtype?)
     }
 
+    void visit(AstRtmdSignal* nodep) override {
+        // Descriptors read variables by address, so they cannot be localized
+        UINFO(4, "Not optimizable (rtmd): " << nodep);
+        nodep->vscp()->user1(1);
+    }
     void visit(AstVarRef* nodep) override {
         UASSERT_OBJ(m_cfuncp, nodep, "AstVarRef not under function");
 

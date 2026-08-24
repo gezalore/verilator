@@ -199,6 +199,24 @@ void V3LinkLevel::wrapTop(AstNetlist* rootp) {
         }
     }
 
+    // The top wrapper should contain only Vars and Cells, with Vars coming first.
+    // The tracing runtime relies on this layout. It can be changed after V3Rtmd has run.
+    {
+        AstNode* varsp = nullptr;
+        AstNode* cellsp = nullptr;
+        while (AstNode* const nodep = newmodp->stmtsp()) {
+            nodep->unlinkFrBack();
+            if (VN_IS(nodep, Var)) {
+                varsp = AstNode::addNext(varsp, nodep);
+            } else {
+                UASSERT_OBJ(VN_IS(nodep, Cell), nodep, "Top wrapper should hold only Vars, Cells");
+                cellsp = AstNode::addNext(cellsp, nodep);
+            }
+        }
+        if (varsp) newmodp->addStmtsp(varsp);
+        if (cellsp) newmodp->addStmtsp(cellsp);
+    }
+
     // All modules and hier-classes except one we created are now a level deeper
     rootp->foreach([&](AstNodeModule* const modp) {
         if (modp != newmodp && modp->level()) modp->level(1 + modp->level());

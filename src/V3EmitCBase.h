@@ -67,6 +67,17 @@ public:
     static string topClassName() VL_MT_SAFE {  // Return name of top wrapper module
         return v3Global.opt.prefix();
     }
+    // Name of a constant pool variable
+    static string constPoolName(const AstVar* varp) {
+        UASSERT_OBJ(varp->constPoolEntry(), varp, "Not a constant pool variable");
+        return topClassName() + "__ConstPool__" + varp->nameProtect();
+    }
+    // Names of the run time model descriptor tables, which are also the names of their files
+    static string rtmdDataTypeTableName() { return topClassName() + "__RtmdDataTypeTable"; }
+    static string rtmdGlobalTableName() { return topClassName() + "__RtmdGlobalTable"; }
+    static string rtmdSignalTypeTableName() { return topClassName() + "__RtmdSignalTypeTable"; }
+    static string rtmdHierTableName() { return topClassName() + "__RtmdHierTable"; }
+    static string rtmdActSetTableName() { return topClassName() + "__RtmdActSetTable"; }
     // Return C++ class name for a module/class object
     static string prefixNameProtect(const AstNode* nodep) VL_MT_STABLE;
     static bool isAnonOk(const AstVar* varp) VL_MT_STABLE {
@@ -169,6 +180,18 @@ public:
 
     void puts(const string& str) { ofp()->puts(str); }
     void putns(const AstNode* nodep, const string& str) { ofp()->putns(nodep, str); }
+    // offsetof on the non-standard-layout generated classes works but warns, so suppress it
+    void putOffsetofPragmaPush() {
+        puts("\n#if defined(__GNUC__)\n");
+        puts("# pragma GCC diagnostic push\n");
+        puts("# pragma GCC diagnostic ignored \"-Winvalid-offsetof\"\n");
+        puts("#endif\n");
+    }
+    void putOffsetofPragmaPop() {
+        puts("\n#if defined(__GNUC__)\n");
+        puts("# pragma GCC diagnostic pop\n");
+        puts("#endif\n");
+    }
     void putsHeader() { ofp()->putsHeader(); }
     void putbs(const string& str) { ofp()->putbs(str); }
     void putnbs(const AstNode* nodep, const string& str) { ofp()->putnbs(nodep, str); }

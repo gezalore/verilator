@@ -45,8 +45,14 @@ public:
     // METHODS
     // Override VerilatedVcdC. Must be called after starting simulation.
     void open(const char* filename) override VL_MT_SAFE {
-        VerilatedScTraceBase::checkScElaborationDone();
+        VerilatedScTraceBase::checkScElaborationDone("Verilated*Sc::open(...)");
         VerilatedVcdC::open(filename);
+    }
+    // Override VerilatedVcdC. Called by trace(), so all models must have been constructed, which
+    // requires elaboration to be done.
+    void addModel(const VerilatedModel* modelp, const VlRtmd& tables) override VL_MT_SAFE {
+        VerilatedScTraceBase::checkScElaborationDone("trace(...)");
+        VerilatedVcdC::addModel(modelp, tables);
     }
 
     // METHODS - for SC kernel

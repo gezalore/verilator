@@ -27,6 +27,8 @@
 #include "verilated_intrinsics.h"
 #include "verilated_trace.h"
 #include "verilated_threads.h"
+#include <algorithm>
+#include <cstring>
 #include <list>
 
 // clang-format on
@@ -116,8 +118,274 @@ void VerilatedTrace<VL_SUB_T, VL_BUF_T>::runInitCallback(size_t index,
     m_initCbsCalled[index] = true;
 }
 
+//=========================================================================
+// RTMD based tracing
+
+// Declare a value of the given type, recursing into unpacked arrays and structs
+template <>
+void VerilatedTrace<VL_SUB_T, VL_BUF_T>::declareRtmdValue(const VlRtmd& tables, uint32_t typeIdx,
+                                                          const char* name, int arraynum,
+                                                          const RtmdSignal& signal,
+                                                          const uint8_t* datap) VL_MT_UNSAFE {
+    const VlRtmdDataTypeRow& type = tables.m_dataTypesTabp[typeIdx];
+    const VlRtmdSignalTypeRow::Signal& sig = *signal.m_typep;
+    const VerilatedTraceSigDirection dir = vlRtmdToSigDirection(sig.m_direction);
+    const VerilatedTraceSigKind kind = vlRtmdToSigKind(sig.m_kind);
+    // RTMD dumping uses a single buffer
+    constexpr uint32_t fidx = 0;
+
+    // Unpacked types open a hierarchy level
+    if (const VlRtmdDataTypeRow::UnpackedArray* const arrayp = type.unpackedArrayp()) {
+        const VlRtmdDataTypeRow::UnpackedArray& array = *arrayp;
+        VL_TRACE_PUSH_PREFIX(self(), name, VerilatedTracePrefixType::UNPACKED_ARRAY, array.m_left,
+                             array.m_right);
+        const bool ascending = array.m_left <= array.m_right;
+        // An unpacked element is named by its index, other elements take it as 'arraynum'
+        const VlRtmdDataTypeRow& elemType = tables.m_dataTypesTabp[array.m_elemIdx];
+        const bool elemUnpacked = elemType.unpackedArrayp() || elemType.unpackedStructp();
+        const uint32_t elements = vlRtmdElementsOf(array.m_left, array.m_right);
+        for (uint32_t i = 0; i < elements; ++i) {
+            const int index = ascending ? array.m_left + static_cast<int>(i)
+                                        : array.m_left - static_cast<int>(i);
+            const uint8_t* const elemp = datap + i * array.m_elemBytes;
+            if (elemUnpacked) {
+                const std::string elemName = '[' + std::to_string(index) + ']';
+                declareRtmdValue(tables, array.m_elemIdx, elemName.c_str(), VL_RTMD_NO_INDEX,
+                                 signal, elemp);
+            } else {
+                declareRtmdValue(tables, array.m_elemIdx, "", index, signal, elemp);
+            }
+        }
+        VL_TRACE_POP_PREFIX(self());
+        return;
+    }
+    if (const VlRtmdDataTypeRow::UnpackedStruct* const strctp = type.unpackedStructp()) {
+        const VlRtmdDataTypeRow::UnpackedStruct& strct = *strctp;
+        // Pass the member count as the range
+        VL_TRACE_PUSH_PREFIX(self(), name, VerilatedTracePrefixType::UNPACKED_STRUCT,
+                             static_cast<int>(strct.m_count), 0);
+        for (uint32_t i = 0; i < strct.m_count; ++i) {
+            const VlRtmdDataTypeRow::Member& member = *type.item(i).memberp();
+            declareRtmdValue(tables, member.m_typeIdx, member.m_namep, VL_RTMD_NO_INDEX, signal,
+                             datap + member.m_offset);
+        }
+        VL_TRACE_POP_PREFIX(self());
+        return;
+    }
+
+    // A packed value
+    const VlRtmdDataTypeRow::Atom::Kind atomKind = vlRtmdAtomKindOf(tables, typeIdx);
+    const VerilatedTraceSigType sigType = vlRtmdToSigType(atomKind);
+    const uint32_t bits = vlRtmdBitsOf(tables, typeIdx);
+    const VlRtmdRange range = vlRtmdRangeOf(tables, typeIdx);
+    const VlRtmdDataTypeRow::Enum* const enump = type.enump();
+    const int dtypenum = enump ? static_cast<int>(typeIdx) : -1;  // See VlRtmdDataTypeRow::Enum
+
+    // Allocate a code per word. Signals at the same address share the code. Globals never do, as
+    // they are shared by unrelated signals with equal values (constant pool entries).
+    uint32_t code;
+    bool firstName = true;  // First signal with this code
+    if (signal.m_global) {
+        code = m_nextCode;
+        m_nextCode += VL_WORDS_I(bits);
+    } else {
+        const auto pair = m_rtmdValueCodes.emplace(std::make_pair(datap, bits), m_nextCode);
+        code = pair.first->second;
+        firstName = pair.second;
+        if (firstName) m_nextCode += VL_WORDS_I(bits);
+    }
+    const int msb = range.m_left;
+    const int lsb = range.m_right;
+    // Record the value to dump, once per code
+    if (firstName) {
+        const VlRtmdRead read = vlRtmdReadOf(atomKind, bits);
+        m_rtmdLeaves.push_back({datap, code, bits, signal.m_actSetId, read});
+    }
+
+    if (arraynum == VL_RTMD_NO_INDEX) {
+        if (sigType == VerilatedTraceSigType::EVENT) {
+            VL_TRACE_DECL_EVENT(self(), code, fidx, name, dtypenum, dir, kind, sigType);
+        } else if (sigType == VerilatedTraceSigType::DOUBLE) {
+            VL_TRACE_DECL_DOUBLE(self(), code, fidx, name, dtypenum, dir, kind, sigType);
+        } else if (bits == 1 && vlRtmdIsScalar(tables, typeIdx)) {
+            VL_TRACE_DECL_BIT(self(), code, fidx, name, dtypenum, dir, kind, sigType);
+        } else if (bits <= 32) {
+            VL_TRACE_DECL_BUS(self(), code, fidx, name, dtypenum, dir, kind, sigType, msb, lsb);
+        } else if (bits <= 64) {
+            VL_TRACE_DECL_QUAD(self(), code, fidx, name, dtypenum, dir, kind, sigType, msb, lsb);
+        } else {
+            VL_TRACE_DECL_WIDE(self(), code, fidx, name, dtypenum, dir, kind, sigType, msb, lsb);
+        }
+    } else {
+        if (sigType == VerilatedTraceSigType::EVENT) {
+            VL_TRACE_DECL_EVENT_ARRAY(self(), code, fidx, name, dtypenum, dir, kind, sigType,
+                                      arraynum);
+        } else if (sigType == VerilatedTraceSigType::DOUBLE) {
+            VL_TRACE_DECL_DOUBLE_ARRAY(self(), code, fidx, name, dtypenum, dir, kind, sigType,
+                                       arraynum);
+        } else if (bits == 1 && vlRtmdIsScalar(tables, typeIdx)) {
+            VL_TRACE_DECL_BIT_ARRAY(self(), code, fidx, name, dtypenum, dir, kind, sigType,
+                                    arraynum);
+        } else if (bits <= 32) {
+            VL_TRACE_DECL_BUS_ARRAY(self(), code, fidx, name, dtypenum, dir, kind, sigType,
+                                    arraynum, msb, lsb);
+        } else if (bits <= 64) {
+            VL_TRACE_DECL_QUAD_ARRAY(self(), code, fidx, name, dtypenum, dir, kind, sigType,
+                                     arraynum, msb, lsb);
+        } else {
+            VL_TRACE_DECL_WIDE_ARRAY(self(), code, fidx, name, dtypenum, dir, kind, sigType,
+                                     arraynum, msb, lsb);
+        }
+    }
+}
+
+template <>
+void VerilatedTrace<VL_SUB_T, VL_BUF_T>::declareRtmdSignal(const VlRtmd& tables, const char* name,
+                                                           uint32_t sigIdx, uint32_t actSetId,
+                                                           bool global,
+                                                           const uint8_t* datap) VL_MT_UNSAFE {
+    const VlRtmdSignalTypeRow::Signal& sig = *tables.m_signalTypesTabp[sigIdx].signalp();
+    declareRtmdValue(tables, sig.m_typeIdx, name, VL_RTMD_NO_INDEX, {&sig, actSetId, global},
+                     datap);
+}
+
+template <>
+void VerilatedTrace<VL_SUB_T, VL_BUF_T>::declareRtmdHier(const VlRtmd& tables,
+                                                         const char* rootNamep) VL_MT_UNSAFE {
+    const VlRtmd* const* libpp = m_rtmdPartitionLibs[&tables].data();  // Of the next PARTITION
+    for (const VlRtmdHierRow* rowp = tables.m_hierTabp; !rowp->isEnd(); ++rowp) {
+        if (const VlRtmdHierRow::Push* const pushp = rowp->pushp()) {
+            // The root level is the model, named at run time
+            const bool root = pushp->m_kind == VlRtmdHierRow::Push::Kind::ROOT;
+            const char* const namep = root ? rootNamep : pushp->m_namep;
+            VL_TRACE_PUSH_PREFIX(self(), namep, vlRtmdToPrefixType(pushp->m_kind), 0, 0);
+        } else if (rowp->popp()) {
+            VL_TRACE_POP_PREFIX(self());
+        } else if (const VlRtmdHierRow::Signal* const sigp = rowp->signalp()) {
+            // Located by offset from the symbol table
+            const uint8_t* const datap
+                = static_cast<const uint8_t*>(tables.m_symsp) + sigp->m_offset;
+            declareRtmdSignal(tables, sigp->m_namep, sigp->m_typeIdx, sigp->m_actSetId, false,
+                              datap);
+        } else if (const VlRtmdHierRow::Global* const sigp = rowp->globalp()) {
+            // Located by its address in the global table
+            const uint8_t* const datap = static_cast<const uint8_t*>(
+                tables.m_globalSymsTabp[sigp->m_globalIdx].constp()->m_datap);
+            declareRtmdSignal(tables, sigp->m_namep, sigp->m_typeIdx, sigp->m_actSetId, true,
+                              datap);
+        } else if (rowp->instancep()) {
+            // The level that follows opens the instance, the module name is not traced
+        } else if (const VlRtmdHierRow::Partition* const partp = rowp->partitionp()) {
+            // A --lib-create library, whose root level is the partition
+            if (const VlRtmd* const libp = *libpp++) {
+                declareRtmdHier(*libp, partp->m_namep);
+            } else {
+                // Not registered, e.g. compiled without descriptors
+                VL_TRACE_PUSH_PREFIX(self(), partp->m_namep,
+                                     VerilatedTracePrefixType::SCOPE_MODULE, 0, 0);
+                VL_TRACE_POP_PREFIX(self());
+            }
+        }
+    }
+}
+
+template <>
+std::set<const VlRtmd*> VerilatedTrace<VL_SUB_T, VL_BUF_T>::findRtmdPartitionLibs() VL_MT_UNSAFE {
+    std::set<const VlRtmd*> libps;
+    m_rtmdPartitionLibs.clear();
+    for (const VlRtmd& tables : m_rtmdTables) {
+        std::vector<const VlRtmd*>& partLibps = m_rtmdPartitionLibs[&tables];
+        // Instance path of the current level within the model, which a library registers under.
+        // Only module and interface levels are part of it.
+        std::string path;
+        std::vector<size_t> pathLengths;  // Length of 'path' outside each open level
+        for (const VlRtmdHierRow* rowp = tables.m_hierTabp; !rowp->isEnd(); ++rowp) {
+            if (const VlRtmdHierRow::Push* const pushp = rowp->pushp()) {
+                pathLengths.push_back(path.size());
+                if (pushp->m_kind == VlRtmdHierRow::Push::Kind::MODULE
+                    || pushp->m_kind == VlRtmdHierRow::Push::Kind::INTERFACE) {
+                    path += pushp->m_namep;
+                    path += '.';
+                }
+            } else if (rowp->popp()) {
+                path.resize(pathLengths.back());
+                pathLengths.pop_back();
+            } else if (const VlRtmdHierRow::Partition* const partp = rowp->partitionp()) {
+                // The library registers under the instance name of the partition
+                std::string libName{tables.m_namep};
+                if (!libName.empty()) libName += '.';
+                libName += path;
+                libName += partp->m_namep;
+                const VlRtmd* libp = nullptr;
+                for (const VlRtmd& lib : m_rtmdTables) {
+                    if (libName != lib.m_namep) continue;
+                    libp = &lib;
+                    libps.insert(libp);
+                    break;
+                }
+                partLibps.push_back(libp);
+            }
+        }
+    }
+    return libps;
+}
+
+template <>
+void VerilatedTrace<VL_SUB_T, VL_BUF_T>::elaborateRtmd() VL_MT_UNSAFE {
+    m_rtmdLeaves.clear();
+    m_rtmdGroups.clear();
+    const std::set<const VlRtmd*> libps = findRtmdPartitionLibs();
+    for (const VlRtmd& tables : m_rtmdTables) {
+        // Libraries are walked from their PARTITION row
+        if (libps.count(&tables)) continue;
+        const size_t firstLeaf = m_rtmdLeaves.size();
+        // Codes are only shared within a model
+        m_rtmdValueCodes.clear();
+        // Declare enums before the signals that reference them
+        for (uint32_t i = 0; !tables.m_dataTypesTabp[i].isEnd(); ++i) {
+            const VlRtmdDataTypeRow& type = tables.m_dataTypesTabp[i];
+            const VlRtmdDataTypeRow::Enum* const enump = type.enump();
+            if (!enump) continue;
+            // The items are the rows following the enum
+            std::vector<const char*> itemNames;
+            std::vector<const char*> itemValues;
+            itemNames.reserve(enump->m_count);
+            itemValues.reserve(enump->m_count);
+            for (uint32_t j = 0; j < enump->m_count; ++j) {
+                const VlRtmdDataTypeRow::EnumItem& item = *type.item(j).enumItemp();
+                itemNames.push_back(item.m_namep);
+                itemValues.push_back(item.m_valuep);
+            }
+            VL_TRACE_DECL_DTYPE_ENUM(self(), static_cast<int>(i), enump->m_namep, enump->m_count,
+                                     vlRtmdBitsOf(tables, i), itemNames.data(), itemValues.data());
+        }
+        declareRtmdHier(tables, tables.m_namep);
+        // Group the leaves by activity set
+        std::stable_sort(
+            m_rtmdLeaves.begin() + firstLeaf, m_rtmdLeaves.end(),
+            [](const RtmdLeaf& a, const RtmdLeaf& b) { return a.m_actSetId < b.m_actSetId; });
+        for (size_t i = firstLeaf; i < m_rtmdLeaves.size();) {
+            size_t j = i;
+            while (j < m_rtmdLeaves.size()
+                   && m_rtmdLeaves[j].m_actSetId == m_rtmdLeaves[i].m_actSetId) {
+                ++j;
+            }
+            m_rtmdGroups.push_back({&tables, m_rtmdLeaves[i].m_actSetId, i, j - i});
+            i = j;
+        }
+    }
+    m_rtmdValueCodes.clear();
+    m_rtmdPartitionLibs.clear();
+}
+
 template <>
 void VerilatedTrace<VL_SUB_T, VL_BUF_T>::traceInit() VL_MT_UNSAFE {
+    if (m_contextp && !m_contextp->calcUnusedSigs()) {
+        VL_FATAL_MT(__FILE__, __LINE__, __FILE__,
+                    "Turning on wave traces requires Verilated::traceEverOn(true) call before "
+                    "time 0.");
+    }
+
     // Note: It is possible to re-open a trace file (VCD in particular),
     // so we must reset the next code here, but it must have the same number
     // of codes on re-open
@@ -133,6 +401,9 @@ void VerilatedTrace<VL_SUB_T, VL_BUF_T>::traceInit() VL_MT_UNSAFE {
     // - Call the initialize callbacks of library instances underneath
     // - Store the base code
     for (size_t i = 0; i < m_initCbs.size(); ++i) runInitCallback(i, true);
+
+    // Declare the RTMD described models
+    elaborateRtmd();
 
     if (expectedCodes && nextCode() != expectedCodes) {
         VL_FATAL_MT(__FILE__, __LINE__, "",
@@ -317,6 +588,12 @@ void VerilatedTrace<VL_SUB_T, VL_BUF_T>::runCallbacks(const std::vector<Callback
     }
 }
 
+// Defined at the end of this file, after the trace buffer methods
+template <>
+void VerilatedTrace<VL_SUB_T, VL_BUF_T>::dumpDescriptors(Buffer* bufp, bool full) VL_MT_UNSAFE;
+template <>
+bool VerilatedTrace<VL_SUB_T, VL_BUF_T>::rtmdGroupActive(const RtmdGroup&) const VL_MT_UNSAFE;
+
 template <>
 void VerilatedTrace<VL_SUB_T, VL_BUF_T>::dump(uint64_t timeui) VL_MT_SAFE_EXCLUDES(m_mutex) {
     // Not really VL_MT_SAFE but more VL_MT_UNSAFE_ONE.
@@ -345,11 +622,19 @@ void VerilatedTrace<VL_SUB_T, VL_BUF_T>::dump(uint64_t timeui) VL_MT_SAFE_EXCLUD
     emitTimeChange(timeui);
 
     // Run the callbacks
+    const bool fullDump = m_fullDump;
     if (VL_UNLIKELY(m_fullDump)) {
         m_fullDump = false;  // No more need for next dump to be full
         runCallbacks(m_fullCbs);
     } else {
         runCallbacks(m_chgCbs);
+    }
+
+    // Dump the RTMD described models
+    if (!m_rtmdLeaves.empty()) {
+        Buffer* const bufp = getTraceBuffer(0);
+        dumpDescriptors(bufp, fullDump);
+        commitTraceBuffer(bufp);
     }
 
     if (VL_UNLIKELY(m_constDump)) {
@@ -364,7 +649,7 @@ void VerilatedTrace<VL_SUB_T, VL_BUF_T>::dump(uint64_t timeui) VL_MT_SAFE_EXCLUD
 // Non-hot path internal interface to Verilator generated code
 
 template <>
-void VerilatedTrace<VL_SUB_T, VL_BUF_T>::addModel(VerilatedModel* modelp)
+void VerilatedTrace<VL_SUB_T, VL_BUF_T>::addModel(const VerilatedModel* modelp)
     VL_MT_SAFE_EXCLUDES(m_mutex) {
     const VerilatedLockGuard lock{m_mutex};
 
@@ -619,3 +904,116 @@ void VerilatedTraceBuffer<VL_BUF_T>::fullDouble(uint32_t* oldp, double newval) {
 }
 
 #endif  // VL_CPPCHECK
+
+//=========================================================================
+// RTMD based tracing: dumping
+
+template <>
+void VerilatedTrace<VL_SUB_T, VL_BUF_T>::dumpRtmdLeaf(Buffer* bufp, const RtmdLeaf& leaf,
+                                                      bool full) VL_MT_UNSAFE {
+    uint32_t* const oldp = bufp->oldp(leaf.m_code);
+    const void* const datap = leaf.m_datap;
+    const int bits = static_cast<int>(leaf.m_bits);
+    switch (leaf.m_read) {
+    case VlRtmdRead::BIT: {
+        const CData val = *static_cast<const CData*>(datap);
+        if (full) {
+            bufp->fullBit(oldp, val);
+        } else {
+            bufp->chgBit(oldp, val);
+        }
+        break;
+    }
+    case VlRtmdRead::CDATA: {
+        const CData val = *static_cast<const CData*>(datap);
+        if (full) {
+            bufp->fullCData(oldp, val, bits);
+        } else {
+            bufp->chgCData(oldp, val, bits);
+        }
+        break;
+    }
+    case VlRtmdRead::SDATA: {
+        const SData val = *static_cast<const SData*>(datap);
+        if (full) {
+            bufp->fullSData(oldp, val, bits);
+        } else {
+            bufp->chgSData(oldp, val, bits);
+        }
+        break;
+    }
+    case VlRtmdRead::IDATA: {
+        const IData val = *static_cast<const IData*>(datap);
+        if (full) {
+            bufp->fullIData(oldp, val, bits);
+        } else {
+            bufp->chgIData(oldp, val, bits);
+        }
+        break;
+    }
+    case VlRtmdRead::QDATA: {
+        const QData val = *static_cast<const QData*>(datap);
+        if (full) {
+            bufp->fullQData(oldp, val, bits);
+        } else {
+            bufp->chgQData(oldp, val, bits);
+        }
+        break;
+    }
+    case VlRtmdRead::WDATA: {
+        const WDataInP valp = WDataInP::external(static_cast<const EData*>(datap));
+        if (full) {
+            bufp->fullWData(oldp, valp, bits);
+        } else {
+            bufp->chgWData(oldp, valp, bits);
+        }
+        break;
+    }
+    case VlRtmdRead::DOUBLE: {
+        const double val = *static_cast<const double*>(datap);
+        if (full) {
+            bufp->fullDouble(oldp, val);
+        } else {
+            bufp->chgDouble(oldp, val);
+        }
+        break;
+    }
+    case VlRtmdRead::EVENT: {
+        const VlEventBase* const valp = static_cast<const VlEventBase*>(datap);
+        if (full) {
+            bufp->fullEvent(oldp, valp);
+        } else {
+            bufp->chgEvent(oldp, valp);
+        }
+        break;
+    }
+    }
+}
+
+template <>
+bool VerilatedTrace<VL_SUB_T, VL_BUF_T>::rtmdGroupActive(const RtmdGroup& group) const
+    VL_MT_UNSAFE {
+    const VlRtmd& tables = *group.m_tablesp;
+    // No activity information
+    if (!tables.m_actSetsTabp || !tables.m_activityFlagsp) return true;
+    const VlRtmdActSetRow::Range& range = tables.m_actSetsTabp[group.m_actSetId].range();
+    for (uint32_t row = range.m_begin; row != range.m_end; ++row) {
+        if (tables.m_activityFlagsp[tables.m_actSetsTabp[row].flag().m_flag]) return true;
+    }
+    return false;
+}
+
+template <>
+void VerilatedTrace<VL_SUB_T, VL_BUF_T>::dumpDescriptors(Buffer* bufp, bool full) VL_MT_UNSAFE {
+    for (const RtmdGroup& group : m_rtmdGroups) {
+        if (!full && !rtmdGroupActive(group)) continue;
+        const size_t end = group.m_first + group.m_count;
+        for (size_t i = group.m_first; i < end; ++i) { dumpRtmdLeaf(bufp, m_rtmdLeaves[i], full); }
+    }
+    // Clear all activity flags
+    for (const VlRtmd& tables : m_rtmdTables) {
+        if (!tables.m_activityFlagsp) continue;
+        uint8_t* const flagsp = const_cast<uint8_t*>(tables.m_activityFlagsp);
+        std::fill(flagsp, flagsp + tables.m_nActivityFlags, 0);
+    }
+}

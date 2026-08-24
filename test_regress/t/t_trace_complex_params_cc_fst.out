@@ -22,13 +22,13 @@ $end
   $scope module t $end
    $var wire 1 ! clk $end
    $var integer 32 # cyc [31:0] $end
-   $var bit 2 $ v_strp [1:0] $end
-   $var bit 2 % v_strp2 [1:0] $end
-   $var bit 4 & v_strp_strp [3:0] $end
-   $var bit 2 ' v_unip_strp [1:0] $end
+   $var logic 2 $ v_strp [1:0] $end
+   $var logic 2 % v_strp2 [1:0] $end
+   $var logic 4 & v_strp_strp [3:0] $end
+   $var logic 2 ' v_unip_strp [1:0] $end
    $var bit 2 ( v_arrp [2:1] $end
    $var bit 4 ) v_arrp_arrp [3:0] $end
-   $var bit 4 * v_arrp_strp [3:0] $end
+   $var logic 4 * v_arrp_strp [3:0] $end
    $attrbegin array unpacked bounds 8589934593 $end
    $scope sv_array v_arru $end
     $var bit 1 + v_arru[2] $end
@@ -54,8 +54,8 @@ $end
    $upscope $end
    $attrbegin array unpacked bounds 17179869187 $end
    $scope sv_array v_arru_strp $end
-    $var bit 2 3 v_arru_strp[4] [1:0] $end
-    $var bit 2 4 v_arru_strp[3] [1:0] $end
+    $var logic 2 3 v_arru_strp[4] [1:0] $end
+    $var logic 2 4 v_arru_strp[3] [1:0] $end
    $upscope $end
    $var real 64 5 v_real $end
    $attrbegin array unpacked bounds 1 $end

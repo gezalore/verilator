@@ -155,6 +155,9 @@ public:
 };
 
 // We use macros to drop unused arguments at compile time. This saves code size.
+// This format does not show enums, so the declaration is dropped here
+#define VL_TRACE_DECL_DTYPE_ENUM(tracep, dtypenum, name, elements, minValbits, itemNamesp, \
+                                 itemValuesp)
 #define VL_TRACE_PUSH_PREFIX(tracep, name, type, left, right) tracep->pushPrefix(name, type);
 #define VL_TRACE_POP_PREFIX(tracep) tracep->popPrefix();
 
@@ -353,6 +356,10 @@ public:
 
     // Internal class access
     VerilatedVcd* spTrace() { return &m_sptrace; }
+
+    /// Register a traced model and its descriptor tables. Defined in the .cpp, after the
+    /// VerilatedTrace specializations.
+    void addModel(const VerilatedModel* modelp, const VlRtmd& tables) VL_MT_SAFE override;
 };
 
 #endif  // guard

@@ -343,9 +343,9 @@ void VerilatedVcd::pushPrefix(const char* namep, VerilatedTracePrefixType type) 
     switch (type) {
     case VerilatedTracePrefixType::SCOPE_MODULE:
     case VerilatedTracePrefixType::SCOPE_INTERFACE:
-    case VerilatedTracePrefixType::STRUCT_PACKED:
-    case VerilatedTracePrefixType::STRUCT_UNPACKED:
-    case VerilatedTracePrefixType::UNION_PACKED: {
+    case VerilatedTracePrefixType::PACKED_STRUCT:
+    case VerilatedTracePrefixType::UNPACKED_STRUCT:
+    case VerilatedTracePrefixType::PACKED_UNION: {
         properScope = true;
         break;
     }
@@ -366,9 +366,9 @@ void VerilatedVcd::popPrefix() {
     switch (m_prefixStack.back().second) {
     case VerilatedTracePrefixType::SCOPE_MODULE:
     case VerilatedTracePrefixType::SCOPE_INTERFACE:
-    case VerilatedTracePrefixType::STRUCT_PACKED:
-    case VerilatedTracePrefixType::STRUCT_UNPACKED:
-    case VerilatedTracePrefixType::UNION_PACKED:
+    case VerilatedTracePrefixType::PACKED_STRUCT:
+    case VerilatedTracePrefixType::UNPACKED_STRUCT:
+    case VerilatedTracePrefixType::PACKED_UNION:
         printIndent(-1);
         printStr("$upscope $end\n");
         break;
@@ -691,4 +691,12 @@ void VerilatedVcdBuffer::emitDouble(uint32_t code, double newval) {
     (void)VL_SNPRINTF(wp, m_maxSignalBytes, "r%.16g", newval);
     wp += std::strlen(wp);
     finishLine(code, wp);
+}
+
+//=============================================================================
+// VerilatedVcdC
+
+void VerilatedVcdC::addModel(const VerilatedModel* modelp, const VlRtmd& tables) VL_MT_SAFE {
+    m_sptrace.addModel(modelp);
+    m_sptrace.addRtmdTables(tables);
 }

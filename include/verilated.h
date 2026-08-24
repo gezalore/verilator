@@ -113,6 +113,7 @@ class VerilatedVcd;
 class VerilatedVcdC;
 class VerilatedVcdSc;
 class VlCovRegistry;
+struct VlRtmd;
 
 //=========================================================================
 // Basic types
@@ -367,10 +368,13 @@ private:
     // The following are for use by Verilator internals only
     template <typename, typename>
     friend class VerilatedTrace;
+    friend class VerilatedContext;
     friend class VerilatedEvalLoop;
 
     // Run-time trace configuration requested by this model
     virtual std::unique_ptr<VerilatedTraceConfig> traceConfig() const;
+    // Fill in the run time model descriptor tables of this model. Returns false if it has none.
+    virtual bool rtmdTables(VlRtmd& tables) const = 0;
 
     // Entry points called by VerilatedEvalLoop
     virtual void evalBegin() = 0;
@@ -517,10 +521,6 @@ private:
     static constexpr uint64_t TIME_UNSET = ~0ULL;
 
 protected:
-    // TYPES
-    using traceBaseModelCb_t
-        = std::function<void(VerilatedTraceBaseC*, int, int)>;  // Type of traceBaseModel callbacks
-
     // MEMBERS
     // Slow path variables
     mutable VerilatedMutex m_mutex;  // Mutex for most s_s/s_ns members
@@ -589,7 +589,6 @@ protected:
         bool m_warnUnsatConstr = true;  // Warn on unsatisfied constraints
         VlOs::DeltaCpuTime m_cpuTimeStart{false};  // CPU time, starts when create first model
         VlOs::DeltaWallTime m_wallTimeStart{false};  // Wall time, starts when create first model
-        std::vector<traceBaseModelCb_t> m_traceBaseModelCbs;  // Callbacks to traceRegisterModel
         int m_stdoutFD;  // Duplicated stdout file descriptor
         int m_stderrFD;  // Duplicated stderr file descriptor
         int m_logFD;  // Log file descriptor
@@ -910,9 +909,6 @@ public:
     // Internal: Serialization setup
     static constexpr size_t serialized1Size() VL_PURE { return sizeof(m_s); }
     void* serialized1Ptr() VL_MT_UNSAFE { return &m_s; }
-
-    // Internal: trace registration
-    void traceBaseModelCbAdd(traceBaseModelCb_t cb) VL_MT_SAFE;
 
     // Internal: Check magic number
     static void checkMagic(const VerilatedContext* contextp);
@@ -1274,7 +1270,7 @@ public:
     static void nullPointerError(const char* filename, int linenum) VL_ATTR_NORETURN VL_MT_SAFE;
     static void overWidthError(const char* signame) VL_ATTR_NORETURN VL_MT_SAFE;
     static void scTimePrecisionError(int sc_prec, int vl_prec) VL_ATTR_NORETURN VL_MT_SAFE;
-    static void scTraceBeforeElaborationError() VL_ATTR_NORETURN VL_MT_SAFE;
+    static void scTraceBeforeElaborationError(const char* callp) VL_ATTR_NORETURN VL_MT_SAFE;
     static void stackCheck(QData needSize) VL_MT_UNSAFE;
 
     // Internal: Load a VPI shared library (+verilator+vpi+<lib>[:<bootstrap>])

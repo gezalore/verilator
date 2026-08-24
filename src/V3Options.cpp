@@ -1030,6 +1030,9 @@ void V3Options::notify() VL_MT_DISABLED {
         }
     }
 
+    // Tracing needs the run time model descriptors
+    if (trace()) m_rtmd = true;
+
     // Default some options if not turned on or off
     if (v3Global.opt.skipIdentical().isDefault()) {
         v3Global.opt.m_skipIdentical.setTrueOrFalse(  //

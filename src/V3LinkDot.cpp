@@ -2654,6 +2654,8 @@ class LinkDotScopeVisitor final : public VNVisitor {
     VSymEnt* m_modSymp = nullptr;  // Symbol entry for current module
     // Deferred AliasScope processing - must be done outer-to-inner for correct alias resolution
     std::vector<std::pair<AstAliasScope*, VSymEnt*>> m_deferredAliasScopes;
+    std::vector<AstRtmdIfaceRef*> m_rtmdIfaceRefs;  // RtmdIfaceRefs to resolve at the end
+    std::vector<AstScope*> m_scopesWithRtmdp;  // Scopes with a rtmdp() set
 
     // METHODS
 public:
@@ -2695,6 +2697,7 @@ private:
             m_statep->insertIfaceModSym(ifacep, m_modSymp);
         }
         m_scopep = nodep;
+        if (nodep->rtmdp()) m_scopesWithRtmdp.push_back(nodep);
         iterateChildren(nodep);
     }
     void visit(AstVarScope* nodep) override {  // ScopeVisitor::
@@ -2784,7 +2787,12 @@ private:
         iterateChildren(nodep);
         VL_DO_DANGLING(pushDeletep(nodep->unlinkFrBack()), nodep);
     }
-    void visit(AstAliasScope* nodep) override {  // ScopeVisitor::
+    void visit(AstRtmdIfaceRef* nodep) override {
+        // Defer until all alias scopes are resolved
+        m_rtmdIfaceRefs.push_back(nodep);
+        iterateChildren(nodep);
+    }
+    void visit(AstAliasScope* nodep) override {
         // Defer AliasScope processing - must process outer scopes before inner ones
         // so that nested interface port alias resolution works correctly
         UINFO(5, "ALIASSCOPE (deferred) " << nodep);
@@ -2850,6 +2858,22 @@ private:
         // We have stored the link, we don't need these any more
         VL_DO_DANGLING(nodep->unlinkFrBack()->deleteTree(), nodep);
     }
+    void processRtmdIfaceRefs() {
+        // Link each descriptor interface reference to the inlined scope of the target interface
+        for (AstRtmdIfaceRef* const nodep : m_rtmdIfaceRefs) {
+            AstVarScope* const vscp = nodep->refp()->varScopep();
+            const AstVarScope* const ifaceVscp = getAliasVarScopep(vscp);
+            AstRtmdLevel* const levelp = ifaceVscp->scopep()->rtmdp();
+            // FIXME: what if empty?
+            nodep->ifaceRtmdp(levelp);
+            // The reference is not needed any more
+            pushDeletep(nodep->refp()->unlinkFrBack());
+        }
+        m_rtmdIfaceRefs.clear();
+        // Scope to descriptor links are not needed any more
+        for (AstScope* const scopep : m_scopesWithRtmdp) scopep->rtmdp(nullptr);
+        m_scopesWithRtmdp.clear();
+    }
     void processDeferredAliasScopes() {
         // Sort by hierarchy depth (shallower first) so outer aliases are resolved before inner
         // Pre-compute depth map to avoid O(N log N * D) complexity in sort comparisons
@@ -2888,6 +2912,8 @@ public:
         iterate(rootp);
         // Process deferred AliasScopes in outer-to-inner order
         processDeferredAliasScopes();
+        // Then the descriptor interface references that depend on them
+        processRtmdIfaceRefs();
     }
     ~LinkDotScopeVisitor() override = default;
 };

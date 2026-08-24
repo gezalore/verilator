@@ -30,6 +30,7 @@
 
 #include "verilatedos.h"
 #include "verilated.h"
+#include "verilated_rtmd.h"
 #include "verilated_syms.h"
 
 #include <algorithm>
@@ -212,6 +213,12 @@ protected:
     // Used by ifaceRefInsert, ifaceRefFind, ifaceRefErase, ifaceRefMap
     mutable VerilatedMutex m_ifaceRefMutex;  // Protect m_ifaceRefMap
     VerilatedIfaceRefMap m_ifaceRefMap VL_GUARDED_BY(m_ifaceRefMutex);
+
+    // Models with run time model descriptors, and their descriptor tables
+    // Used by addModel, trace
+    mutable VerilatedMutex m_rtmdModelsMutex;  // Protect m_rtmdModels
+    std::vector<std::pair<const VerilatedModel*, VlRtmd>>
+        m_rtmdModels VL_GUARDED_BY(m_rtmdModelsMutex);
 };
 
 //======================================================================

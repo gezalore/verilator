@@ -71,8 +71,7 @@ class EmitCConstPool final : public EmitCConstInit {
                 puts("#include \"verilated.h\"\n");
             }
 
-            const std::string nameProtect
-                = EmitCUtil::topClassName() + "__ConstPool__" + varp->nameProtect();
+            const std::string nameProtect = EmitCUtil::constPoolName(varp);
             puts("\n");
             putns(varp, "extern ");
             // Literal types should be constinit (no code generation needed)

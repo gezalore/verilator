@@ -265,6 +265,7 @@ class EmitCModel final : public EmitCFunc {
         if (v3Global.opt.trace()) {
             puts("std::unique_ptr<VerilatedTraceConfig> traceConfig() const override final;\n");
         }
+        puts("bool rtmdTables(VlRtmd& tables) const override final;\n");
 
         ofp()->putsPrivate(true);  // private:
         puts("\n// Internal functions - the model's evaluation entry points\n");
@@ -282,9 +283,6 @@ class EmitCModel final : public EmitCFunc {
             if (!eval.hasTriggers()) continue;
             puts("void " + eval.dumpTriggersMethod() + "() override final;\n");
         }
-
-        puts("\n// Internal functions - trace registration\n");
-        puts("void traceBaseModel(VerilatedTraceBaseC* tfp, int levels, int options);\n");
 
         puts("};\n");
 
@@ -345,10 +343,6 @@ class EmitCModel final : public EmitCFunc {
             puts("m_evalLoop.profiler(vlSymsp->__Vm_executionProfilerp, /*topLevel:*/ "s
                  + (topLevel ? "true" : "false") + ");\n");
         }
-        if (v3Global.opt.trace())
-            puts("contextp()->traceBaseModelCbAdd(\n"
-                 "[this](VerilatedTraceBaseC* tfp, int levels, int options) {"
-                 " traceBaseModel(tfp, levels, options); });\n");
 
         if (optSystemC()) {
             // Create sensitivity list for when to evaluate the model.
@@ -452,7 +446,10 @@ class EmitCModel final : public EmitCFunc {
              + "(&(vlSymsp->TOP));\n");
         puts("#endif  // VL_DEBUG\n");
 
-        if (v3Global.opt.trace()) puts("vlSymsp->__Vm_activity = true;\n");
+        if (const AstVar* const varp = v3Global.rootp()->activityp()) {
+            // Unconditional activity flag saying something evaluated
+            puts("vlSymsp->TOP." + varp->nameProtect() + "[0] = 1;\n");  // Always index 0
+        }
 
         if (v3Global.hasEvents()) puts("vlSymsp->clearTriggeredEvents();\n");
         if (v3Global.hasClasses()) puts("vlSymsp->__Vm_deleter.deleteAll();\n");
@@ -580,97 +577,39 @@ class EmitCModel final : public EmitCFunc {
         }
     }
 
-    void emitTraceMethods(AstNodeModule* modp) {
-        const string topModNameProtected = EmitCUtil::prefixNameProtect(modp);
-        const string topTraceName
-            = V3OutFormatter::quoteNameControls(v3Global.rootp()->traceLibTopName());
+    void emitRtmdTables(AstNodeModule* modp) {
+        const string model = EmitCUtil::topClassName();
 
-        putSectionDelimiter("Trace configuration");
-
-        // Forward declaration
-        if (!v3Global.opt.libCreate().empty()) {
-            putns(modp, "\nvoid " + topModNameProtected + "__" + protect("trace_init_root") + "("
-                            + topModNameProtected + "* vlSelf, " + v3Global.opt.traceClassBase()
-                            + "* tracep);\n");
+        // No tables without Rtmd
+        if (!v3Global.opt.rtmd()) {
+            puts("\n");
+            putns(modp, "bool " + model + "::rtmdTables(VlRtmd&) const { return false; }\n");
+            return;
         }
-        putns(modp, "\nvoid " + topModNameProtected + "__" + protect("trace_decl_types") + "("
-                        + v3Global.opt.traceClassBase() + "* tracep);\n");
-        putns(modp, "\nvoid " + topModNameProtected + "__" + protect("trace_init_top") + "("
-                        + topModNameProtected + "* vlSelf, " + v3Global.opt.traceClassBase()
-                        + "* tracep);\n");
 
-        // Static helper function
+        // Declare the global symbols emitted by  V3EmitCRtmd
         puts("\n");
-        putns(modp, "VL_ATTR_COLD static void " + protect("trace_init") + "(void* voidSelf, "
-                        + v3Global.opt.traceClassBase() + "* tracep, uint32_t code) {\n");
-        putsDecoration(modp, "// Callback from tracep->open()\n");
-        puts(EmitCUtil::voidSelfAssign(modp));
-        puts(EmitCUtil::symClassAssign());
-        puts("if (!vlSymsp->_vm_contextp__->calcUnusedSigs()) {\n");
-        puts("VL_FATAL_MT(__FILE__, __LINE__, __FILE__,\n");  // LCOV_EXCL_LINE
-        puts("\"Turning on wave traces requires Verilated::traceEverOn(true) call before time "
-             "0.\");\n");
-        puts("}\n");
-        puts("vlSymsp->__Vm_baseCode = code;\n");
-        if (v3Global.opt.libCreate().empty()) {
-            puts("tracep->pushPrefix(vlSymsp->name(), VerilatedTracePrefixType::SCOPE_MODULE);\n");
-        } else {
-            puts("if (tracep->rootInit()) {\n");
-            puts("tracep->pushPrefix(vlSymsp->name(), VerilatedTracePrefixType::SCOPE_MODULE);\n");
-            puts(topModNameProtected + "__" + protect("trace_init_root") + "(vlSelf, tracep);\n");
-            puts("tracep->pushPrefix(\"" + topTraceName
-                 + "\", VerilatedTracePrefixType::SCOPE_MODULE);\n");
-            puts("}\n");
-        }
-        puts(topModNameProtected + "__" + protect("trace_decl_types") + "(tracep);\n");
-        puts(topModNameProtected + "__" + protect("trace_init_top") + "(vlSelf, tracep);\n");
-        if (v3Global.opt.libCreate().empty()) {  //
-            puts("tracep->popPrefix();\n");
-        } else {
-            puts("if (tracep->rootInit()) {\n");
-            puts("tracep->popPrefix();\n");
-            puts("tracep->popPrefix();\n");
-            puts("}\n");
-        }
-        puts("}\n");
+        puts("extern const VlRtmdActSetRow " + EmitCUtil::rtmdActSetTableName() + "[];\n");
+        puts("extern const VlRtmdDataTypeRow " + EmitCUtil::rtmdDataTypeTableName() + "[];\n");
+        puts("extern const VlRtmdGlobalSymRow " + EmitCUtil::rtmdGlobalTableName() + "[];\n");
+        puts("extern const VlRtmdHierRow " + EmitCUtil::rtmdHierTableName() + "[];\n");
+        puts("extern const VlRtmdSignalTypeRow " + EmitCUtil::rtmdSignalTypeTableName() + "[];\n");
 
-        // Forward declaration
         puts("\n");
-        putns(modp, "VL_ATTR_COLD void " + topModNameProtected + "__" + protect("trace_register")
-                        + "(" + topModNameProtected + "* vlSelf, " + v3Global.opt.traceClassBase()
-                        + "* tracep);\n");
-
-        // ::traceRegisterModel
-        puts("\n");
-        putns(modp, "VL_ATTR_COLD void " + EmitCUtil::topClassName() + "::traceBaseModel(");
-        puts("VerilatedTraceBaseC* tfp, int levels, int options) {\n");
-        if (optSystemC()) {
-            puts(/**/ "if (!sc_core::sc_get_curr_simcontext()->elaboration_done()) {\n");
-            puts(/****/ "vl_fatal(__FILE__, __LINE__, name(), \"" + EmitCUtil::topClassName()
-                 + +"::trace() is called before sc_core::sc_start(). "
-                    "Run sc_core::sc_start(sc_core::SC_ZERO_TIME) before trace() to complete "
-                    "elaboration.\");\n");
-            puts(/**/ "}");
+        putns(modp, "VL_ATTR_COLD bool " + model + "::rtmdTables(VlRtmd& tables) const {\n");
+        puts("tables.m_symsp = vlSymsp;\n");
+        puts("tables.m_namep = vlSymsp->name();\n");
+        puts("tables.m_actSetsTabp = " + EmitCUtil::rtmdActSetTableName() + ";\n");
+        puts("tables.m_dataTypesTabp = " + EmitCUtil::rtmdDataTypeTableName() + ";\n");
+        puts("tables.m_globalSymsTabp = " + EmitCUtil::rtmdGlobalTableName() + ";\n");
+        puts("tables.m_hierTabp = " + EmitCUtil::rtmdHierTableName() + ";\n");
+        puts("tables.m_signalTypesTabp = " + EmitCUtil::rtmdSignalTypeTableName() + ";\n");
+        if (const AstVar* const varp = v3Global.rootp()->activityp()) {
+            puts("tables.m_activityFlagsp = vlSymsp->TOP." + varp->nameProtect() + ".data();\n");
+            puts("tables.m_nActivityFlags = " + std::to_string(v3Global.rootp()->nActFlags())
+                 + ";\n");
         }
-        puts(/**/ "(void)levels; (void)options;\n");  // Prevent unused variable warning
-        puts(/**/ v3Global.opt.traceClassBase() + "C* const stfp = dynamic_cast<"
-             + v3Global.opt.traceClassBase() + "C*>(tfp);\n");
-        puts(/**/ "if (VL_UNLIKELY(!stfp)) {\n");
-        puts(/****/ "vl_fatal(__FILE__, __LINE__, __FILE__,\"'" + EmitCUtil::topClassName()
-             + "::trace()' called on non-" + v3Global.opt.traceClassBase() + "C object;\"\n"
-             + "\" use --trace-fst with VerilatedFst object,"
-             + " and --trace-vcd with VerilatedVcd object\");\n");
-        puts(/**/ "}\n");
-        puts(/**/ "stfp->spTrace()->addModel(this);\n");
-        puts(/**/ "stfp->spTrace()->addInitCb("s  //
-             + "&" + protect("trace_init")  //
-             + ", &(vlSymsp->TOP)"  //
-             + ", name()"  //
-             + ", " + (v3Global.opt.libCreate().empty() ? "false" : "true")  //
-             + ", " + std::to_string(v3Global.rootp()->nTraceCodes())  //
-             + ");\n");
-        puts(/**/ topModNameProtected + "__" + protect("trace_register")
-             + "(&(vlSymsp->TOP), stfp->spTrace());\n");
+        puts("return true;\n");
         puts("}\n");
     }
 
@@ -699,12 +638,13 @@ class EmitCModel final : public EmitCFunc {
         puts("#include \"" + EmitCUtil::pchClassName() + ".h\"\n");
         for (const string& base : v3Global.opt.traceSourceLangs())
             puts("#include \"" + base + ".h\"\n");
+        if (v3Global.opt.rtmd()) puts("#include \"verilated_rtmd.h\"\n");
 
         emitConstructorImplementation(modp);
         emitDestructorImplementation();
         emitStandardMethods1(modp);
         emitStandardMethods2(modp);
-        if (v3Global.opt.trace()) emitTraceMethods(modp);
+        emitRtmdTables(modp);
         if (v3Global.opt.savable()) emitSerializationFunctions();
 
         closeOutputFile();

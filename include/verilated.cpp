@@ -3472,6 +3472,13 @@ void VerilatedContext::addModel(const VerilatedModel* modelp) {
         const std::string str = msg.str();
         VL_FATAL_MT(__FILE__, __LINE__, modelp->hierName(), str.c_str());
     }
+
+    // Remember the models with run time model descriptors, e.g. for trace()
+    VlRtmd tables;
+    if (modelp->rtmdTables(tables)) {
+        const VerilatedLockGuard lock{m_impdatap->m_rtmdModelsMutex};
+        m_impdatap->m_rtmdModels.emplace_back(modelp, tables);
+    }
 }
 
 VerilatedVirtualBase* VerilatedContext::threadPoolp(unsigned modelThreads) {
@@ -3844,18 +3851,14 @@ void VerilatedContext::trace(VerilatedTraceBaseC* tfp, int levels, int options) 
         if (tfp->modelConnected()) return;
         tfp->modelConnected(true);
     }
-    // We rely on m_ns.m_traceBaseModelCbs being stable when trace() is called
-    // nope: const VerilatedLockGuard lock{m_mutex};
-    if (m_ns.m_traceBaseModelCbs.empty())
+    (void)levels;  // Unused
+    (void)options;  // Unused
+    const VerilatedLockGuard lock{m_impdatap->m_rtmdModelsMutex};
+    if (m_impdatap->m_rtmdModels.empty())
         VL_FATAL_MT("", 0, "",
                     "Testbench C call to 'VerilatedContext::trace()' requires model(s) Verilated"
                     " with --trace-fst or --trace-vcd option");
-    for (const auto& cbr : m_ns.m_traceBaseModelCbs) cbr(tfp, levels, options);
-}
-void VerilatedContext::traceBaseModelCbAdd(traceBaseModelCb_t cb) VL_MT_SAFE {
-    // Model creation registering a callback for when Verilated::trace() called
-    const VerilatedLockGuard lock{m_mutex};
-    m_ns.m_traceBaseModelCbs.push_back(cb);
+    for (const auto& pair : m_impdatap->m_rtmdModels) tfp->addModel(pair.first, pair.second);
 }
 
 //======================================================================
@@ -4009,11 +4012,13 @@ void Verilated::scTimePrecisionError(int sc_prec, int vl_prec) VL_MT_SAFE {
     VL_UNREACHABLE;
 }
 
-void Verilated::scTraceBeforeElaborationError() VL_MT_SAFE {
-    // Slowpath - Called only when trace file opened before SystemC elaboration
-    VL_FATAL_MT("unknown", 0, "",
-                "%Error: Verilated*Sc::open(...) was called before sc_core::sc_start(). "
-                "Run sc_core::sc_start(sc_core::SC_ZERO_TIME) before opening a wave file.");
+void Verilated::scTraceBeforeElaborationError(const char* callp) VL_MT_SAFE {
+    // Slowpath - Called only when a trace file is used before SystemC elaboration
+    const std::string msg = "%Error: "s + callp
+                            + " was called before sc_core::sc_start(). Run"
+                              " sc_core::sc_start(sc_core::SC_ZERO_TIME) to complete"
+                              " elaboration first.";
+    VL_FATAL_MT("unknown", 0, "", msg.c_str());
     VL_UNREACHABLE;
 }
 
