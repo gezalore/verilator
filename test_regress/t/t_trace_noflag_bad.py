@@ -12,9 +12,9 @@ import vltest_bootstrap
 test.scenarios('vlt')
 
 test.compile(
-    # We need to list verilated_vcd_c.cpp because without --trace Verilator
-    # won't build it itself automatically.
-    verilator_flags2=["--cc --exe", "t/" + test.name + "_c.cpp", "verilated_vcd_c.cpp"],
+    # We need to list verilated_vcd_c.cpp and verilated_rtmd.cpp because without
+    # --trace Verilator won't build it itself automatically, but the cpp file needs them.
+    verilator_flags2=["--cc --exe", "t/" + test.name + "_c.cpp", "verilated_vcd_c.cpp", "verilated_rtmd.cpp"],
     make_top_shell=False,
     make_main=False)
 

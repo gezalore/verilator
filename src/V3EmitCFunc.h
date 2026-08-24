@@ -63,8 +63,7 @@ class EmitCLazyDecls final : public VNVisitorConst {
 
     void lazyDeclareConstPoolVar(AstVar* varp) {
         if (!declaredOnce(varp)) return;  // Already declared
-        const string nameProtect
-            = EmitCUtil::topClassName() + "__ConstPool__" + varp->nameProtect();
+        const string nameProtect = EmitCUtil::constPoolName(varp);
         m_emitter.putns(varp, "extern const ");
         m_emitter.puts(varp->dtypep()->cType(nameProtect, false, false));
         m_emitter.puts(";\n");
@@ -1784,14 +1783,18 @@ public:
     // Terminals
     void visit(AstVarRef* nodep) override {
         const AstVar* const varp = nodep->varp();
+
+        // Reference to constant pool variable is special
+        if (varp->constPoolEntry()) {
+            putns(nodep, EmitCUtil::constPoolName(varp));
+            return;
+        }
+
         const AstNodeModule* const varModp = EmitCParentModule::get(varp);
         const bool dereferenceCovergroupRef
             = varp->covergroupRefMember() && nodep->access().isReadOrRW();
         if (dereferenceCovergroupRef) putns(nodep, "(*");
-        if (varModp->isConstPool()) {
-            // Reference to constant pool variable
-            putns(nodep, EmitCUtil::topClassName() + "__ConstPool__");
-        } else if (varp->isStatic()) {
+        if (varp->isStatic()) {
             // Access static variable via the containing class
             putns(nodep, EmitCUtil::prefixNameProtect(varModp) + "::");
         } else if (VN_IS(varModp, Class) && varModp != m_modp) {

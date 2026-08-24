@@ -106,13 +106,13 @@ struct VlIfaceRefTableEntry;
 template <typename, typename>
 class VerilatedTrace;
 class VerilatedTraceBaseC;
-class VerilatedTraceConfig;
 class VerilatedVar;
 class VerilatedVarNameMap;
 class VerilatedVcd;
 class VerilatedVcdC;
 class VerilatedVcdSc;
 class VlCovRegistry;
+class VlRtmd;
 
 //=========================================================================
 // Basic types
@@ -345,12 +345,14 @@ class VerilatedModel VL_NOT_FINAL {
     VL_UNCOPYABLE(VerilatedModel);
 
     VerilatedContext& m_context;  // The VerilatedContext this model is instantiated under
+    uint32_t m_id = ~0U;  // Unique id of the model in its context
 
 protected:
+    const VlRtmd* m_rtmdp = nullptr;  // The run time model descriptors, iff generated
     bool m_didInit = false;  // Time 0 initialization has run
 
     explicit VerilatedModel(VerilatedContext& context);
-    virtual ~VerilatedModel() = default;
+    virtual ~VerilatedModel();
 
 public:
     /// Returns the VerilatedContext this model is instantiated under
@@ -362,15 +364,19 @@ public:
     virtual const char* modelName() const = 0;
     /// Returns the thread level parallelism, this model was Verilated with. Always 1 or higher.
     virtual unsigned threads() const = 0;
+    /// Orders models in the order they were added to their context
+    bool operator<(const VerilatedModel& other) const { return m_id < other.m_id; }
+
+    // Public, but for internal use only
+    // Rtmd of this model, if any
+    const VlRtmd* rtmd() const { return m_rtmdp; }
 
 private:
     // The following are for use by Verilator internals only
     template <typename, typename>
     friend class VerilatedTrace;
+    friend class VerilatedContext;
     friend class VerilatedEvalLoop;
-
-    // Run-time trace configuration requested by this model
-    virtual std::unique_ptr<VerilatedTraceConfig> traceConfig() const;
 
     // Entry points called by VerilatedEvalLoop
     virtual void evalBegin() = 0;
@@ -517,10 +523,6 @@ private:
     static constexpr uint64_t TIME_UNSET = ~0ULL;
 
 protected:
-    // TYPES
-    using traceBaseModelCb_t
-        = std::function<void(VerilatedTraceBaseC*, int, int)>;  // Type of traceBaseModel callbacks
-
     // MEMBERS
     // Slow path variables
     mutable VerilatedMutex m_mutex;  // Mutex for most s_s/s_ns members
@@ -589,7 +591,6 @@ protected:
         bool m_warnUnsatConstr = true;  // Warn on unsatisfied constraints
         VlOs::DeltaCpuTime m_cpuTimeStart{false};  // CPU time, starts when create first model
         VlOs::DeltaWallTime m_wallTimeStart{false};  // Wall time, starts when create first model
-        std::vector<traceBaseModelCb_t> m_traceBaseModelCbs;  // Callbacks to traceRegisterModel
         int m_stdoutFD;  // Duplicated stdout file descriptor
         int m_stderrFD;  // Duplicated stderr file descriptor
         int m_logFD;  // Log file descriptor
@@ -840,7 +841,12 @@ public:
     }
 
     // Internal: Model and thread setup
-    void addModel(const VerilatedModel* modelp);
+    void addModel(VerilatedModel* modelp);
+    // Internal: Remove a model being destroyed
+    void removeModel(const VerilatedModel* modelp);
+    // Internal: Retrieve all models in the context, indexed by their hierarchical path
+    const std::map<std::string, VerilatedModel*>& models() const;
+
     // Get the thread pool, creating it if needed. 'modelThreads' is the parallelism of the model
     // being constructed, so that the context can grow to the number of threads it requires.
     VerilatedVirtualBase* threadPoolp(unsigned modelThreads = 1);
@@ -895,9 +901,6 @@ public:
     // Internal: Serialization setup
     static constexpr size_t serialized1Size() VL_PURE { return sizeof(m_s); }
     void* serialized1Ptr() VL_MT_UNSAFE { return &m_s; }
-
-    // Internal: trace registration
-    void traceBaseModelCbAdd(traceBaseModelCb_t cb) VL_MT_SAFE;
 
     // Internal: Check magic number
     static void checkMagic(const VerilatedContext* contextp);
@@ -1259,7 +1262,7 @@ public:
     static void nullPointerError(const char* filename, int linenum) VL_ATTR_NORETURN VL_MT_SAFE;
     static void overWidthError(const char* signame) VL_ATTR_NORETURN VL_MT_SAFE;
     static void scTimePrecisionError(int sc_prec, int vl_prec) VL_ATTR_NORETURN VL_MT_SAFE;
-    static void scTraceBeforeElaborationError() VL_ATTR_NORETURN VL_MT_SAFE;
+    static void scTraceBeforeElaborationError(const char* callp) VL_ATTR_NORETURN VL_MT_SAFE;
     static void stackCheck(QData needSize) VL_MT_UNSAFE;
 
     // Internal: Load a VPI shared library (+verilator+vpi+<lib>[:<bootstrap>])

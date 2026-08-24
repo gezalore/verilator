@@ -304,6 +304,7 @@ class AstNodeModule VL_NOT_FINAL : public AstNode {
     // excluding $unit package stuff
     // @astgen op1 := inlinesp : List[AstNode]
     // @astgen op2 := stmtsp : List[AstNode]
+    // @astgen op3 := rtmdp : Optional[AstRtmdLevel]
     string m_name;  // Name of the module
     const string m_origName;  // Name of the module, ignoring name() changes, for dot lookup
     // dist-ast-dump-suppress  // For some user errors messages only, visible where used
@@ -531,7 +532,6 @@ class AstCFunc final : public AstNode {
     string m_dpiCDecl;  // Custom DPI-C function declaration
     VBoolOrUnknown m_isConst;  // Function is declared const (*this not changed)
     bool m_isStatic : 1;  // Function is static (no need for a 'this' pointer)
-    bool m_isTrace : 1;  // Function is related to tracing
     bool m_dontCombine : 1;  // V3Combine shouldn't compare this func tree, it's special
     bool m_declPrivate : 1;  // Declare it private
     bool m_keepIfEmpty : 1;  // Keep declaration and definition separate, even if empty
@@ -567,7 +567,6 @@ public:
         m_name = name;
         m_rtnType = rtnType;
         m_isStatic = false;
-        m_isTrace = false;
         m_dontCombine = false;
         m_declPrivate = false;
         m_keepIfEmpty = false;
@@ -599,8 +598,8 @@ public:
     void dumpJson(std::ostream& str = std::cout) const override;
     bool sameNode(const AstNode* samep) const override {
         const AstCFunc* const asamep = VN_DBG_AS(samep, CFunc);
-        return ((isTrace() == asamep->isTrace()) && (rtnTypeVoid() == asamep->rtnTypeVoid())
-                && (argTypes() == asamep->argTypes()) && isLoose() == asamep->isLoose()
+        return ((rtnTypeVoid() == asamep->rtnTypeVoid()) && (argTypes() == asamep->argTypes())
+                && isLoose() == asamep->isLoose()
                 && (!(dpiImportPrototype() || dpiExportImpl()) || name() == asamep->name()));
     }
     //
@@ -611,15 +610,13 @@ public:
     void isConst(VBoolOrUnknown flag) { m_isConst = flag; }
     bool isStatic() const { return m_isStatic; }
     void isStatic(bool flag) { m_isStatic = flag; }
-    bool isTrace() const VL_MT_SAFE { return m_isTrace; }
-    void isTrace(bool flag) { m_isTrace = flag; }
     void cname(const string& name) { m_cname = name; }
     string cname() const { return m_cname; }
     AstScope* scopep() const { return m_scopep; }
     void scopep(AstScope* nodep) { m_scopep = nodep; }
     string rtnTypeVoid() const { return ((m_rtnType == "") ? "void" : m_rtnType); }
     void rtnType(const string& rtnType) { m_rtnType = rtnType; }
-    bool dontCombine() const { return m_dontCombine || isTrace() || entryPoint(); }
+    bool dontCombine() const { return m_dontCombine || entryPoint(); }
     void dontCombine(bool flag) { m_dontCombine = flag; }
     bool declPrivate() const { return m_declPrivate; }
     void declPrivate(bool flag) { m_declPrivate = flag; }
@@ -1581,6 +1578,7 @@ class AstNetlist final : public AstNode {
     // @astgen ptr := m_stdPackageProcessp : Optional[AstClass]  // SystemVerilog std process class
     // @astgen ptr := m_dpiExportTriggerp : Optional[AstVarScope]  // DPI export trigger variable
     // @astgen ptr := m_delaySchedulerp : Optional[AstVar]  // Delay scheduler variable
+    // @astgen ptr := m_activityp : Optional[AstVar]  // Trace activity flags
     // @astgen ptr := m_nbaEventp : Optional[AstVarScope]  // NBA event variable
     // @astgen ptr := m_nbaEventTriggerp : Optional[AstVarScope]  // NBA event trigger
     // @astgen ptr := m_topScopep : Optional[AstTopScope]  // Singleton AstTopScope
@@ -1589,7 +1587,6 @@ class AstNetlist final : public AstNode {
     VTimescale m_timeprecision;  // Global time precision
     std::string m_resolvedTopModuleName;  // Selected design top before wrapping under $root
     bool m_timescaleSpecified = false;  // Input HDL specified timescale
-    uint32_t m_nTraceCodes = 0;  // Number of trace codes used by design
     // V3Param-deferred params awaiting V3LinkDot::linkDotParamed scope-resolution.
     std::set<AstVar*> m_deferredParamVarps;
     // Sparse metadata for constants produced from named parameters/localparams. Keep this off
@@ -1602,6 +1599,9 @@ class AstNetlist final : public AstNode {
     std::array<AstCFunc*, VEval::_ENUM_END> m_evalFuncps{};
     // The trigger dump function of each region if exists, otherwise nullptr
     std::array<AstCFunc*, VEval::_ENUM_END> m_dumpTriggersFuncps{};
+    // Activity flag sets of the design, built by V3Trace for the RTMD.
+    std::vector<std::vector<uint32_t>> m_actSets;
+    uint32_t m_nActFlags = 0;  // Number of activity flags in the design
 
 public:
     AstNetlist();
@@ -1637,6 +1637,8 @@ public:
     void dpiExportTriggerp(AstVarScope* varScopep) { m_dpiExportTriggerp = varScopep; }
     AstVar* delaySchedulerp() const { return m_delaySchedulerp; }
     void delaySchedulerp(AstVar* const varScopep) { m_delaySchedulerp = varScopep; }
+    AstVar* activityp() const { return m_activityp; }
+    void activityp(AstVar* const varp) { m_activityp = varp; }
     AstVarScope* nbaEventp() const { return m_nbaEventp; }
     void nbaEventp(AstVarScope* const varScopep) { m_nbaEventp = varScopep; }
     AstVarScope* nbaEventTriggerp() const { return m_nbaEventTriggerp; }
@@ -1646,6 +1648,14 @@ public:
     void stdPackageProcessp(AstClass* const classp) { m_stdPackageProcessp = classp; }
     AstClass* stdPackageProcessp() const { return m_stdPackageProcessp; }
     AstFuncRef* stdPackageProcessSelfp(FileLine*) const;
+    const std::vector<std::vector<uint32_t>>& actSets() const { return m_actSets; }
+    // Add an activity set, and return its index
+    uint32_t addActSet(std::vector<uint32_t>&& flags) {
+        m_actSets.emplace_back(std::move(flags));
+        return static_cast<uint32_t>(m_actSets.size() - 1);
+    }
+    uint32_t nActFlags() const { return m_nActFlags; }
+    void nActFlags(uint32_t nFlags) { m_nActFlags = nFlags; }
     AstTopScope* topScopep() const { return m_topScopep; }
     void createTopScope(AstScope* scopep);
     VTimescale timeunit() const { return m_timeunit; }
@@ -1660,15 +1670,8 @@ public:
     bool timescaleSpecified() const { return m_timescaleSpecified; }
     const std::string& resolvedTopModuleName() const { return m_resolvedTopModuleName; }
     void resolvedTopModuleName(const std::string& value) { m_resolvedTopModuleName = value; }
-    uint32_t nTraceCodes() const { return m_nTraceCodes; }
-    void nTraceCodes(uint32_t value) { m_nTraceCodes = value; }
     AstVarScope* stlFirstIterationp();
     void clearStlFirstIterationp() { m_stlFirstIterationp = nullptr; }
-    const std::string traceLibTopName() const {
-        const std::string& name = resolvedTopModuleName();
-        return prettyName(name.empty() ? v3Global.rootp()->topModulep()->name() : name);
-    }
-
     // Record statistics for eval functions
     void addEvalStats(const std::string& phase);
 };
@@ -1873,6 +1876,7 @@ class AstScope final : public AstNode {
     // @astgen ptr := m_aboveScopep : Optional[AstScope]  // Scope above this one in the hierarchy
     // @astgen ptr := m_aboveCellp : Optional[AstCell]  // Cell above this in the hierarchy
     // @astgen ptr := m_modp : AstNodeModule  // Module scope corresponds to
+    // @astgen ptr := m_rtmdp : Optional[AstRtmdLevel] // Inlined entry RTMD, only for linkDotScope
 
     // An AstScope->name() is special: . indicates an uninlined scope, __DOT__ an inlined scope
     string m_name;  // Name
@@ -1902,6 +1906,8 @@ public:
     void aboveScopep(AstScope* nodep) { m_aboveScopep = nodep; }
     AstCell* aboveCellp() const { return m_aboveCellp; }
     void aboveCellp(AstCell* nodep) { m_aboveCellp = nodep; }
+    AstRtmdLevel* rtmdp() const { return m_rtmdp; }
+    void rtmdp(AstRtmdLevel* nodep) { m_rtmdp = nodep; }
     bool isTop() const VL_MT_SAFE { return aboveScopep() == nullptr; }  // At top of hierarchy
     // Create new MODULETEMP variable under this scope
     AstVarScope* createTemp(const string& name, unsigned width);
@@ -2088,6 +2094,7 @@ class AstTopScope final : public AstNode {
     //
     // @astgen op1 := senTreesp : List[AstSenTree] // Globally unique sensitivity lists
     // @astgen op2 := scopep : AstScope // The AstScope of the top-leveL
+    // @astgen op3 := rtmdp : Optional[AstRtmdLevel] // Descriptor of the top scope
 
     friend class AstNetlist;  // Only the AstNetlist can create one
     AstTopScope(FileLine* fl, AstScope* ascopep)
@@ -2102,6 +2109,8 @@ public:
 class AstTypeTable final : public AstNode {
     // Container for hash of standard data types
     // @astgen op1 := typesp : List[AstNodeDType]
+    // @astgen op2 := rtmdDataTypesp : List[AstNodeRtmdDataType] // Data type descriptors
+    // @astgen op3 := rtmdSignalTypesp : List[AstRtmdSignalType] // Signal type descriptors
     //
     // @astgen ptr := m_constraintRefp : Optional[AstConstraintRefDType]
     // @astgen ptr := m_emptyQueuep : Optional[AstEmptyQueueDType]

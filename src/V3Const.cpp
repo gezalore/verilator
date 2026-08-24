@@ -975,6 +975,15 @@ class ConstVisitor final : public VNVisitor {
 
     // METHODS
 
+    // Return true if the given statement subtree may be deleted. Until statics are lifted, a
+    // variable declared in the subtree might be referenced by the run time model descriptors.
+    static bool deletableSubtree(AstNode* subtreep) {
+        if (!v3Global.opt.rtmd()) return true;
+        if (v3Global.staticsLifted()) return true;
+        if (!subtreep) return true;
+        return !subtreep->existsAndNext([](const AstVar*) { return true; });
+    }
+
     void deleteVarScopesUnder(AstNode* subtreep) {
         if (!subtreep) return;
         if (!m_scopep) return;
@@ -3382,6 +3391,7 @@ class ConstVisitor final : public VNVisitor {
         m_hasJumpDelay = true;
         iterateChildren(nodep);
     }
+    void visit(AstRtmdSignal*) override {}  // Descriptors reference the variable, even parameters
     void visit(AstNodeVarRef* nodep) override {
         iterateChildren(nodep);
         UASSERT_OBJ(nodep->varp(), nodep, "Not linked");
@@ -3822,6 +3832,10 @@ class ConstVisitor final : public VNVisitor {
                     UINFO(4, "IF condition is X, retaining: " << nodep);
                     return;
                 }
+                if (!deletableSubtree(delp)) {
+                    UINFO(4, "IF with declarations, retaining until statics lifted: " << nodep);
+                    return;
+                }
 
                 // If we delete a branch that contains variable declarations, also delete the
                 // corresponding varscopes so we don't leave dangling AstVarScope::m_varp pointers.
@@ -4133,7 +4147,7 @@ class ConstVisitor final : public VNVisitor {
         m_hasJumpDelay = thisLoopHasJumpDelay || oldHasJumpDelay;
         // If the first statement always break, the loop is useless
         if (const AstLoopTest* const testp = VN_CAST(nodep->stmtsp(), LoopTest)) {
-            if (testp->condp()->isZero()) {
+            if (testp->condp()->isZero() && deletableSubtree(nodep->stmtsp())) {
                 nodep->v3warn(UNUSEDLOOP, "Loop condition is always false");
                 VL_DO_DANGLING(pushDeletep(nodep->unlinkFrBack()), nodep);
                 return;

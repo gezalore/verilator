@@ -12,7 +12,7 @@ import vltest_bootstrap
 test.scenarios("vlt_all")
 
 test.compile(v_flags2=[
-    "--trace-vcd --trace-max-width 0 --trace-max-array 0 --output-split-ctrace 10 --trace-structs"
+    "--trace-vcd --trace-max-width 0 --trace-max-array 0 --trace-structs"
 ])
 trace_files = glob.glob(test.obj_dir + "/*Trace*.cpp")
 if len(trace_files) < 10:

@@ -12,4 +12,5 @@
 %Warning-DEPRECATED: Option '-fno-lift-expr' is deprecated and has no effect
 %Warning-DEPRECATED: Option '-fno-merge-const-pool' is deprecated and has no effect
 %Warning-DEPRECATED: Option '--assert-unroll-limit' is deprecated and has no effect.
+%Warning-DEPRECATED: Option '--output-split-ctrace' is deprecated and has no effect.
 %Error: Exiting due to
