@@ -1582,11 +1582,24 @@ Summary:
 
 .. option:: --output-split-ctrace <statements>
 
+   Deprecated and has no effect.
+
+   In versions before 5.054:
+
    Similar to :vlopt:`--output-split-cfuncs`, it enables splitting trace
    functions in the output .cpp files into multiple functions.
 
    Defaults to the value of :vlopt:`--output-split`, unless explicitly
    specified.
+
+.. option:: --output-split-rtmd <log2>
+
+   Splits the run time model descriptor tables (see :vlopt:`--rtmd`) into
+   chunks of 2 to the power of the given value rows each, every chunk in a
+   separate .cpp file. A value of 0 disables splitting.
+   The value must be non-negative.
+
+   Defaults to 13 (8192 rows per chunk).
 
 .. option:: -P
 
@@ -1916,6 +1929,12 @@ Summary:
 
    Run Verilator and record with the :command:`rr` command. See
    `https://rr-project.org <https://rr-project.org>`_.
+
+.. option:: --rtmd
+
+   Create run time model descriptors (RTMD), tables describing the design
+   hierarchy, signals and their types, which the Verilated model provides
+   at run time. Implied by the tracing options.
 
 .. option:: --runtime-debug
 

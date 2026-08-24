@@ -149,9 +149,10 @@ protected:
     static std::string getScTimeResolution() {
         return sc_core::sc_get_time_resolution().to_string();
     }
-    static void checkScElaborationDone() {
+    // Check SystemC elaboration is done, before the given call
+    static void checkScElaborationDone(const char* callp) {
         if (!sc_core::sc_get_curr_simcontext()->elaboration_done()) {
-            Verilated::scTraceBeforeElaborationError();
+            Verilated::scTraceBeforeElaborationError(callp);
         }
     }
 

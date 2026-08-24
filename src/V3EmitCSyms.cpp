@@ -808,8 +808,7 @@ class EmitCSyms final : EmitCBaseVisitorConst {
         for (AstIntfRef* intfRefp = cellp->intfRefsp(); intfRefp;
              intfRefp = VN_AS(intfRefp->nextp(), IntfRef)) {
             const std::string refName = AstNode::vpiName(intfRefp->name());
-            // Assume only references under the same parent scope reference the
-            // same interface. Same limitation as the trace path in V3TraceDecl.
+            // Assume only references under the same parent scope reference the same interface.
             if (!VString::startsWith(refName, parentPath)) continue;
             m_ifaceRefs.emplace_back(nodep, scopeSymString(intfRefp->parentName()), refName,
                                      AstNode::vpiName(intfRefp->baseName()),
@@ -1080,12 +1079,6 @@ void EmitCSyms::emitSymHdr() {
              + "* __Vm_dumperp VL_GUARDED_BY(__Vm_dumperMutex) = nullptr;"
                "  /// Trace class for $dump*\n");
     }
-    if (v3Global.opt.trace()) {
-        puts("bool __Vm_activity = false;"
-             "  ///< Used by trace routines to determine change occurred\n");
-        puts("uint32_t __Vm_baseCode = 0;"
-             "  ///< Used by trace routines when tracing multiple models\n");
-    }
     if (v3Global.hasEvents()) {
         if (v3Global.assignsEvents()) {
             puts("std::vector<VlAssignableEvent> __Vm_triggeredEvents;\n");
@@ -1243,12 +1236,8 @@ void EmitCSyms::emitSymImpPreamble() {
 void EmitCSyms::emitVarTables() {
     if (m_varTables.empty() && m_scopeTableRows.empty() && m_ifaceRefTableRows.empty()) return;
     puts("\n// VPI VARIABLE/SCOPE TABLES\n");
-    // offsetof on the (non-standard-layout) generated module/Syms classes is well
-    // defined on all supported compilers but warns; suppress just here.
-    puts("#if defined(__GNUC__)\n");
-    puts("# pragma GCC diagnostic push\n");
-    puts("# pragma GCC diagnostic ignored \"-Winvalid-offsetof\"\n");
-    puts("#endif\n");
+    // offsetof on the generated module/Syms classes, see putOffsetofPragmaPush
+    putOffsetofPragmaPush();
     for (const auto& kv : m_varTables) {
         puts("extern const VlVarTableEntry " + kv.first + "[] = {\n");
         for (const std::string& row : kv.second) {
@@ -1276,9 +1265,7 @@ void EmitCSyms::emitVarTables() {
         }
         puts("};\n");
     }
-    puts("#if defined(__GNUC__)\n");
-    puts("# pragma GCC diagnostic pop\n");
-    puts("#endif\n");
+    putOffsetofPragmaPop();
 }
 
 void EmitCSyms::emitScopeHier(TextStmts& stmts, bool destroy) {
@@ -1431,7 +1418,7 @@ EmitCSyms::TextStmts EmitCSyms::getSymCtorStmts() {
         // library omits the top module (see V3Scope)
         std::string path = scopep->prettyName();
         if (!v3Global.opt.libCreate().empty()) {
-            path.erase(0, v3Global.rootp()->traceLibTopName().size() + 1);
+            path.erase(0, v3Global.rootp()->libTopName().size() + 1);
         }
         stmts.add("vlSymsp->" + instName(scopep) + "." + varName(handlep) + " = VL_CVT_VP_Q("
                   + modp->origName()
@@ -1755,7 +1742,6 @@ void EmitCSyms::emitSymImp(const AstNetlist* netlistp) {
             const std::string op = de ? ">>" : "<<";
             puts("\nvoid " + symClassName() + "::" + funcname + "(" + classname + "& os) {\n");
             puts("// Internal state\n");
-            if (v3Global.opt.trace()) puts("os" + op + "__Vm_activity;\n");
             puts("os " + op + " __Vm_didInit;\n");
             puts("// Module instance state\n");
             for (const ScopeModPair& itpair : m_scopes) {

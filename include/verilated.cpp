@@ -3478,7 +3478,7 @@ void VerilatedContext::internalsDump() const VL_MT_SAFE {
     VerilatedImp::userDump();
 }
 
-void VerilatedContext::addModel(const VerilatedModel* modelp) {
+void VerilatedContext::addModel(VerilatedModel* modelp) {
     if (!quiet()) {
         // CPU time isn't read as starting point until model creation, so that quiet() is set
         // Thus if quiet(), avoids slow OS read affecting some usages that make many models
@@ -3506,6 +3506,21 @@ void VerilatedContext::addModel(const VerilatedModel* modelp) {
             << "') was Verilated with --threads " << modelp->threads() << ".\n";
         const std::string str = msg.str();
         VL_FATAL_MT(__FILE__, __LINE__, modelp->hierName(), str.c_str());
+    }
+
+    // Record the model under its hierarchical path
+    {
+        const VerilatedLockGuard lock{m_impdatap->m_modelsMutex};
+        // Ids are in the order models are added, unique even after a model is removed
+        modelp->m_id = m_impdatap->m_nextModelId++;
+        const bool newEntry = m_impdatap->m_models.emplace(modelp->hierName(), modelp).second;
+        if (VL_UNLIKELY(!newEntry)) {
+            std::ostringstream msg;
+            msg << "VerilatedContext already has a model registered under hierarchical path '"
+                << modelp->hierName() << "'\n";
+            const std::string str = msg.str();
+            VL_FATAL_MT(__FILE__, __LINE__, modelp->hierName(), str.c_str());
+        }
     }
 }
 
@@ -3536,6 +3551,21 @@ VerilatedVirtualBase*
 VerilatedContext::enableExecutionProfiler(VerilatedVirtualBase* (*construct)(VerilatedContext&)) {
     if (!m_executionProfiler) m_executionProfiler.reset(construct(*this));
     return m_executionProfiler.get();
+}
+
+void VerilatedContext::removeModel(const VerilatedModel* modelp) {
+    const VerilatedLockGuard lock{m_impdatap->m_modelsMutex};
+    // Found by address, as its name is not available while it is destroyed
+    for (auto it = m_impdatap->m_models.begin(); it != m_impdatap->m_models.end(); ++it) {
+        if (it->second != modelp) continue;
+        m_impdatap->m_models.erase(it);
+        return;
+    }
+}
+
+std::map<std::string, VerilatedModel*> VerilatedContext::models() const VL_MT_SAFE {
+    const VerilatedLockGuard lock{m_impdatap->m_modelsMutex};
+    return m_impdatap->m_models;
 }
 
 //======================================================================
@@ -3874,29 +3904,20 @@ VerilatedContext::ifaceRefFind(const char* namep) const VL_MT_SAFE_POSTINIT {
 
 void VerilatedContext::trace(VerilatedTraceBaseC* tfp, int levels, int options) {
     VL_DEBUG_IF(VL_DBG_MSGF("+ VerilatedContext::trace\n"););
+    (void)levels;  // Unused
+    (void)options;  // Unused
     if (tfp->isOpen()) {
         VL_FATAL_MT("", 0, "",
                     "Testbench C call to 'VerilatedContext::trace()' must not be called"
                     " after 'VerilatedTrace*::open()'\n");
     }
-    {
-        // Legacy usage may call {modela}->trace(...) then {modelb}->trace(...)
-        // So check for and suppress second and later calls
-        if (tfp->modelConnected()) return;
-        tfp->modelConnected(true);
+    if (tfp->contextp() && tfp->contextp() != this) {
+        VL_FATAL_MT(
+            "", 0, "",
+            "Testbench C call to 'VerilatedContext::trace()' must not be called"
+            " with a different VerilatedContext than the one used to create the trace file");
     }
-    // We rely on m_ns.m_traceBaseModelCbs being stable when trace() is called
-    // nope: const VerilatedLockGuard lock{m_mutex};
-    if (m_ns.m_traceBaseModelCbs.empty())
-        VL_FATAL_MT("", 0, "",
-                    "Testbench C call to 'VerilatedContext::trace()' requires model(s) Verilated"
-                    " with --trace-fst or --trace-vcd option");
-    for (const auto& cbr : m_ns.m_traceBaseModelCbs) cbr(tfp, levels, options);
-}
-void VerilatedContext::traceBaseModelCbAdd(traceBaseModelCb_t cb) VL_MT_SAFE {
-    // Model creation registering a callback for when Verilated::trace() called
-    const VerilatedLockGuard lock{m_mutex};
-    m_ns.m_traceBaseModelCbs.push_back(cb);
+    tfp->contextp(this);
 }
 
 //======================================================================
@@ -4050,11 +4071,13 @@ void Verilated::scTimePrecisionError(int sc_prec, int vl_prec) VL_MT_SAFE {
     VL_UNREACHABLE;
 }
 
-void Verilated::scTraceBeforeElaborationError() VL_MT_SAFE {
-    // Slowpath - Called only when trace file opened before SystemC elaboration
-    VL_FATAL_MT("unknown", 0, "",
-                "%Error: Verilated*Sc::open(...) was called before sc_core::sc_start(). "
-                "Run sc_core::sc_start(sc_core::SC_ZERO_TIME) before opening a wave file.");
+void Verilated::scTraceBeforeElaborationError(const char* callp) VL_MT_SAFE {
+    // Slowpath - Called only when a trace file is used before SystemC elaboration
+    const std::string msg = "%Error: "s + callp
+                            + " was called before sc_core::sc_start(). Run"
+                              " sc_core::sc_start(sc_core::SC_ZERO_TIME) to complete"
+                              " elaboration first.";
+    VL_FATAL_MT("unknown", 0, "", msg.c_str());
     VL_UNREACHABLE;
 }
 
@@ -4234,7 +4257,10 @@ template void VerilatedEvalLoop::evalImpl<true>();
 VerilatedModel::VerilatedModel(VerilatedContext& context)
     : m_context{context} {}
 
-std::unique_ptr<VerilatedTraceConfig> VerilatedModel::traceConfig() const { return nullptr; }
+VerilatedModel::~VerilatedModel() {
+    m_context.removeModel(this);
+    VL_DO_DANGLING(delete m_rtmdp, m_rtmdp);
+}
 
 //======================================================================
 // VerilatedVar:: Methods
