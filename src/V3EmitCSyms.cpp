@@ -22,6 +22,7 @@
 #include "V3LanguageWords.h"
 #include "V3StackCount.h"
 #include "V3Stats.h"
+#include "V3Trace.h"
 
 #include <algorithm>
 #include <cstring>
@@ -983,11 +984,14 @@ void EmitCSyms::emitSymHdr() {
              + "* __Vm_dumperp VL_GUARDED_BY(__Vm_dumperMutex) = nullptr;"
                "  /// Trace class for $dump*\n");
     }
-    if (v3Global.opt.trace()) {
-        puts("bool __Vm_activity = false;"
-             "  ///< Used by trace routines to determine change occurred\n");
-        puts("uint32_t __Vm_baseCode = 0;"
-             "  ///< Used by trace routines when tracing multiple models\n");
+    if (v3Global.opt.rtmd()) {
+        // Trace activity flags
+        const AstRtmdActSets* const actSetsp = v3Global.rootp()->rtmdActSetsp();
+        const uint32_t nFlags
+            = std::max(actSetsp ? actSetsp->nFlags() : 0, V3Trace::EVAL_FLAG + 1);
+        puts("uint8_t __Vm_traceActivity[" + cvtToStr(nFlags)
+             + "] = {};"
+               "  ///< Activity flags, read through the descriptor tables\n");
     }
     if (v3Global.hasEvents()) {
         if (v3Global.assignsEvents()) {
@@ -1650,7 +1654,10 @@ void EmitCSyms::emitSymImp(const AstNetlist* netlistp) {
             const std::string op = de ? ">>" : "<<";
             puts("\nvoid " + symClassName() + "::" + funcname + "(" + classname + "& os) {\n");
             puts("// Internal state\n");
-            if (v3Global.opt.trace()) puts("os" + op + "__Vm_activity;\n");
+            if (v3Global.opt.rtmd()) {
+                puts("os."s + (de ? "read" : "write")
+                     + "(__Vm_traceActivity, sizeof(__Vm_traceActivity));\n");
+            }
             puts("os " + op + " __Vm_didInit;\n");
             puts("// Module instance state\n");
             for (const ScopeModPair& itpair : m_scopes) {

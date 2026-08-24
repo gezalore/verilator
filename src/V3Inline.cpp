@@ -270,12 +270,6 @@ class InlineModGraphBuilder final : public VNVisitor {
         if (VN_IS(nodep, Iface)) vtxp->setNoInlineHard("Interface");
         // Never inline packages - TODO: conceptually fine, but why not?
         if (VN_IS(nodep, Package)) vtxp->setNoInlineHard("Package");
-        // A --lib-create library stub instance that needs tracing must not be
-        // inlined, so we still know it is a lib stub in V3TraceDecl (see #7001)
-        if (nodep->verilatorLib() && v3Global.opt.trace()) {
-            vtxp->setNoInlineHard("verilatorLib with --trace");
-        }
-
         // Don't inline public modules by default
         if (nodep->modPublic()) vtxp->setNoInlineSoft("Public module");
 

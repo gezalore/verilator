@@ -566,6 +566,16 @@ class SplitUnpackedVarVisitor final : public VNVisitor, public SplitVarImpl {
             UINFO(4, nodep->name() << " is added to candidate list.");
         }
     }
+    void visit(AstRtmdSignal* nodep) override {
+        // Descriptors reference the whole variable, so it cannot be split. The reference also
+        // makes it ineligible for automatic splitting in SplitPackedVarVisitor.
+        m_forPackedSplit.m_refs[m_modp].add(nodep->refp());
+        AstVar* const varp = nodep->varp();
+        if (!varp->attrSplitVar()) return;
+        warnNoSplit(varp, varp, "RTMD reference");
+        if (!cannotSplitReason(varp)) m_refs.remove(varp);
+        varp->attrSplitVar(false);
+    }
     void visit(AstVarRef* nodep) override {
         m_forPackedSplit.m_refs[m_modp].add(nodep);
         if (!nodep->varp()->attrSplitVar()) return;  // Nothing to do

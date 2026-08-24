@@ -128,8 +128,8 @@ void VerilatedFst::emitTimeChangeMaybe() {
 // Decl
 
 void VerilatedFst::declDTypeEnum(int dtypenum, const char* name, uint32_t elements,
-                                 unsigned int minValbits, const char** itemNamesp,
-                                 const char** itemValuesp) {
+                                 unsigned int minValbits, const char* const* itemNamesp,
+                                 const char* const* itemValuesp) {
     std::vector<std::pair<const char*, const char*>> itemNameValuesp{elements};
     for (uint32_t i = 0; i < elements; ++i) {
         itemNameValuesp[i].first = itemNamesp[i];
@@ -162,8 +162,8 @@ void VerilatedFst::pushPrefix(const char* namep, VerilatedTracePrefixType type, 
 
     bool isProperScope = true;
     switch (type) {
-    case VerilatedTracePrefixType::ARRAY_PACKED:
-    case VerilatedTracePrefixType::ARRAY_UNPACKED: isProperScope = false; break;
+    case VerilatedTracePrefixType::PACKED_ARRAY:
+    case VerilatedTracePrefixType::UNPACKED_ARRAY: isProperScope = false; break;
     default: break;
     }
 
@@ -183,27 +183,27 @@ void VerilatedFst::pushPrefix(const char* namep, VerilatedTracePrefixType type, 
     case VerilatedTracePrefixType::SCOPE_INTERFACE:
         m_fst->setScope(fst::Hierarchy::ScopeType::VCD_INTERFACE, name, std::string{});
         break;
-    case VerilatedTracePrefixType::STRUCT_PACKED:
+    case VerilatedTracePrefixType::PACKED_STRUCT:
         m_fst->setAttrBegin(fst::Hierarchy::AttrType::PACK,
                             fst::Hierarchy::AttrSubType::PACK_PACKED, "members", l);
         m_fst->setScope(fst::Hierarchy::ScopeType::VCD_STRUCT, name, std::string{});
         break;
-    case VerilatedTracePrefixType::STRUCT_UNPACKED:
+    case VerilatedTracePrefixType::UNPACKED_STRUCT:
         m_fst->setAttrBegin(fst::Hierarchy::AttrType::PACK,
                             fst::Hierarchy::AttrSubType::PACK_UNPACKED, "members", l);
         m_fst->setScope(fst::Hierarchy::ScopeType::VCD_STRUCT, name, std::string{});
         break;
-    case VerilatedTracePrefixType::UNION_PACKED:
+    case VerilatedTracePrefixType::PACKED_UNION:
         m_fst->setAttrBegin(fst::Hierarchy::AttrType::PACK,
                             fst::Hierarchy::AttrSubType::PACK_PACKED, "members", l);
         m_fst->setScope(fst::Hierarchy::ScopeType::VCD_UNION, name, std::string{});
         break;
-    case VerilatedTracePrefixType::ARRAY_PACKED:
+    case VerilatedTracePrefixType::PACKED_ARRAY:
         m_fst->setAttrBegin(fst::Hierarchy::AttrType::ARRAY,
                             fst::Hierarchy::AttrSubType::ARRAY_PACKED, "bounds", lr);
         m_fst->setScope(fst::Hierarchy::ScopeType::SV_ARRAY, name, std::string{});
         break;
-    case VerilatedTracePrefixType::ARRAY_UNPACKED:
+    case VerilatedTracePrefixType::UNPACKED_ARRAY:
         m_fst->setAttrBegin(fst::Hierarchy::AttrType::ARRAY,
                             fst::Hierarchy::AttrSubType::ARRAY_UNPACKED, "bounds", lr);
         m_fst->setScope(fst::Hierarchy::ScopeType::SV_ARRAY, name, std::string{});

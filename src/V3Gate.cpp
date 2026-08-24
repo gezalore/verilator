@@ -275,6 +275,12 @@ class GateBuildVisitor final : public VNVisitorConst {
     void visit(AstCoverToggle* nodep) override {
         iterateLogic(nodep, false, "CoverToggle", "CoverToggle");
     }
+    void visit(AstRtmdSignal* nodep) override {
+        // Descriptors read variables by address, so they must be kept
+        GateVarVertex* const vVtxp = m_graphp->makeVarVertex(nodep->vscp());
+        vVtxp->clearReducibleAndDedupable("Rtmd");
+        vVtxp->setConsumed("Rtmd");
+    }
     void visit(AstSenItem* nodep) override {
         VL_RESTORER(m_inSenItem);
         m_inSenItem = true;

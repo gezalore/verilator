@@ -1,6 +1,6 @@
 // -*- mode: C++; c-file-style: "cc-mode" -*-
 //*************************************************************************
-// DESCRIPTION: Verilator: Waves Tracing
+// DESCRIPTION: Verilator: Activity analysis for data driven tracing
 //
 // Code available from: https://verilator.org
 //
@@ -26,6 +26,8 @@ class AstNetlist;
 
 class V3Trace final {
 public:
+    // The activity flag set on every eval
+    static constexpr uint32_t EVAL_FLAG = 0;
     static void traceAll(AstNetlist* nodep) VL_MT_DISABLED;
 };
 

@@ -92,6 +92,11 @@ class DataflowOptimize final {
                 if (hasExtWr) DfgVertexVar::setHasExtWrRefs(vscp);
                 return;
             }
+            // Variables read by descriptors are read externally
+            if (const AstRtmdSignal* const sigp = VN_CAST(nodep, RtmdSignal)) {
+                DfgVertexVar::setHasExtRdRefs(sigp->vscp());
+                return;
+            }
             // Check references
             if (const AstVarRef* const refp = VN_CAST(nodep, VarRef)) {
                 if (refp->access().isRW()) DfgVertexVar::setHasRWRefs(refp->varScopep());

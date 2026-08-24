@@ -323,8 +323,10 @@
 
 #if __cplusplus >= 202002L
 # define VL_NO_UNIQUE_ADDRESS_CXX20 [[no_unique_address]]
+# define VL_CONSTINIT_CXX20 constinit
 #else
 # define VL_NO_UNIQUE_ADDRESS_CXX20
+# define VL_CONSTINIT_CXX20
 #endif
 
 //=========================================================================

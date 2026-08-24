@@ -3852,6 +3852,20 @@ void VerilatedContext::trace(VerilatedTraceBaseC* tfp, int levels, int options) 
                     " with --trace-fst or --trace-vcd option");
     for (const auto& cbr : m_ns.m_traceBaseModelCbs) cbr(tfp, levels, options);
 }
+void VerilatedContext::traceViaRtmd(VerilatedTraceBaseC* tfp, int levels, int options) {
+    VL_DEBUG_IF(VL_DBG_MSGF("+ VerilatedContext::traceViaRtmd\n"););
+    if (tfp->isOpen()) {
+        VL_FATAL_MT("", 0, "",
+                    "Testbench C call to 'VerilatedContext::traceViaRtmd()' must not be"
+                    " called after 'VerilatedTrace*::open()'\n");
+    }
+    for (const auto& cbr : m_ns.m_traceViaRtmdCbs) cbr(tfp, levels, options);
+}
+void VerilatedContext::traceViaRtmdCbAdd(traceBaseModelCb_t cb) VL_MT_SAFE {
+    // Model creation registering a callback for when traceViaRtmd() is called
+    const VerilatedLockGuard lock{m_mutex};
+    m_ns.m_traceViaRtmdCbs.push_back(cb);
+}
 void VerilatedContext::traceBaseModelCbAdd(traceBaseModelCb_t cb) VL_MT_SAFE {
     // Model creation registering a callback for when Verilated::trace() called
     const VerilatedLockGuard lock{m_mutex};

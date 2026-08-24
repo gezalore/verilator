@@ -590,6 +590,8 @@ protected:
         VlOs::DeltaCpuTime m_cpuTimeStart{false};  // CPU time, starts when create first model
         VlOs::DeltaWallTime m_wallTimeStart{false};  // Wall time, starts when create first model
         std::vector<traceBaseModelCb_t> m_traceBaseModelCbs;  // Callbacks to traceRegisterModel
+        // Callbacks registering the descriptor tables of each model
+        std::vector<traceBaseModelCb_t> m_traceViaRtmdCbs;
         int m_stdoutFD;  // Duplicated stdout file descriptor
         int m_stderrFD;  // Duplicated stderr file descriptor
         int m_logFD;  // Log file descriptor
@@ -810,6 +812,8 @@ public:
 
     /// Trace signals in models within the context; called by application code
     void trace(VerilatedTraceBaseC* tfp, int levels, int options = 0);
+    /// Trace all models using their descriptor tables
+    void traceViaRtmd(VerilatedTraceBaseC* tfp, int levels, int options = 0);
     /// Allow traces to at some point be enabled (disables some optimizations)
     void traceEverOn(bool flag) VL_MT_SAFE {
         if (flag) calcUnusedSigs(true);
@@ -913,6 +917,7 @@ public:
 
     // Internal: trace registration
     void traceBaseModelCbAdd(traceBaseModelCb_t cb) VL_MT_SAFE;
+    void traceViaRtmdCbAdd(traceBaseModelCb_t cb) VL_MT_SAFE;
 
     // Internal: Check magic number
     static void checkMagic(const VerilatedContext* contextp);

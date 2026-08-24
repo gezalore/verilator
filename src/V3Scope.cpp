@@ -26,7 +26,6 @@
 #include "V3Scope.h"
 
 #include <unordered_map>
-#include <unordered_set>
 
 VL_DEFINE_DEBUG_FUNCTIONS;
 
@@ -169,10 +168,8 @@ class ScopeVisitor final : public VNVisitor {
                 AstNodeModule* const modp = cellp->modp();
                 UASSERT_OBJ(modp, cellp, "Unlinked mod");
                 iterate(modp);  // Recursive call to visit(AstNodeModule)
-                if (VN_IS(modp, Iface)) {
-                    // Remember newly created scope
-                    cellp->user2p(m_scopep);
-                }
+                // Remember newly created scope
+                cellp->user2p(m_scopep);
             }
         }
 
@@ -264,6 +261,40 @@ class ScopeVisitor final : public VNVisitor {
         UINFO(4, "    Move " << nodep);
         // We iterate under the *clone*
         iterateChildren(cloneOrMove(nodep));
+    }
+    void visit(AstRtmdScope* nodep) override {
+        AstRtmdScope* const clonep = m_last ? nodep->unlinkFrBack() : nodep->cloneTree(false);
+        // We iterate under the *clone*, this inlines the descriptors of sub-instances
+        iterateChildren(clonep);
+
+        // The descriptor of the top scope is the root, all others were inlined into it
+        if (m_modp->isTop()) {
+            v3Global.rootp()->topScopep()->rtmdsp(clonep);
+            return;
+        }
+
+        // Turn it into an inlined scope, which the instance descriptor in the parent inlines.
+        FileLine* const flp = clonep->fileline();
+        m_scopep->rtmdp(new AstRtmdPush{flp, clonep->name(), clonep->kind()});
+        AstNodeRtmdItem* const itemsp = m_scopep->rtmdp();
+        if (AstNodeRtmdItem* const ilinedp = clonep->itemsp()) {
+            itemsp->addNext(ilinedp->unlinkFrBackWithNext());
+        }
+        itemsp->addNext(new AstRtmdPop{flp});
+        VL_DO_DANGLING(pushDeletep(clonep), clonep);
+    }
+    void visit(AstRtmdInstance* nodep) override {
+        // Inline the Rtmd of the instance after this descriptor
+        AstRtmdPush* const pushp = VN_AS(nodep->cellp()->user2p(), Scope)->rtmdp();
+        nodep->addNextHere(pushp);
+        // From here on, the instance descripor holds the module name,
+        // and the inlined scope holds the cell name.
+        const std::string cellName = nodep->name();
+        const std::string moduleName = pushp->name();
+        nodep->name(moduleName);
+        pushp->name(cellName);
+        // Also it's independent of the cell from here on
+        nodep->cellp(nullptr);
     }
     void visit(AstCFunc* nodep) override {
         // Add to list of blocks under this scope
@@ -370,6 +401,7 @@ class ScopeCleanupVisitor final : public VNVisitor {
     void visit(AstAlias* nodep) override { movedDeleteOrIterate(nodep); }
     void visit(AstAliasScope* nodep) override { movedDeleteOrIterate(nodep); }
     void visit(AstCoverToggle* nodep) override { movedDeleteOrIterate(nodep); }
+    void visit(AstRtmdScope*) override {}  // Nothing to clean up in descriptors
     void visit(AstNodeFTask* nodep) override { movedDeleteOrIterate(nodep); }
     void visit(AstCFunc* nodep) override { movedDeleteOrIterate(nodep); }
 

@@ -901,8 +901,7 @@ class UndrivenVisitor final : public VNVisitorConst {
     void visit(AstNodeCoverDecl*) override {}
     void visit(AstCoverInc*) override {}
     void visit(AstCoverToggle*) override {}
-    void visit(AstTraceDecl* nodep) override { nodep->v3fatalSrc("Should not exist yet"); }
-    void visit(AstTraceInc* nodep) override { nodep->v3fatalSrc("Should not exist yet"); }
+    void visit(AstRtmdScope*) override {}  // Descriptors are not a sink for UNUSED warnigns
 
     // iterate
     void visit(AstConst* nodep) override {}

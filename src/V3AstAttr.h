@@ -692,8 +692,8 @@ public:
         }
     }
 
-    const char* traceSigType() const {
-        // VerilatedTraceSigType to used in trace signal declaration
+    const char* rtmdSigType() const {
+        // VlRtmdSigType of this keyword
         static const char* const lut[] = {
             /* UNKNOWN:                   */ "",  // Should not be traced
             /* BIT:                       */ "BIT",
@@ -1307,6 +1307,85 @@ public:
 
 //######################################################################
 
+class VRtmdVarKind final {
+public:
+    // Kind of variable or net. Note: Entries must match VlRtmdVarKind (by name)
+    enum en : uint8_t {
+        VAR,
+        WIRE,
+        WREAL,
+        TRI,
+        TRI0,
+        TRI1,
+        TRIAND,
+        TRIOR,
+        SUPPLY0,
+        SUPPLY1,
+        GPARAM,
+        LPARAM,
+        SPECPARAM,
+        GENVAR,
+    };
+    enum en m_e;
+    // cppcheck-suppress noExplicitConstructor
+    constexpr VRtmdVarKind(en _e)
+        : m_e{_e} {}
+    constexpr operator en() const { return m_e; }
+    const char* ascii() const {
+        static const char* const names[]
+            = {"VAR",   "WIRE",    "WREAL",   "TRI",    "TRI0",   "TRI1",      "TRIAND",
+               "TRIOR", "SUPPLY0", "SUPPLY1", "GPARAM", "LPARAM", "SPECPARAM", "GENVAR"};
+        return names[m_e];
+    }
+};
+constexpr bool operator==(const VRtmdVarKind& lhs, const VRtmdVarKind& rhs) {
+    return lhs.m_e == rhs.m_e;
+}
+constexpr bool operator==(const VRtmdVarKind& lhs, VRtmdVarKind::en rhs) { return lhs.m_e == rhs; }
+constexpr bool operator==(VRtmdVarKind::en lhs, const VRtmdVarKind& rhs) { return lhs == rhs.m_e; }
+inline std::ostream& operator<<(std::ostream& os, const VRtmdVarKind& rhs) {
+    return os << rhs.ascii();
+}
+
+class VRtmdScopeKind final {
+public:
+    // Kind of design scope. Note: Entries must match VlRtmdScopeKind (by name)
+    enum en : uint8_t {
+        ROOTIO,
+        MODULE,
+        INTERFACE,
+        GENERATE,
+        BEGIN,
+        FORK,
+        FUNCTION,
+        TASK,
+    };
+    enum en m_e;
+    // cppcheck-suppress noExplicitConstructor
+    constexpr VRtmdScopeKind(en _e)
+        : m_e{_e} {}
+    constexpr operator en() const { return m_e; }
+    const char* ascii() const {
+        static const char* const names[]
+            = {"ROOTIO", "MODULE", "INTERFACE", "GENERATE", "BEGIN", "FORK", "FUNCTION", "TASK"};
+        return names[m_e];
+    }
+};
+constexpr bool operator==(const VRtmdScopeKind& lhs, const VRtmdScopeKind& rhs) {
+    return lhs.m_e == rhs.m_e;
+}
+constexpr bool operator==(const VRtmdScopeKind& lhs, VRtmdScopeKind::en rhs) {
+    return lhs.m_e == rhs;
+}
+constexpr bool operator==(VRtmdScopeKind::en lhs, const VRtmdScopeKind& rhs) {
+    return lhs == rhs.m_e;
+}
+inline std::ostream& operator<<(std::ostream& os, const VRtmdScopeKind& rhs) {
+    return os << rhs.ascii();
+}
+
+//######################################################################
+
 class VDirection final {
 public:
     enum en : uint8_t { NONE, INPUT, OUTPUT, INOUT, REF, CONSTREF };
@@ -1339,15 +1418,12 @@ public:
     bool isWritable() const VL_MT_SAFE { return m_e == OUTPUT || m_e == INOUT || m_e == REF; }
     bool isRef() const VL_MT_SAFE { return m_e == REF; }
     bool isConstRef() const VL_MT_SAFE { return m_e == CONSTREF; }
-    string traceSigDirection() const {
-        if (isInout()) {
-            return "VerilatedTraceSigDirection::INOUT";
-        } else if (isWritable()) {
-            return "VerilatedTraceSigDirection::OUTPUT";
-        } else if (isNonOutput()) {
-            return "VerilatedTraceSigDirection::INPUT";
-        }
-        return "VerilatedTraceSigDirection::NONE";
+    // VlRtmdDirection of this direction
+    const char* rtmdDirection() const {
+        if (isInout()) return "INOUT";
+        if (isWritable()) return "OUTPUT";
+        if (isNonOutput()) return "INPUT";
+        return "NONE";
     }
     VAccess pinAccess() const {
         switch (m_e) {
@@ -2071,13 +2147,13 @@ class VTracePrefixType final {
 public:
     enum en : uint8_t {
         // Note: Entries must match VerilatedTracePrefixType
-        ARRAY_PACKED,
-        ARRAY_UNPACKED,
+        PACKED_ARRAY,
+        UNPACKED_ARRAY,
         SCOPE_MODULE,
         SCOPE_INTERFACE,
-        STRUCT_PACKED,
-        STRUCT_UNPACKED,
-        UNION_PACKED,
+        PACKED_STRUCT,
+        UNPACKED_STRUCT,
+        PACKED_UNION,
     };
     enum en m_e;
     // cppcheck-suppress noExplicitConstructor
@@ -2086,8 +2162,8 @@ public:
     constexpr operator en() const { return m_e; }
     const char* ascii() const {
         static const char* const names[]
-            = {"ARRAY_PACKED",  "ARRAY_UNPACKED",  "SCOPE_MODULE", "SCOPE_INTERFACE",
-               "STRUCT_PACKED", "STRUCT_UNPACKED", "UNION_PACKED"};
+            = {"PACKED_ARRAY",  "UNPACKED_ARRAY",  "SCOPE_MODULE", "SCOPE_INTERFACE",
+               "PACKED_STRUCT", "UNPACKED_STRUCT", "PACKED_UNION"};
         return names[m_e];
     }
 };
@@ -2250,32 +2326,35 @@ public:
                 || m_e == WIRE || m_e == TRI0 || m_e == TRI1);
     }
 
-    const char* traceSigKind() const {
-        // VerilatedTraceSigKind to used in trace signal declaration
-        static const char* const lut[] = {
-            /* UNKNOWN:      */ "",  // Should not be traced
-            /* GPARAM:       */ "PARAMETER",
-            /* LPARAM:       */ "PARAMETER",
-            /* SPECPARAM:    */ "PARAMETER",
-            /* GENVAR:       */ "PARAMETER",
-            /* VAR:          */ "VAR",
-            /* SUPPLY0:      */ "SUPPLY0",
-            /* SUPPLY1:      */ "SUPPLY1",
-            /* WIRE:         */ "WIRE",
-            /* WREAL:        */ "WIRE",
-            /* TRIAND:       */ "TRIAND",
-            /* TRIOR:        */ "TRIOR",
-            /* TRIWIRE:      */ "TRI",
-            /* TRI0:         */ "TRI0",
-            /* TRI1:         */ "TRI1",
-            /* PORT:         */ "WIRE",
-            /* BLOCKTEMP:    */ "VAR",
-            /* MODULETEMP:   */ "VAR",
-            /* STMTTEMP:     */ "VAR",
-            /* XTEMP:        */ "VAR",
-            /* IFACEREF:     */ "",  // Should not be traced directly
-            /* MEMBER:       */ "VAR",
+    // VRtmdVarKind of this variable type
+    VRtmdVarKind rtmdVarKind() const {
+        static const VRtmdVarKind::en lut[] = {
+            /* UNKNOWN:      */ VRtmdVarKind::VAR,  // Should not be traced
+            /* GPARAM:       */ VRtmdVarKind::GPARAM,
+            /* LPARAM:       */ VRtmdVarKind::LPARAM,
+            /* SPECPARAM:    */ VRtmdVarKind::SPECPARAM,
+            /* GENVAR:       */ VRtmdVarKind::GENVAR,
+            /* VAR:          */ VRtmdVarKind::VAR,
+            /* SUPPLY0:      */ VRtmdVarKind::SUPPLY0,
+            /* SUPPLY1:      */ VRtmdVarKind::SUPPLY1,
+            /* WIRE:         */ VRtmdVarKind::WIRE,
+            /* WREAL:        */ VRtmdVarKind::WREAL,
+            /* TRIAND:       */ VRtmdVarKind::TRIAND,
+            /* TRIOR:        */ VRtmdVarKind::TRIOR,
+            /* TRIWIRE:      */ VRtmdVarKind::TRI,
+            /* TRI0:         */ VRtmdVarKind::TRI0,
+            /* TRI1:         */ VRtmdVarKind::TRI1,
+            // A port with no net or variable type is a net
+            /* PORT:         */ VRtmdVarKind::WIRE,
+            /* BLOCKTEMP:    */ VRtmdVarKind::VAR,
+            /* MODULETEMP:   */ VRtmdVarKind::VAR,
+            /* STMTTEMP:     */ VRtmdVarKind::VAR,
+            /* XTEMP:        */ VRtmdVarKind::VAR,
+            /* IFACEREF:     */ VRtmdVarKind::VAR,  // Unused: Traced through its own scope
+            /* MEMBER:       */ VRtmdVarKind::VAR,
         };
+        static_assert(sizeof(lut) / sizeof(lut[0]) == MEMBER + 1,
+                      "rtmdVarKind lut must cover every VVarType");
         return lut[m_e];
     }
 };

@@ -493,8 +493,8 @@ void VerilatedSaif::pushPrefix(const char* namep, VerilatedTracePrefixType type)
         return;
     }
 
-    if (type != VerilatedTracePrefixType::ARRAY_UNPACKED
-        && type != VerilatedTracePrefixType::ARRAY_PACKED) {
+    if (type != VerilatedTracePrefixType::UNPACKED_ARRAY
+        && type != VerilatedTracePrefixType::PACKED_ARRAY) {
 
         std::string scopePath = prevPrefix + name;
         std::string scopeName = lastWord(scopePath);
@@ -513,15 +513,15 @@ void VerilatedSaif::pushPrefix(const char* namep, VerilatedTracePrefixType type)
     }
 
     const std::string newPrefix = prevPrefix + name;
-    const bool properScope = (type != VerilatedTracePrefixType::ARRAY_UNPACKED
-                              && type != VerilatedTracePrefixType::ARRAY_PACKED
+    const bool properScope = (type != VerilatedTracePrefixType::UNPACKED_ARRAY
+                              && type != VerilatedTracePrefixType::PACKED_ARRAY
                               && type != VerilatedTracePrefixType::ROOTIO_WRAPPER);
     m_prefixStack.emplace_back(newPrefix + (properScope ? " " : ""), type);
 }
 
 void VerilatedSaif::popPrefix() {
-    if (m_prefixStack.back().second != VerilatedTracePrefixType::ARRAY_UNPACKED
-        && m_prefixStack.back().second != VerilatedTracePrefixType::ARRAY_PACKED
+    if (m_prefixStack.back().second != VerilatedTracePrefixType::UNPACKED_ARRAY
+        && m_prefixStack.back().second != VerilatedTracePrefixType::PACKED_ARRAY
         && m_prefixStack.back().second != VerilatedTracePrefixType::ROOTIO_WRAPPER
         && m_currentScope) {
         m_currentScope = m_currentScope->parentScope();
