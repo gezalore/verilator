@@ -1754,6 +1754,7 @@ AstNode* VNVisitor::iterateSubtreeReturnEdits(AstNode* nodep) {
 #include "V3AstNodeDType.h"
 #include "V3AstNodeOther.h"
 #include "V3AstNodeExpr.h"
+#include "V3AstNodeRtmd.h"
 #include "V3AstNodeStmt.h"
 // clang-format on
 
