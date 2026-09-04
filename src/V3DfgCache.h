@@ -328,15 +328,14 @@ class V3DfgCache final {
     }
 
 public:
+    // Note: the cache starts out empty. If the caller wants existing vertices
+    // to be found, it must add them itself by calling 'cache' on each.
     explicit V3DfgCache(DfgGraph& dfg)
         : m_dfg{dfg} {
         // Initialize the type to cache lookup table
 #define VERTEX_CACHE_DECLARE_CACHE_PTR(t) m_vtxType2Cachep[t::dfgType()] = &m_cache##t;
         FOREACH_DFG_VERTEX_TYPE(VERTEX_CACHE_DECLARE_CACHE_PTR)
 #undef VERTEX_CACHE_DECLARE_CACHE_PTR
-
-        // Add all operation vertices to the cache
-        for (DfgVertex& vtx : m_dfg.opVertices()) cache(&vtx);
     }
 
     // Add an existing vertex to the cache. If an equivalent (but different) already exists,
