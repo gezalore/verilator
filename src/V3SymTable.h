@@ -53,6 +53,7 @@ class VSymEnt final {
     string m_symPrefix;  // String to prefix symbols with (for V3LinkDot, unused here)
     bool m_exported = true;  // Allow importing
     bool m_imported = false;  // Was imported
+    const bool m_trackSimilarNames;  // Maintain m_idNameSimilarMap
 #ifdef VL_DEBUG
     VL_DEFINE_DEBUG_FUNCTIONS;
 #else
@@ -136,7 +137,8 @@ public:
         } else {
             m_idNameMap.emplace(name, entp);
         }
-        if (!name.empty() && name.find("__DOT__") == std::string::npos  // ignore hierarchical
+        if (m_trackSimilarNames && !name.empty()
+            && name.find("__DOT__") == std::string::npos  // ignore hierarchical
             && checkSimilarname(entp->nodep())) {
             string lc = name;
             for (auto& c : lc) c = (char)tolower(c);
@@ -340,6 +342,8 @@ class VSymGraph final {
     // MEMBERS
     VSymEnt* m_symRootp;  // Root symbol table
     SymStack m_symsp;  // All symbol tables, to cleanup
+    // Maintain the similar name maps. Only needed if SIMILARNAME might be warned on this graph
+    const bool m_trackSimilarNames;
 
     // CONSTRUCTORS
     VL_UNCOPYABLE(VSymGraph);
@@ -347,7 +351,11 @@ class VSymGraph final {
     VL_DEFINE_DEBUG_FUNCTIONS;
 
 public:
-    explicit VSymGraph(AstNetlist* nodep) { m_symRootp = new VSymEnt{this, nodep}; }
+    VSymGraph(AstNetlist* nodep, bool trackSimilarNames)
+        : m_trackSimilarNames{trackSimilarNames} {
+        m_symRootp = new VSymEnt{this, nodep};
+    }
+    bool trackSimilarNames() const { return m_trackSimilarNames; }
     ~VSymGraph() {
         for (const VSymEnt* entp : m_symsp) delete entp;
     }
@@ -388,7 +396,8 @@ protected:
 //######################################################################
 
 inline VSymEnt::VSymEnt(VSymGraph* graphp, AstNode* nodep)
-    : m_nodep{nodep} {
+    : m_nodep{nodep}
+    , m_trackSimilarNames{graphp->trackSimilarNames()} {
     // No argument to set fallbackp, as generally it's wrong to set it in the new call,
     // Instead it needs to be set on a "findOrNew()" return, as it may have been new'ed
     // by an earlier search insertion.
@@ -401,7 +410,8 @@ inline VSymEnt::VSymEnt(VSymGraph* graphp, const VSymEnt* symp)
     , m_parentp{symp->m_parentp}
     , m_classOrPackagep{symp->m_classOrPackagep}
     , m_exported{symp->m_exported}
-    , m_imported{symp->m_imported} {
+    , m_imported{symp->m_imported}
+    , m_trackSimilarNames{graphp->trackSimilarNames()} {
     graphp->pushNewEnt(this);
 }
 
