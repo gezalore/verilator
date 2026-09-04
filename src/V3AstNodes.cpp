@@ -1075,21 +1075,12 @@ AstVar* AstVar::scVarRecurse(AstNode* nodep) {
 const AstNodeDType* AstNodeDType::skipRefIterp(bool skipConst, bool skipEnum,
                                                bool assertOn) const VL_MT_STABLE {
     static constexpr int MAX_TYPEDEF_DEPTH = 1000;
-    static constexpr int MAX_CHAIN_DISPLAY = 10;
     const AstNodeDType* nodep = this;
-    std::unordered_set<const AstNodeDType*> visited;
-    std::vector<const AstNodeDType*> chain;
-    bool isCycle = false;
     for (int depth = 0; depth < MAX_TYPEDEF_DEPTH; ++depth) {
         if (VN_IS(nodep, MemberDType) || VN_IS(nodep, ParamTypeDType) || VN_IS(nodep, RefDType)  //
             || VN_IS(nodep, RequireDType)  //
             || (VN_IS(nodep, ConstDType) && skipConst)  //
             || (VN_IS(nodep, EnumDType) && skipEnum)) {
-            if (!visited.emplace(nodep).second) {
-                isCycle = true;
-                break;
-            }
-            if (chain.size() < static_cast<size_t>(MAX_CHAIN_DISPLAY)) chain.push_back(nodep);
             if (const AstNodeDType* subp = nodep->subDTypep()) {
                 nodep = subp;
                 continue;
@@ -1099,6 +1090,25 @@ const AstNodeDType* AstNodeDType::skipRefIterp(bool skipConst, bool skipEnum,
             }
         }
         return nodep;
+    }
+    // All MAX_TYPEDEF_DEPTH nodes visited were skippable: chain too deep or recursive
+    return skipRefErrorp();
+}
+
+const AstNodeDType* AstNodeDType::skipRefErrorp() const {
+    static constexpr int MAX_TYPEDEF_DEPTH = 1000;
+    static constexpr int MAX_CHAIN_DISPLAY = 10;
+    const AstNodeDType* nodep = this;
+    std::unordered_set<const AstNodeDType*> visited;
+    std::vector<const AstNodeDType*> chain;
+    bool isCycle = false;
+    for (int depth = 0; depth < MAX_TYPEDEF_DEPTH; ++depth) {
+        if (!visited.emplace(nodep).second) {
+            isCycle = true;
+            break;
+        }
+        if (chain.size() < static_cast<size_t>(MAX_CHAIN_DISPLAY)) chain.push_back(nodep);
+        nodep = nodep->subDTypep();
     }
     // Build user-facing error with type chain
     V3Error::v3errorPrep(V3ErrorCode::EC_ERROR);

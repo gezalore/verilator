@@ -51,6 +51,8 @@ private:
     // METHODS
     const AstNodeDType* skipRefIterp(bool skipConst, bool skipEnum,
                                      bool assertOn = true) const VL_MT_STABLE;
+    // Report too deep/recursive chain found by skipRefIterp; re-walks the chain for the error
+    const AstNodeDType* skipRefErrorp() const;
 
 protected:
     // METHODS
