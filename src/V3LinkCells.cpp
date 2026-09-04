@@ -899,7 +899,7 @@ public:
     LinkCellsVisitor(AstNetlist* nodep, VInFilter* filterp, LinkCellsState& state)
         : m_filterp{filterp}
         , m_state{state}
-        , m_mods{nodep} {
+        , m_mods{nodep, false} {  // Module names only, SIMILARNAME is not warned on this graph
         if (v3Global.opt.hierChild()) {
             const V3HierBlockOptSet& hierBlocks = v3Global.opt.hierBlocks();
             UASSERT(!v3Global.opt.topModule().empty(),

@@ -256,8 +256,9 @@ public:
 
     // CONSTRUCTORS
     LinkDotState(AstNetlist* rootp, VLinkDotStep step)
-        : m_syms{rootp}
-        , m_mods{rootp}
+        // Only the primary step warns SIMILARNAME, see checkDuplicate
+        : m_syms{rootp, step == LDS_PRIMARY}
+        , m_mods{rootp, step == LDS_PRIMARY}
         , m_step{step} {
         UINFO(4, __FUNCTION__ << ": ");
         s_errorThisp = this;
