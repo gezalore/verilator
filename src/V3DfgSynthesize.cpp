@@ -630,8 +630,10 @@ class AstToDfgSynthesize final {
 
     // STATE - for current DfgLogic being synthesized
     DfgLogic* m_logicp = nullptr;  // Current logic vertex we are synthesizing
-    CfgBlockMap<SymTab> m_bbToISymTab;  // Map from CfgBlock -> input symbol table
-    CfgBlockMap<SymTab> m_bbToOSymTab;  // Map from CfgBlock -> output symbol table
+    // Map from CfgBlock -> symbol table. Holds the input symbol table of
+    // each block before it is synthesized, updated in place to the output
+    // symbol table by 'synthesizeBasicBlock'.
+    CfgBlockMap<SymTab> m_bbToSymTab;
     CfgBlockMap<DfgVertexVar*> m_bbToCondp;  // Map from CfgBlock ->  terminating branch condition
     CfgEdgeMap<DfgVertexVar*> m_edgeToPredicatep;  // Map CfgGraphEdge -> path predicate to there
     CfgDominatorTree m_domTree;  // The dominator tree of the current CFG
@@ -1189,7 +1191,7 @@ class AstToDfgSynthesize final {
     // block to compute the input symtol table for the given block.
     bool createInputSymbolTable(const CfgBlock& bb) {
         // The input symbol table of the given block, we are computing it now
-        SymTab& joined = m_bbToISymTab[bb];
+        SymTab& joined = m_bbToSymTab[bb];
 
         // Input symbol table of entry block is special
         if (bb.isEnter()) {
@@ -1202,7 +1204,7 @@ class AstToDfgSynthesize final {
 
         // Fast path if there is only one predecessor - TODO: use less copying
         if (!bb.isJoin()) {
-            joined = m_bbToOSymTab[bb.firstPredecessorp()];
+            joined = m_bbToSymTab[bb.firstPredecessorp()];
             return true;
         }
 
@@ -1214,9 +1216,9 @@ class AstToDfgSynthesize final {
             std::tie(predicatep, thenp, elsep)
                 = howToJoin(bb.firstPredecessorEdgep(), bb.lastPredecessorEdgep());
             // Copy from else
-            joined = m_bbToOSymTab[elsep];
+            joined = m_bbToSymTab[elsep];
             // Join with then
-            return joinSymbolTables(joined, predicatep, m_bbToOSymTab[*thenp]);
+            return joinSymbolTables(joined, predicatep, m_bbToSymTab[*thenp]);
         }
 
         // General hard way
@@ -1239,7 +1241,7 @@ class AstToDfgSynthesize final {
                 const CfgEdge& cfgEdge = static_cast<const CfgEdge&>(edge);
                 const CfgBlock* const predecessorp = cfgEdge.srcp();
                 DfgVertexVar* const predicatep = m_edgeToPredicatep[cfgEdge];
-                const SymTab* const oSymTabp = &m_bbToOSymTab[predecessorp];
+                const SymTab* const oSymTabp = &m_bbToSymTab[predecessorp];
                 res.emplace_back(predecessorp, predicatep, oSymTabp);
             }
             // Sort predecessors reverse topologically. This way earlier blocks
@@ -1369,22 +1371,17 @@ class AstToDfgSynthesize final {
         return true;
     }
 
-    // Synthesize the given statements with the given input symbol table.
+    // Synthesize the given statements. 'symTab' holds the input symbol
+    // table, and is updated in place to become the output symbol table.
     // Returns true if successfolly synthesized.
-    // Populates the given output symbol table.
     // Populates the given reference with the condition of the terminator branch, if any.
-    bool synthesizeBasicBlock(SymTab& oSymTab, DfgVertex*& condpr,
-                              const std::vector<AstNodeStmt*>& stmtps, const SymTab& iSymTab) {
+    bool synthesizeBasicBlock(SymTab& symTab, DfgVertex*& condpr,
+                              const std::vector<AstNodeStmt*>& stmtps) {
         // Use fresh set of vertices in m_converter
         const VNUser2InUse user2InUse;
 
         // Initialize AstVarScope -> Vertex bindings available in this block
-        for (const auto& pair : iSymTab) {
-            AstVarScope* const varp = pair.first;
-            DfgVertexVar* const vtxp = pair.second;
-            varp->user2p(vtxp);
-            oSymTab[varp] = vtxp;
-        }
+        for (const auto& pair : symTab) pair.first->user2p(pair.second);
 
         // Synthesize each statement one after the other
         std::vector<std::pair<AstVarScope*, DfgVertexVar*>> updates;
@@ -1423,7 +1420,7 @@ class AstToDfgSynthesize final {
                     // Update binding of target variable
                     vscp->user2p(newp);
                     // Update output symbol table of this block
-                    oSymTab[vscp] = newp;
+                    symTab[vscp] = newp;
                 }
                 updates.clear();
                 continue;
@@ -1593,16 +1590,15 @@ class AstToDfgSynthesize final {
     bool synthesizeAssignW(AstAssignW* nodep) {
         ++m_ctx.m_synt.inputAssign;
 
-        // The input and output symbol tables
-        SymTab iSymTab;
-        SymTab oSymTab;
+        // The symbol table
+        SymTab symTab;
 
         // Initialzie input symbol table
-        initializeEntrySymbolTable(iSymTab);
+        initializeEntrySymbolTable(symTab);
 
         // Synthesize as if it was in a single CfgBlock CFG
         DfgVertex* condp = nullptr;
-        const bool success = synthesizeBasicBlock(oSymTab, condp, {nodep}, iSymTab);
+        const bool success = synthesizeBasicBlock(symTab, condp, {nodep});
         UASSERT_OBJ(!condp, nodep, "Conditional AstAssignW ???");
         if (!success) return false;
 
@@ -1610,7 +1606,7 @@ class AstToDfgSynthesize final {
         if (!checkExtWrites()) return false;
 
         // Add resolved output variable drivers
-        return addSynthesizedOutput(oSymTab);
+        return addSynthesizedOutput(symTab);
     }
 
     // Synthesize the given AstAlways. Returns true on success.
@@ -1640,8 +1636,7 @@ class AstToDfgSynthesize final {
         }
 
         // Initialize CfgMaps
-        m_bbToISymTab = cfg.makeBlockMap<SymTab>();
-        m_bbToOSymTab = cfg.makeBlockMap<SymTab>();
+        m_bbToSymTab = cfg.makeBlockMap<SymTab>();
         m_bbToCondp = cfg.makeBlockMap<DfgVertexVar*>();
 
         // Synthesize all blocks
@@ -1651,9 +1646,7 @@ class AstToDfgSynthesize final {
             if (!createInputSymbolTable(bb)) return false;
             // Synthesize this block
             DfgVertex* condp = nullptr;
-            if (!synthesizeBasicBlock(m_bbToOSymTab[bb], condp, bb.stmtps(), m_bbToISymTab[bb])) {
-                return false;
-            }
+            if (!synthesizeBasicBlock(m_bbToSymTab[bb], condp, bb.stmtps())) return false;
             // Create a temporary for the branch condition as it might be used multiple times
             if (condp) {
                 FileLine* const flp = condp->fileline();
@@ -1672,7 +1665,7 @@ class AstToDfgSynthesize final {
         if (!checkExtWrites()) return false;
 
         // Add resolved output variable drivers
-        return addSynthesizedOutput(m_bbToOSymTab[cfg.exit()]);
+        return addSynthesizedOutput(m_bbToSymTab[cfg.exit()]);
     }
 
     // Synthesize a DfgLogic into regular vertices. Returns ture on success.
