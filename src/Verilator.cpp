@@ -815,11 +815,21 @@ static bool verilate(const string& argString) {
     // Final writing shouldn't throw warnings, but...
     V3Error::abortIfWarnings();
 
-    // Free memory so compiler has more for --build
-    // No need to do this if skipped (above) as didn't alloc much
-    UINFO(1, "Releasing netlist memory");
-    v3Global.rootp()->deleteContents();
-    V3Os::releaseMemory();
+    // Free memory so compiler has more for --build. This takes significant
+    // time on big designs, so avoid it if about to exit anyway, in which
+    // case the memory is reclaimed by the OS. Do free when checking for
+    // leaks, so real leaks are not drowned out by the netlist contents.
+#ifdef VL_LEAK_CHECKS
+    const bool freeNetlist = true;
+#else
+    const bool freeNetlist
+        = v3Global.opt.build() || (v3Global.hierGraphp() && v3Global.opt.gmake());
+#endif
+    if (freeNetlist) {
+        UINFO(1, "Releasing netlist memory");
+        v3Global.rootp()->deleteContents();
+        V3Os::releaseMemory();
+    }
     if (v3Global.opt.stats()) V3Stats::statsStage("released");
     return true;
 }
