@@ -127,15 +127,21 @@ public:
     VSymEnt* insert(const string& name, VSymEnt* entp) {
         UINFO(9, "     SymInsert se" << cvtToHex(this) << " '" << name << "' se" << cvtToHex(entp)
                                      << "  " << entp->nodep());
-        if (name != "" && m_idNameMap.find(name) != m_idNameMap.end()) {
-            // If didn't already report warning
-            if (!V3Error::errorCount()) {  // LCOV_EXCL_START
-                if (debug() >= 9 || V3Error::debugDefault())
-                    dumpSelf(std::cout, "- err-dump: ", 1);
-                entp->nodep()->v3fatalSrc("Inserting two symbols with same name: " << name);
-            }  // LCOV_EXCL_STOP
+        if (VL_UNLIKELY(name.empty())) {
+            m_idNameMap.emplace(name, entp);  // Unnamed entries need not be unique
         } else {
-            m_idNameMap.emplace(name, entp);
+            // One descent yields both any existing entry, and the position to insert at
+            const auto it = m_idNameMap.lower_bound(name);
+            if (it != m_idNameMap.end() && it->first == name) {
+                // If didn't already report warning
+                if (!V3Error::errorCount()) {  // LCOV_EXCL_START
+                    if (debug() >= 9 || V3Error::debugDefault())
+                        dumpSelf(std::cout, "- err-dump: ", 1);
+                    entp->nodep()->v3fatalSrc("Inserting two symbols with same name: " << name);
+                }  // LCOV_EXCL_STOP
+            } else {
+                m_idNameMap.emplace_hint(it, name, entp);
+            }
         }
         if (m_trackSimilarNames && !name.empty()
             && name.find("__DOT__") == std::string::npos  // ignore hierarchical
@@ -149,14 +155,16 @@ public:
         return entp;
     }
     void reinsert(const string& name, VSymEnt* entp) {
-        const auto it = m_idNameMap.find(name);
-        if (name != "" && it != m_idNameMap.end()) {
-            UINFO(9, "     SymReinsert se" << cvtToHex(this) << " '" << name << "' se"
-                                           << cvtToHex(entp) << "  " << entp->nodep());
-            it->second = entp;  // Replace
-        } else {
-            insert(name, entp);
+        if (!name.empty()) {
+            const auto it = m_idNameMap.lower_bound(name);
+            if (it != m_idNameMap.end() && it->first == name) {
+                UINFO(9, "     SymReinsert se" << cvtToHex(this) << " '" << name << "' se"
+                                               << cvtToHex(entp) << "  " << entp->nodep());
+                it->second = entp;  // Replace
+                return;
+            }
         }
+        insert(name, entp);
     }
     VSymEnt* findIdFlat(const string& name) const {
         // Find identifier without looking upward through symbol hierarchy
