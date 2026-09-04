@@ -48,6 +48,8 @@
 class DfgVertexVar VL_NOT_FINAL : public DfgVertex {
     // Represents a variable. It has 2 optional inputs, 'srcp' and 'defaultp'.
 
+    DfgEdge m_inputs[2]{{this}, {this}};  // Input edges
+
     AstVarScope* const m_vscp;  // The AstVarScope associated with this vertex (not owned)
     // Location of driver of this variable. Only used for converting back to Ast. Might be nullptr.
     FileLine* m_driverFileLine = nullptr;
@@ -59,14 +61,11 @@ class DfgVertexVar VL_NOT_FINAL : public DfgVertex {
 protected:
     DfgVertexVar(DfgGraph& dfg, VDfgType type, AstVarScope* vscp)
         : DfgVertex{dfg, type, vscp->varp()->fileline(),
-                    *DfgDataType::fromAst(vscp->varp()->dtypep())}
+                    *DfgDataType::fromAst(vscp->varp()->dtypep()), m_inputs, 2}
         , m_vscp{vscp} {
         // Increment reference count
         m_vscp->user1(m_vscp->user1() + 0x40);
         UASSERT_OBJ((m_vscp->user1() >> 6) > 0, m_vscp, "Reference count overflow");
-        // Allocate sources
-        newInput();
-        newInput();
     }
 
 public:
@@ -179,7 +178,7 @@ class DfgPrev final : public DfgVertex {
 public:
     DfgPrev(DfgGraph& dfg, AstVarScope* vscp)
         : DfgVertex{dfg, dfgType(), vscp->varp()->fileline(),
-                    *DfgDataType::fromAst(vscp->varp()->dtypep())}
+                    *DfgDataType::fromAst(vscp->varp()->dtypep()), nullptr, 0}
         , m_vscp{vscp} {
         UASSERT_OBJ(!DfgVertexVar::hasPrev(vscp), vscp, "Variable already has a DfgPrev");
         m_vscp->user1(m_vscp->user1() | 0x20);  // Mark having a DfgPrev
@@ -204,8 +203,14 @@ class DfgVertexAst VL_NOT_FINAL : public DfgVertex {
     AstNodeExpr* m_exprp;  // The AstNodeExpr representing this reference
 
 public:
-    DfgVertexAst(DfgGraph& dfg, VDfgType type, AstNodeExpr* exprp)
-        : DfgVertex{dfg, type, exprp->fileline(), *DfgDataType::fromAst(exprp->dtypep())}
+    DfgVertexAst(DfgGraph& dfg, VDfgType type, AstNodeExpr* exprp, DfgEdge* fixedInputsp,
+                 uint32_t nInputs)
+        : DfgVertex{dfg,
+                    type,
+                    exprp->fileline(),
+                    *DfgDataType::fromAst(exprp->dtypep()),
+                    fixedInputsp,
+                    nInputs}
         , m_exprp{exprp} {}
     ASTGEN_MEMBERS_DfgVertexAst;
 
@@ -217,17 +222,16 @@ class DfgAstRd final : public DfgVertexAst {
     friend class DfgVertex;
     friend class DfgVisitor;
 
+    DfgEdge m_inputs[1]{{this}};  // Input edges
+
     const bool m_inSenItem;  // Reference is in a sensitivity list
     const bool m_inLoop;  // Reference is in a loop
 
 public:
     DfgAstRd(DfgGraph& dfg, AstNodeExpr* exprp, bool inSenItem, bool inLoop)
-        : DfgVertexAst{dfg, dfgType(), exprp}
+        : DfgVertexAst{dfg, dfgType(), exprp, m_inputs, 1}
         , m_inSenItem{inSenItem}
-        , m_inLoop{inLoop} {
-        // Allocate sources
-        newInput();
-    }
+        , m_inLoop{inLoop} {}
     ASTGEN_MEMBERS_DfgAstRd;
 
     DfgVertex* srcp() const { return inputp(0); }
@@ -243,7 +247,7 @@ public:
 class DfgVertexNullary VL_NOT_FINAL : public DfgVertex {
 protected:
     DfgVertexNullary(DfgGraph& dfg, VDfgType type, FileLine* flp, const DfgDataType& dtype)
-        : DfgVertex{dfg, type, flp, dtype} {}
+        : DfgVertex{dfg, type, flp, dtype, nullptr, 0} {}
 
 public:
     ASTGEN_MEMBERS_DfgVertexNullary;
@@ -293,11 +297,11 @@ public:
 // Unary vertices - 1 inputs
 
 class DfgVertexUnary VL_NOT_FINAL : public DfgVertex {
+    DfgEdge m_inputs[1]{{this}};  // Input edges
+
 protected:
     DfgVertexUnary(DfgGraph& dfg, VDfgType type, FileLine* flp, const DfgDataType& dtype)
-        : DfgVertex{dfg, type, flp, dtype} {
-        newInput();
-    }
+        : DfgVertex{dfg, type, flp, dtype, m_inputs, 1} {}
 
 public:
     ASTGEN_MEMBERS_DfgVertexUnary;
@@ -351,12 +355,11 @@ public:
 // Binary vertices - 2 inputs
 
 class DfgVertexBinary VL_NOT_FINAL : public DfgVertex {
+    DfgEdge m_inputs[2]{{this}, {this}};  // Input edges
+
 protected:
     DfgVertexBinary(DfgGraph& dfg, VDfgType type, FileLine* flp, const DfgDataType& dtype)
-        : DfgVertex{dfg, type, flp, dtype} {
-        newInput();
-        newInput();
-    }
+        : DfgVertex{dfg, type, flp, dtype, m_inputs, 2} {}
 
 public:
     ASTGEN_MEMBERS_DfgVertexBinary;
@@ -398,13 +401,11 @@ public:
 // Ternary vertices - 3 inputs
 
 class DfgVertexTernary VL_NOT_FINAL : public DfgVertex {
+    DfgEdge m_inputs[3]{{this}, {this}, {this}};  // Input edges
+
 protected:
     DfgVertexTernary(DfgGraph& dfg, VDfgType type, FileLine* flp, const DfgDataType& dtype)
-        : DfgVertex{dfg, type, flp, dtype} {
-        newInput();
-        newInput();
-        newInput();
-    }
+        : DfgVertex{dfg, type, flp, dtype, m_inputs, 3} {}
 
 public:
     ASTGEN_MEMBERS_DfgVertexTernary;
@@ -414,9 +415,26 @@ public:
 // Variadic vertices - variable number of inputs
 
 class DfgVertexVariadic VL_NOT_FINAL : public DfgVertex {
+    friend class DfgVertex;  // For 'DfgVertex::inputEdgep' to access 'm_edgeps'
+
+    std::vector<std::unique_ptr<DfgEdge>> m_edgeps;  // Input edges
+
 protected:
     DfgVertexVariadic(DfgGraph& dfg, VDfgType type, FileLine* flp, const DfgDataType& dtype)
-        : DfgVertex{dfg, type, flp, dtype} {}
+        : DfgVertex{dfg, type, flp, dtype, nullptr, 0} {}
+
+    // Create a new input edge and return it
+    DfgEdge* newInput() {
+        m_edgeps.emplace_back(new DfgEdge{this});
+        ++m_nInputs;
+        return m_edgeps.back().get();
+    }
+
+    // Unlink all inputs and reset to no inputs - use very carefully
+    void resetInputs() {
+        m_edgeps.clear();
+        m_nInputs = 0;
+    }
 
 public:
     ASTGEN_MEMBERS_DfgVertexVariadic;
