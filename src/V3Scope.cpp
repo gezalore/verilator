@@ -58,8 +58,32 @@ class ScopeVisitor final : public VNVisitor {
     VarScopeMap m_varScopes;  // Varscopes created for each scope and var
     std::vector<std::pair<AstVarRef*, AstScope*>>
         m_varRefScopes;  // Varrefs-in-scopes needing fixup when done
+    std::unordered_map<const AstNodeModule*, uint32_t> m_modUses;  // Pending usages of module
+    bool m_lastUsage = false;  // Scoping the last usage of the current module
 
     // METHODS
+
+    // Count module usages, visiting cells the same way the traversal below does
+    void countUsages(const AstNodeModule* modp) {
+        ++m_modUses[modp];
+        for (AstNode* stmtp = modp->stmtsp(); stmtp; stmtp = stmtp->nextp()) {
+            if (const AstCell* const cellp = VN_CAST(stmtp, Cell)) countUsages(cellp->modp());
+        }
+    }
+
+    // Move (on the last usage of the current module) or copy the given block under the
+    // current scope, and return the version now under the scope
+    AstNode* moveOrCloneBlock(AstNode* nodep, bool move) {
+        AstNode* clonep;
+        if (move) {
+            clonep = nodep->unlinkFrBack();
+        } else {
+            clonep = nodep->cloneTree(false);
+        }
+        nodep->user2p(clonep);
+        m_scopep->addBlocksp(clonep);
+        return clonep;
+    }
 
     void cleanupVarRefs() {
         for (const auto& itr : m_varRefScopes) {
@@ -100,6 +124,7 @@ class ScopeVisitor final : public VNVisitor {
         // Operate starting at the top of the hierarchy
         m_aboveCellp = nullptr;
         m_aboveScopep = nullptr;
+        countUsages(modp);
         iterate(modp);
         cleanupVarRefs();
     }
@@ -157,7 +182,8 @@ class ScopeVisitor final : public VNVisitor {
         }
 
         // Copy blocks into this scope
-        // If this is the first usage of the block ever, we can move the reference
+        // If this is the last usage of this module, we can move the blocks
+        m_lastUsage = (--m_modUses[nodep] == 0);
         iterateChildren(nodep);
 
         // ***Note m_scopep is passed back to the caller of the routine (above)
@@ -208,41 +234,31 @@ class ScopeVisitor final : public VNVisitor {
         VL_RESTORER(m_procedurep);
         m_procedurep = nodep;
         UINFO(4, "    Move " << nodep);
-        AstNode* const clonep = nodep->cloneTree(false);
-        nodep->user2p(clonep);
-        m_scopep->addBlocksp(clonep);
-        iterateChildren(clonep);  // We iterate under the *clone*
+        // We iterate under the *clone*
+        iterateChildren(moveOrCloneBlock(nodep, m_lastUsage));
     }
     void visit(AstAlias* nodep) override {
         // Add to list of blocks under this scope
         UINFO(4, "    Move " << nodep);
-        AstNode* const clonep = nodep->cloneTree(false);
-        nodep->user2p(clonep);
-        m_scopep->addBlocksp(clonep);
-        iterateChildren(clonep);  // We iterate under the *clone*
+        // We iterate under the *clone*
+        iterateChildren(moveOrCloneBlock(nodep, m_lastUsage));
     }
     void visit(AstAliasScope* nodep) override {
         // Copy under the scope but don't recurse
         UINFO(4, "    Move " << nodep);
-        AstNode* const clonep = nodep->cloneTree(false);
-        nodep->user2p(clonep);
-        m_scopep->addBlocksp(clonep);
-        iterateChildren(clonep);  // We iterate under the *clone*
+        // We iterate under the *clone*
+        iterateChildren(moveOrCloneBlock(nodep, m_lastUsage));
     }
     void visit(AstCoverToggle* nodep) override {
         // Add to list of blocks under this scope
         UINFO(4, "    Move " << nodep);
-        AstNode* const clonep = nodep->cloneTree(false);
-        nodep->user2p(clonep);
-        m_scopep->addBlocksp(clonep);
-        iterateChildren(clonep);  // We iterate under the *clone*
+        // We iterate under the *clone*
+        iterateChildren(moveOrCloneBlock(nodep, m_lastUsage));
     }
     void visit(AstCFunc* nodep) override {
         // Add to list of blocks under this scope
         UINFO(4, "    CFUNC " << nodep);
-        AstCFunc* const clonep = nodep->cloneTree(false);
-        nodep->user2p(clonep);
-        m_scopep->addBlocksp(clonep);
+        AstCFunc* const clonep = VN_AS(moveOrCloneBlock(nodep, m_lastUsage), CFunc);
         clonep->scopep(m_scopep);
         // We iterate under the *clone*
         iterateChildren(clonep);
@@ -250,17 +266,10 @@ class ScopeVisitor final : public VNVisitor {
     void visit(AstNodeFTask* nodep) override {
         // Add to list of blocks under this scope
         UINFO(4, "    FTASK " << nodep);
-        AstNodeFTask* clonep;
-        if (nodep->classMethod()) {
-            // Only one scope will be created, so avoid pointless cloning
-            nodep->unlinkFrBack();
-            clonep = nodep;
-        } else {
-            clonep = nodep->cloneTree(false);
-        }
-        nodep->user2p(clonep);
+        // Class methods create only one scope, so avoid pointless cloning
+        AstNodeFTask* const clonep = VN_AS(
+            moveOrCloneBlock(nodep, nodep->classMethod() || m_lastUsage), NodeFTask);
         clonep->user2p(clonep);  // For recursive self-references after cloneTree
-        m_scopep->addBlocksp(clonep);
         // We iterate under the *clone*
         iterateChildren(clonep);
     }
