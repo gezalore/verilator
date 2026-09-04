@@ -484,7 +484,7 @@ private:
 
 class EmitSplitVisitor final : public VNVisitor {
     // MEMBERS
-    const AstAlways* const m_origAlwaysp;  // Block that *this will split
+    AstAlways* const m_origAlwaysp;  // Block that *this will split
     const IfColorVisitor* const m_ifColorp;  // Digest of results of prior coloring
 
     // Map each color to our current place within the color's new always
@@ -547,12 +547,13 @@ protected:
         // Each leaf must have a user3p
         UASSERT_OBJ(nodep->user3p(), nodep, "null user3p in V3Split leaf");
 
-        // Clone the leaf into its new always block
+        // Move the leaf into its new always block. Each leaf goes to exactly one
+        // block, and the original is deleted once split, so need not be cloned.
         const SplitLogicVertex* const vxp = reinterpret_cast<SplitLogicVertex*>(nodep->user3p());
         const uint32_t color = vxp->color();
-        AstNode* const clonedp = nodep->cloneTree(false);
-        m_addAfter[color]->addNextHere(clonedp);
-        m_addAfter[color] = clonedp;
+        AstNode* const movedp = nodep->unlinkFrBack();
+        m_addAfter[color]->addNextHere(movedp);
+        m_addAfter[color] = movedp;
     }
 
     void visit(AstNodeIf* nodep) override {
