@@ -126,6 +126,31 @@ private:
 
     int endLevels(const char* strg);
     void putcNoTracking(char chr);
+    // Characters that affect no formatting state other than the column, so a run of them
+    // can be written in one go. Also false for '\0', to stop a run at the end of a string.
+    static bool isPlainChar(char chr) {
+        switch (chr) {
+        case '\0':
+        case '\n':
+        case '\t':
+        case ' ':
+        case '"':
+        case '\\':
+        case '/':
+        case '{':
+        case '}':
+        case '(':
+        case ')':
+        case '<':
+        case '>':
+        case '|':
+        case '&':
+        case '=': return false;
+        default: return true;
+        }
+    }
+    // Write a run of 'isPlainChar' characters, updating the state they affect
+    size_t putRun(const char* strp);
 
 public:
     explicit V3OutFormatter(Language lang);
@@ -179,6 +204,7 @@ public:
     // CALLBACKS - MUST OVERRIDE
     virtual void putcOutput(char chr) = 0;
     virtual void putsOutput(const char* str) = 0;
+    virtual void writeOutput(const char* str, size_t len) = 0;
 };
 
 //============================================================================
@@ -230,8 +256,8 @@ private:
         m_bufferp->at(m_usedBytes++) = chr;
         if (VL_UNLIKELY(m_usedBytes >= WRITE_BUFFER_SIZE_BYTES)) writeBlock();
     }
-    void putsOutput(const char* str) override {
-        std::size_t len = strlen(str);
+    void putsOutput(const char* str) override { writeOutput(str, strlen(str)); }
+    void writeOutput(const char* str, std::size_t len) override {
         std::size_t availableBytes = WRITE_BUFFER_SIZE_BYTES - m_usedBytes;
         while (VL_UNLIKELY(len >= availableBytes)) {
             std::memcpy(m_bufferp->data() + m_usedBytes, str, availableBytes);
@@ -432,6 +458,7 @@ public:
 
     void putcOutput(char chr) override { m_ostream << chr; };
     void putsOutput(const char* str) override { m_ostream << str; };
+    void writeOutput(const char* str, size_t len) override { m_ostream.write(str, len); };
 };
 
 //============================================================================
