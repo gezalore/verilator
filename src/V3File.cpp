@@ -762,6 +762,17 @@ void V3OutFormatter::putns(const AstNode* nodep, const char* strg) {
     bool wordstart = true;
     bool equalsForBracket = false;  // Looking for "= {"
     for (const char* cp = strg; *cp; ++cp) {
+        // Characters that need no per character handling are written in one go. Verilog
+        // needs each word start inspected below, so is not eligible.
+        if (m_lang != LA_VERILOG) {
+            if (const size_t len = putRun(cp)) {
+                m_inBackslash = false;
+                wordstart = false;
+                equalsForBracket = false;
+                cp += len;
+                if (!*cp) break;
+            }
+        }
         putcNoTracking(*cp);
         if (m_lang == LA_VERILOG && std::isalpha(*cp)) {
             if (wordstart && tokenNotStart(cp)) notstart = true;
@@ -896,7 +907,28 @@ void V3OutFormatter::putsNoTracking(const string& strg) {
         return;
     }
     // Don't track {}'s, probably because it's a $display format string
-    for (const char c : strg) putcNoTracking(c);
+    // Note the string may contain embedded nulls, so go by its length
+    const char* const endp = strg.data() + strg.size();
+    for (const char* cp = strg.data(); cp != endp;) {
+        if (const size_t len = putRun(cp)) {
+            cp += len;
+        } else {
+            putcNoTracking(*cp++);
+        }
+    }
+}
+
+size_t V3OutFormatter::putRun(const char* strp) {
+    const char* cp = strp;
+    while (isPlainChar(*cp)) ++cp;
+    const size_t len = cp - strp;
+    if (len) {
+        writeOutput(strp, len);
+        // Leaves the same state as putcNoTracking on each of the characters would
+        m_column += static_cast<int>(len);
+        m_nobreak = false;
+    }
+    return len;
 }
 
 void V3OutFormatter::putcNoTracking(char chr) {
