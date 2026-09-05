@@ -221,9 +221,10 @@ class V3DfgCache final {
         using Hash = typename T_Key::Hash;
         using Equal = typename T_Key::Equal;
 
+        // The key is not stored, as it can be recovered from the cached vertex, which keeps
+        // the table small enough that probing touches few cache lines
         struct Entry final {
-            size_t m_hash = 0;  // Hash of the key
-            T_Key m_key;  // The key
+            size_t m_hash = 0;  // Hash of the key of the cached vertex
             T_Vertex* m_vtxp = nullptr;  // The cached vertex - nullptr marks an empty slot
         };
 
@@ -240,7 +241,7 @@ class V3DfgCache final {
             size_t i = hash & mask;
             while (true) {
                 const Entry& entry = m_table[i];
-                if (!entry.m_vtxp || (entry.m_hash == hash && Equal{}(entry.m_key, key))) {
+                if (!entry.m_vtxp || (entry.m_hash == hash && Equal{}(T_Key{entry.m_vtxp}, key))) {
                     return i;
                 }
                 i = (i + 1) & mask;
@@ -267,7 +268,6 @@ class V3DfgCache final {
             maybeGrow();
             Entry& entry = m_table[findSlot(hash, key)];
             entry.m_hash = hash;
-            entry.m_key = key;
             entry.m_vtxp = vtxp;
             ++m_used;
         }
