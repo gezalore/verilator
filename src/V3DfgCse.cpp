@@ -18,6 +18,7 @@
 
 #include "V3Dfg.h"
 #include "V3DfgPasses.h"
+#include "V3HashMap.h"
 
 VL_DEFINE_DEBUG_FUNCTIONS;
 
@@ -301,7 +302,12 @@ class V3DfgCse final {
 
     V3DfgCse(DfgGraph& dfg, V3DfgCseContext& ctx)
         : m_dfg{dfg} {
-        std::unordered_map<V3Hash, std::vector<DfgVertex*>> verticesWithEqualHashes;
+        // Vertices already considered. There is one entry per vertex, rather than a list of
+        // the vertices with each hash, as the vast majority of hashes are unique. Probing
+        // yields the vertices with equal hashes in insertion order, which is the order they
+        // must be considered in below. Nothing is ever erased, which that relies on.
+        V3HashMap<DfgVertex> verticesWithEqualHashes;
+        // There is at most one entry per vertex, so this never needs to grow
         verticesWithEqualHashes.reserve(dfg.size());
 
         // Pre-hash variables, these are all unique, so just set their hash to a unique value
@@ -333,19 +339,18 @@ class V3DfgCse final {
                 vtxp->unlinkDelete(dfg);
                 continue;
             }
-            std::vector<DfgVertex*>& vec = verticesWithEqualHashes[vertexHash(*vtxp)];
-            bool replaced = false;
-            for (DfgVertex* const candidatep : vec) {
-                if (vertexEquivalent(*candidatep, *vtxp)) {
-                    ++ctx.m_eliminated;
-                    vtxp->replaceWith(candidatep);
-                    VL_DO_DANGLING(vtxp->unlinkDelete(dfg), vtxp);
-                    replaced = true;
-                    break;
-                }
+            const V3Hash hash = vertexHash(*vtxp);
+            DfgVertex* const equivalentp
+                = verticesWithEqualHashes.find(hash.value(), [&](DfgVertex* candidatep) {  //
+                      return vertexEquivalent(*candidatep, *vtxp);
+                  });
+            if (equivalentp) {
+                ++ctx.m_eliminated;
+                vtxp->replaceWith(equivalentp);
+                VL_DO_DANGLING(vtxp->unlinkDelete(dfg), vtxp);
+                continue;
             }
-            if (replaced) continue;
-            vec.push_back(vtxp);
+            verticesWithEqualHashes.insert(hash.value(), vtxp);
         }
     }
 
