@@ -457,6 +457,31 @@ private:
                         | ((v.m_valueX & (1UL << (bit & 31))) ? 2 : 0))]);
     }
 
+    // Reads whole words of a number, for word-wise operations
+    class WordReader final {
+        const ValueAndX* const m_nump;  // Word data of the number read
+        const int m_words;  // Number of words in the number read
+        const uint32_t m_hiWordMask;  // Mask of bits within the width in the top word
+        const uint32_t m_ext;  // Value of bits above the width
+    public:
+        // extendXZ: bits above the width read as X when the top bit is X/Z (as the
+        // bitIs0/bitIs1/bitIsXZ predicates return); otherwise they always read as 0
+        WordReader(const V3Number& num, bool extendXZ)
+            : m_nump{num.m_data.num()}
+            , m_words{num.words()}
+            , m_hiWordMask{num.hiWordMask()}
+            , m_ext{extendXZ && num.bitIsXZ(num.m_data.width() - 1) ? ~0U : 0U} {}
+        ValueAndX word(int i) const {
+            if (i >= m_words) return {m_ext, m_ext};
+            ValueAndX v = m_nump[i];
+            if (i == m_words - 1) {
+                v.m_value = (v.m_value & m_hiWordMask) | (m_ext & ~m_hiWordMask);
+                v.m_valueX = (v.m_valueX & m_hiWordMask) | (m_ext & ~m_hiWordMask);
+            }
+            return v;
+        }
+    };
+
 public:
     bool bitIs0(int bit) const VL_MT_SAFE {
         if (!isNumber()) return false;
