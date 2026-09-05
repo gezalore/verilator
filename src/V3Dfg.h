@@ -171,6 +171,7 @@ protected:
 private:
     // Get input edge 'i'
     inline DfgEdge* inputEdgep(size_t i) const;
+
 public:
     // Get input 'i'
     DfgVertex* inputp(size_t i) const { return inputEdgep(i)->srcp(); }

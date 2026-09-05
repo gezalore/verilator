@@ -60,8 +60,12 @@ class DfgVertexVar VL_NOT_FINAL : public DfgVertex {
 
 protected:
     DfgVertexVar(DfgGraph& dfg, VDfgType type, AstVarScope* vscp)
-        : DfgVertex{dfg, type, vscp->varp()->fileline(),
-                    *DfgDataType::fromAst(vscp->varp()->dtypep()), m_inputs, 2}
+        : DfgVertex{dfg,
+                    type,
+                    vscp->varp()->fileline(),
+                    *DfgDataType::fromAst(vscp->varp()->dtypep()),
+                    m_inputs,
+                    2}
         , m_vscp{vscp} {
         // Increment reference count
         m_vscp->user1(m_vscp->user1() + 0x40);
@@ -177,8 +181,12 @@ class DfgPrev final : public DfgVertex {
 
 public:
     DfgPrev(DfgGraph& dfg, AstVarScope* vscp)
-        : DfgVertex{dfg, dfgType(), vscp->varp()->fileline(),
-                    *DfgDataType::fromAst(vscp->varp()->dtypep()), nullptr, 0}
+        : DfgVertex{dfg,
+                    dfgType(),
+                    vscp->varp()->fileline(),
+                    *DfgDataType::fromAst(vscp->varp()->dtypep()),
+                    nullptr,
+                    0}
         , m_vscp{vscp} {
         UASSERT_OBJ(!DfgVertexVar::hasPrev(vscp), vscp, "Variable already has a DfgPrev");
         m_vscp->user1(m_vscp->user1() | 0x20);  // Mark having a DfgPrev

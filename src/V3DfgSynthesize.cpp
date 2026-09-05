@@ -587,7 +587,7 @@ class AstToDfgSynthesize final {
 
     // SymTab must be ordered in order to yield stable results
     struct AstVarScopeComparator final {
-        static int s_vscpIdCounter; // Counter for lazily allocating the unique AstVarScope IDs
+        static int s_vscpIdCounter;  // Counter for lazily allocating the unique AstVarScope IDs
         bool operator()(AstVarScope* lhs, AstVarScope* rhs) const {
             if (!lhs->user4()) lhs->user4(++s_vscpIdCounter);
             if (!rhs->user4()) rhs->user4(++s_vscpIdCounter);
@@ -1780,7 +1780,8 @@ class AstToDfgSynthesize final {
         //-------------------------------------------------------------------
         UINFO(5, "Step 1: Attempting to synthesize each of the selected DfgLogic");
         {
-            // AstVarScope::user4() -> int: unique ID for SymTab ordering (see 'AstVarScopeComparator')
+            // AstVarScope::user4() -> int: unique ID for SymTab ordering (see
+            // 'AstVarScopeComparator')
             const VNUser4InUse user4InUse;
             for (DfgVertex& vtx : m_dfg.opVertices()) {
                 DfgLogic* const logicp = vtx.cast<DfgLogic>();

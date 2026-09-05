@@ -195,7 +195,7 @@ class V3DfgPeephole final : public DfgVisitor {
         size_t m_iterListIndex = 0;  // Position of this vertx m_iterList (0 means not in list)
         size_t m_generation = 0;  // Generation number of this vertex - for uniqueness check
         size_t m_id = 0;  // Unique vertex ID (0 means unassigned) - for sorting
-        bool m_isCachedVertex = false; // This vertex is the vertex cached for its operation
+        bool m_isCachedVertex = false;  // This vertex is the vertex cached for its operation
     };
 
     // STATE
