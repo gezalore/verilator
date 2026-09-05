@@ -529,8 +529,26 @@ void V3Number::setBitX0(int bit) {
 }
 
 V3Number& V3Number::setMask(int nbits, int lsb) {
-    setZero();
-    for (int bit = lsb; bit < lsb + nbits; ++bit) setBit(bit, 1);
+    // Set bits [lsb, hi) to 1 and all other bits to 0.
+    const int nw = words();
+    const int hi = std::min(lsb + nbits, nw);
+    if (VL_UNLIKELY(hi <= lsb)) {
+        setZero();  // If empty range, then all zeroes
+    } else {
+        ValueAndX* const nump = m_data.num();
+        const int loWord = lsb / 32;
+        const int hiWord = (hi - 1) / 32;
+        const uint32_t loMask = ~0U << (lsb & 31);
+        const uint32_t hiMask = VL_MASK_I(hi);
+        // The whole words below the range
+        for (int i = 0; i < loWord; ++i) nump[i] = {0, 0};
+        // The words containing the range
+        nump[loWord] = {loMask, 0};
+        for (int i = loWord + 1; i <= hiWord; ++i) nump[i] = {~0U, 0};
+        nump[hiWord].m_value &= hiMask;
+        // The whole words above the range
+        for (int i = hiWord + 1; i < nw; ++i) nump[i] = {0, 0};
+    }
     return *this;
 }
 
@@ -1200,10 +1218,21 @@ bool V3Number::isEqOne() const {
 bool V3Number::isEqAllOnes(int optwidth) const {
     // Correct number of zero bits/width matters
     if (!optwidth) optwidth = width();
-    for (int bit = 0; bit < optwidth; ++bit) {
-        if (!bitIs1(bit)) return false;
+    if (optwidth <= 0) return true;
+    // Bits of a non-number never read as 1
+    if (VL_UNLIKELY(!isNumber())) return false;
+    // Bits above the width never read as 1
+    if (VL_UNLIKELY(optwidth > width())) return false;
+    const ValueAndX* const nump = m_data.num();
+    const int nw = (optwidth + 31) / 32;
+    for (int i = 0; i < nw - 1; ++i) {
+        const ValueAndX v = nump[i];
+        if ((v.m_value & ~v.m_valueX) != ~0U) return false;
     }
-    return true;
+    // The top word is the only one masked to the checked width
+    const ValueAndX v = nump[nw - 1];
+    const uint32_t wmask = VL_MASK_I(optwidth);
+    return ((v.m_value & ~v.m_valueX) & wmask) == wmask;
 }
 bool V3Number::isFourState() const VL_MT_SAFE {
     if (isDouble() || isString()) return false;
@@ -1213,27 +1242,77 @@ bool V3Number::isFourState() const VL_MT_SAFE {
     return false;
 }
 bool V3Number::isAnyX() const VL_MT_SAFE {
-    if (isDouble() || isString()) return false;
-    for (int bit = 0; bit < width(); ++bit) {
-        if (bitIsX(bit)) return true;
+    // Only logic numbers have X/Z bits ('isNumber' is true for doubles also)
+    if (isOpaque() || !isNumber()) return false;
+    const ValueAndX* const nump = m_data.num();
+    const int nw = words();
+    for (int i = 0; i < nw - 1; ++i) {
+        const ValueAndX v = nump[i];
+        if (v.m_value & v.m_valueX) return true;
     }
-    return false;
+    // The top word is the only one masked to the width
+    const ValueAndX v = nump[nw - 1];
+    return (v.m_value & v.m_valueX & hiWordMask()) != 0;
 }
-bool V3Number::isAnyXZ() const { return isAnyX() || isAnyZ(); }
-bool V3Number::isAnyZ() const VL_MT_SAFE {
-    if (isDouble() || isString()) return false;
-    for (int bit = 0; bit < width(); ++bit) {
-        if (bitIsZ(bit)) return true;
+bool V3Number::isAnyXZ() const {
+    // Only logic numbers have X/Z bits ('isNumber' is true for doubles also)
+    if (isOpaque() || !isNumber()) return false;
+    const ValueAndX* const nump = m_data.num();
+    const int nw = words();
+    for (int i = 0; i < nw - 1; ++i) {
+        if (nump[i].m_valueX) return true;
     }
-    return false;
+    // The top word is the only one masked to the width
+    return (nump[nw - 1].m_valueX & hiWordMask()) != 0;
+}
+bool V3Number::isAnyZ() const VL_MT_SAFE {
+    // Only logic numbers have X/Z bits ('isNumber' is true for doubles also)
+    if (isOpaque() || !isNumber()) return false;
+    const ValueAndX* const nump = m_data.num();
+    const int nw = words();
+    for (int i = 0; i < nw - 1; ++i) {
+        const ValueAndX v = nump[i];
+        if (~v.m_value & v.m_valueX) return true;
+    }
+    // The top word is the only one masked to the width
+    const ValueAndX v = nump[nw - 1];
+    return (~v.m_value & v.m_valueX & hiWordMask()) != 0;
 }
 bool V3Number::isLtXZ(const V3Number& rhs) const {
     // Include X/Z in comparisons for sort ordering
-    for (int bit = 0; bit < std::max(width(), rhs.width()); ++bit) {
-        if (bitIs1(bit) && rhs.bitIs0(bit)) return true;
-        if (rhs.bitIs1(bit) && bitIs0(bit)) return false;
-        if (bitIsXZ(bit)) return true;
-        if (rhs.bitIsXZ(bit)) return false;
+    if (VL_UNLIKELY(!isNumber() || !rhs.isNumber())) {
+        for (int bit = 0; bit < std::max(width(), rhs.width()); ++bit) {
+            if (bitIs1(bit) && rhs.bitIs0(bit)) return true;
+            if (rhs.bitIs1(bit) && bitIs0(bit)) return false;
+            if (bitIsXZ(bit)) return true;
+            if (rhs.bitIsXZ(bit)) return false;
+        }
+        return false;
+    }
+    const WordReader lr{*this, /* extendXZ: */ true};
+    const WordReader rr{rhs, /* extendXZ: */ true};
+    const int maxWidth = std::max(width(), rhs.width());
+    const int nw = (maxWidth + 31) / 32;
+    const uint32_t hiMask = VL_MASK_I(maxWidth);
+    for (int i = 0; i < nw; ++i) {
+        const ValueAndX l = lr.word(i);
+        const ValueAndX r = rr.word(i);
+        const uint32_t lKnown = ~l.m_valueX;
+        const uint32_t rKnown = ~r.m_valueX;
+        const uint32_t l1 = l.m_value & lKnown;
+        const uint32_t l0 = ~l.m_value & lKnown;
+        const uint32_t r1 = r.m_value & rKnown;
+        const uint32_t r0 = ~r.m_value & rKnown;
+        // Bits deciding the outcome in each direction, lhs being 1/X/Z decides less
+        const uint32_t less = (l1 & r0) | l.m_valueX;
+        const uint32_t more = (r1 & l0) | r.m_valueX;
+        uint32_t decided = less | more;
+        if (i == nw - 1) decided &= hiMask;
+        if (decided) {
+            // Of the decided bits, the lowest one wins
+            const uint32_t lowestBit = decided & (~decided + 1);
+            return (less & lowestBit) != 0;
+        }
     }
     return false;
 }
@@ -1303,10 +1382,18 @@ uint32_t V3Number::countOnes() const {
 }
 
 uint32_t V3Number::mostSetBitP1() const {
-    for (int bit = width() - 1; bit >= 0; bit--) {
-        if (!bitIs0(bit)) return bit + 1;
+    if (VL_UNLIKELY(!isNumber())) return width() >= 1 ? width() : 0;
+    const ValueAndX* const nump = m_data.num();
+    // Walks down, so the masked top word is the peeled first iteration
+    int i = words() - 1;
+    uint32_t bits = (nump[i].m_value | nump[i].m_valueX) & hiWordMask();
+    while (!bits) {
+        if (--i < 0) return 0;
+        bits = nump[i].m_value | nump[i].m_valueX;
     }
-    return 0;
+    int bit = 31;
+    while (!(bits & (1U << bit))) --bit;
+    return i * 32 + bit + 1;
 }
 
 uint32_t V3Number::leastSetBitP1() const {
@@ -1323,10 +1410,13 @@ V3Number& V3Number::opBitsNonXZ(const V3Number& lhs) {  // 0/1->1, X/Z->0
     // op i, L(lhs) bit return
     NUM_ASSERT_OP_ARGS1(lhs);
     NUM_ASSERT_LOGIC_ARGS1(lhs);
-    setZero();
-    for (int bit = 0; bit < width(); ++bit) {
-        if (lhs.bitIs0(bit) || lhs.bitIs1(bit)) setBit(bit, 1);
-    }
+    const WordReader lr{lhs, /* extendXZ: */ true};
+    ValueAndX* const nump = m_data.num();
+    const int nw = words();
+    // 1 where lhs is 0 or 1, so not X/Z
+    for (int i = 0; i < nw; ++i) nump[i] = {~lr.word(i).m_valueX, 0};
+    // Bits above the width are not part of the value
+    nump[nw - 1].m_value &= hiWordMask();
     return *this;
 }
 V3Number& V3Number::opBitsOne(const V3Number& lhs) {  // 1->1, 0/X/Z->0
@@ -1502,14 +1592,18 @@ V3Number& V3Number::opNot(const V3Number& lhs) {
     NUM_ASSERT_OP_ARGS1(lhs);
     NUM_ASSERT_LOGIC_ARGS1(lhs);
     // op i, L(lhs) bit return
-    setZero();
-    for (int bit = 0; bit < width(); ++bit) {
-        if (lhs.bitIs0(bit)) {
-            setBit(bit, 1);
-        } else if (lhs.bitIsXZ(bit)) {
-            setBit(bit, 'x');
-        }
+    const WordReader lr{lhs, /* extendXZ: */ true};
+    ValueAndX* const nump = m_data.num();
+    const int nw = words();
+    for (int i = 0; i < nw; ++i) {
+        const ValueAndX l = lr.word(i);
+        // 1 where lhs is 0, X where lhs is X/Z
+        nump[i] = {~l.m_value | l.m_valueX, l.m_valueX};
     }
+    // Bits above the width are not part of the value
+    const uint32_t hiMask = hiWordMask();
+    nump[nw - 1].m_value &= hiMask;
+    nump[nw - 1].m_valueX &= hiMask;
     return *this;
 }
 
@@ -1517,15 +1611,24 @@ V3Number& V3Number::opAnd(const V3Number& lhs, const V3Number& rhs) {
     NUM_ASSERT_OP_ARGS2(lhs, rhs);
     NUM_ASSERT_LOGIC_ARGS2(lhs, rhs);
     // i op j, max(L(lhs),L(rhs)) bit return, careful need to X/Z extend.
-    setZero();
-    for (int bit = 0; bit < width(); ++bit) {
-        if (lhs.bitIs1(bit) && rhs.bitIs1(bit)) {
-            setBit(bit, 1);
-        } else if (lhs.bitIs0(bit) || rhs.bitIs0(bit)) {  // 0
-        } else {
-            setBit(bit, 'x');
-        }
+    const WordReader lr{lhs, /* extendXZ: */ true};
+    const WordReader rr{rhs, /* extendXZ: */ true};
+    ValueAndX* const nump = m_data.num();
+    const int nw = words();
+    for (int i = 0; i < nw; ++i) {
+        const ValueAndX l = lr.word(i);
+        const ValueAndX r = rr.word(i);
+        const uint32_t lKnown = ~l.m_valueX;
+        const uint32_t rKnown = ~r.m_valueX;
+        const uint32_t one = (l.m_value & lKnown) & (r.m_value & rKnown);
+        const uint32_t zero = (~l.m_value & lKnown) | (~r.m_value & rKnown);
+        const uint32_t x = ~one & ~zero;
+        nump[i] = {one | x, x};
     }
+    // Bits above the width are not part of the value
+    const uint32_t hiMask = hiWordMask();
+    nump[nw - 1].m_value &= hiMask;
+    nump[nw - 1].m_valueX &= hiMask;
     return *this;
 }
 
@@ -1533,16 +1636,24 @@ V3Number& V3Number::opOr(const V3Number& lhs, const V3Number& rhs) {
     NUM_ASSERT_OP_ARGS2(lhs, rhs);
     NUM_ASSERT_LOGIC_ARGS2(lhs, rhs);
     // i op j, max(L(lhs),L(rhs)) bit return, careful need to X/Z extend.
-    setZero();
-    for (int bit = 0; bit < width(); ++bit) {
-        if (lhs.bitIs1(bit) || rhs.bitIs1(bit)) {
-            setBit(bit, 1);
-        } else if (lhs.bitIs0(bit) && rhs.bitIs0(bit)) {
-            // 0
-        } else {
-            setBit(bit, 'x');
-        }
+    const WordReader lr{lhs, /* extendXZ: */ true};
+    const WordReader rr{rhs, /* extendXZ: */ true};
+    ValueAndX* const nump = m_data.num();
+    const int nw = words();
+    for (int i = 0; i < nw; ++i) {
+        const ValueAndX l = lr.word(i);
+        const ValueAndX r = rr.word(i);
+        const uint32_t lKnown = ~l.m_valueX;
+        const uint32_t rKnown = ~r.m_valueX;
+        const uint32_t one = (l.m_value & lKnown) | (r.m_value & rKnown);
+        const uint32_t zero = (~l.m_value & lKnown) & (~r.m_value & rKnown);
+        const uint32_t x = ~one & ~zero;
+        nump[i] = {one | x, x};
     }
+    // Bits above the width are not part of the value
+    const uint32_t hiMask = hiWordMask();
+    nump[nw - 1].m_value &= hiMask;
+    nump[nw - 1].m_valueX &= hiMask;
     return *this;
 }
 
@@ -1550,17 +1661,27 @@ V3Number& V3Number::opXor(const V3Number& lhs, const V3Number& rhs) {
     // i op j, max(L(lhs),L(rhs)) bit return, careful need to X/Z extend.
     NUM_ASSERT_OP_ARGS2(lhs, rhs);
     NUM_ASSERT_LOGIC_ARGS2(lhs, rhs);
-    setZero();
-    for (int bit = 0; bit < width(); ++bit) {
-        if (lhs.bitIs1(bit) && rhs.bitIs0(bit)) {
-            setBit(bit, 1);
-        } else if (lhs.bitIs0(bit) && rhs.bitIs1(bit)) {
-            setBit(bit, 1);
-        } else if (lhs.bitIsXZ(bit) || rhs.bitIsXZ(bit)) {
-            setBit(bit, 'x');
-        }
-        // else zero
+    const WordReader lr{lhs, /* extendXZ: */ true};
+    const WordReader rr{rhs, /* extendXZ: */ true};
+    ValueAndX* const nump = m_data.num();
+    const int nw = words();
+    for (int i = 0; i < nw; ++i) {
+        const ValueAndX l = lr.word(i);
+        const ValueAndX r = rr.word(i);
+        const uint32_t lKnown = ~l.m_valueX;
+        const uint32_t rKnown = ~r.m_valueX;
+        const uint32_t l1 = l.m_value & lKnown;
+        const uint32_t l0 = ~l.m_value & lKnown;
+        const uint32_t r1 = r.m_value & rKnown;
+        const uint32_t r0 = ~r.m_value & rKnown;
+        const uint32_t one = (l1 & r0) | (l0 & r1);
+        const uint32_t x = l.m_valueX | r.m_valueX;
+        nump[i] = {one | x, x};
     }
+    // Bits above the width are not part of the value
+    const uint32_t hiMask = hiWordMask();
+    nump[nw - 1].m_value &= hiMask;
+    nump[nw - 1].m_valueX &= hiMask;
     return *this;
 }
 
@@ -2413,9 +2534,23 @@ V3Number& V3Number::opAssignNonXZ(const V3Number& lhs, bool ignoreXZ) {
         } else if (lhs.isDouble()) {
             setDouble(lhs.toDouble());
         } else {
-            for (int bit = 0; bit < this->width(); ++bit) {
-                setBit(bit, ignoreXZ ? lhs.bitIs1(bit) : lhs.bitIs(bit));
+            const WordReader lr{lhs, /* extendXZ: */ false};
+            ValueAndX* const nump = m_data.num();
+            const int nw = words();
+            const ValueAndX prevTop = nump[nw - 1];
+            for (int i = 0; i < nw; ++i) {
+                ValueAndX l = lr.word(i);
+                if (ignoreXZ) {
+                    l.m_value &= ~l.m_valueX;
+                    l.m_valueX = 0;
+                }
+                nump[i] = l;
             }
+            // Preserve bits above the width, as the bit loop never touched them
+            const uint32_t hiMask = hiWordMask();
+            ValueAndX& top = nump[nw - 1];
+            top.m_value = (top.m_value & hiMask) | (prevTop.m_value & ~hiMask);
+            top.m_valueX = (top.m_valueX & hiMask) | (prevTop.m_valueX & ~hiMask);
         }
     }
     return *this;
