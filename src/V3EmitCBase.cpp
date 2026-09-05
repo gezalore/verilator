@@ -24,13 +24,16 @@
 // EmitCParentModule implementation
 
 EmitCParentModule::EmitCParentModule() {
-    const auto setAll = [](AstNodeModule* modp) -> void {
+    // Coverage declarations can be nested below the module, so need the deep search,
+    // but they only exist at all if some kind of coverage is enabled
+    const bool anyCoverage = v3Global.opt.coverage();
+    const auto setAll = [anyCoverage](AstNodeModule* modp) -> void {
         for (AstNode* nodep = modp->stmtsp(); nodep; nodep = nodep->nextp()) {
             if (VN_IS(nodep, CFunc) || VN_IS(nodep, Var) || VN_IS(nodep, NodeCoverDecl)) {
                 nodep->user4p(modp);
             }
         }
-        modp->foreach([&](AstNodeCoverDecl* nodep) { nodep->user4p(modp); });
+        if (anyCoverage) modp->foreach([&](AstNodeCoverDecl* nodep) { nodep->user4p(modp); });
     };
     for (AstNode* modp = v3Global.rootp()->modulesp(); modp; modp = modp->nextp()) {
         setAll(VN_AS(modp, NodeModule));
