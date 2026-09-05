@@ -219,8 +219,8 @@ class OrderGraphBuilder final : public VNVisitor {
         if (m_cgRefBoundps) {
             // Variable accesses within a covergroup sample() call should not affect ordering.
             // Reads are not sensitivities, and there should be no other logic dependent on writes
-            // within the covergroup sample() body. Accesses must be recorded for the multi-threaded
-            // data hazard fixer, but no other edges need to be added.
+            // within the covergroup sample() body. Accesses must be recorded for the
+            // multi-threaded data hazard fixer, but no other edges need to be added.
             const AstVar* const varp = nodep->varp();
             if (varp->covergroupRefMember()) {
                 UASSERT_OBJ(nodep->access().isReadOnly(), nodep,
