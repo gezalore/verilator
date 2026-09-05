@@ -307,8 +307,20 @@ class V3DfgCse final {
 
     V3DfgCse(DfgGraph& dfg, V3DfgCseContext& ctx)
         : m_dfg{dfg} {
-        std::unordered_map<V3Hash, std::vector<DfgVertex*>> verticesWithEqualHashes;
-        verticesWithEqualHashes.reserve(dfg.size());
+        // Vertices already considered, in an open addressed, linear probed table. There is
+        // one entry per vertex, rather than a list of the vertices with each hash, as the
+        // vast majority of hashes are unique. Probing yields the vertices with equal hashes
+        // in insertion order, which is the order they must be considered in below.
+        struct Slot final {
+            V3Hash m_hash;  // Hash of the vertex
+            DfgVertex* m_vtxp = nullptr;  // The vertex - nullptr marks an empty slot
+        };
+        // There is at most one entry per vertex, so this keeps the load factor under a
+        // half, and hence the table never needs to grow
+        size_t tableSize = 16;
+        while (tableSize < 2 * dfg.size()) tableSize *= 2;
+        std::vector<Slot> verticesWithEqualHashes(tableSize);
+        const size_t tableMask = tableSize - 1;
 
         // Pre-hash variables, these are all unique, so just set their hash to a unique value
         uint32_t varHash = 0;
@@ -339,19 +351,22 @@ class V3DfgCse final {
                 vtxp->unlinkDelete(dfg);
                 continue;
             }
-            std::vector<DfgVertex*>& vec = verticesWithEqualHashes[vertexHash(*vtxp)];
+            const V3Hash hash = vertexHash(*vtxp);
             bool replaced = false;
-            for (DfgVertex* const candidatep : vec) {
-                if (vertexEquivalent(*candidatep, *vtxp)) {
+            size_t i = hash.value() & tableMask;
+            for (; verticesWithEqualHashes[i].m_vtxp; i = (i + 1) & tableMask) {
+                const Slot& slot = verticesWithEqualHashes[i];
+                if (slot.m_hash != hash) continue;
+                if (vertexEquivalent(*slot.m_vtxp, *vtxp)) {
                     ++ctx.m_eliminated;
-                    vtxp->replaceWith(candidatep);
+                    vtxp->replaceWith(slot.m_vtxp);
                     VL_DO_DANGLING(vtxp->unlinkDelete(dfg), vtxp);
                     replaced = true;
                     break;
                 }
             }
             if (replaced) continue;
-            vec.push_back(vtxp);
+            verticesWithEqualHashes[i] = Slot{hash, vtxp};
         }
     }
 
