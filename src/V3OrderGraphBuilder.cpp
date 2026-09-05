@@ -151,6 +151,17 @@ class OrderGraphBuilder final : public VNVisitor {
         return m_orderUser(varscp).getVarVertex(m_graphp, varscp, type);
     }
 
+    // Record the raw access for the multi-threaded data hazard fixer
+    void recordRawAccess(AstVarScope* varscp, const VAccess& access, AstNode* nodep) {
+        if (!m_parallel) return;
+        uint8_t recorded = 0;
+        if (access.isWriteOrRW()) recorded |= VA_WRITE;
+        if (access.isReadOrRW()) recorded |= VA_READ;
+        UASSERT_OBJ(recorded, nodep, "Unknown variable access type");
+        // Accumulate access type, record the variable on first access only
+        if (!varscp->user4Or(recorded)) m_accessedVscps.push_back(varscp);
+    }
+
     // VISITORS
     void visit(AstActive* nodep) override {
         UASSERT_OBJ(!nodep->senTreeStorep(), nodep,
@@ -203,36 +214,28 @@ class OrderGraphBuilder final : public VNVisitor {
         UASSERT_OBJ(m_logicVxp, nodep, "AstVarRef not under logic");
         AstVarScope* const varscp = nodep->varScopep();
         UASSERT_OBJ(varscp, nodep, "Var didn't get varscoped in V3Scope.cpp");
-        // Reading a covergroup 'ref' formal reads whatever it was bound to at construction.
-        // The formal itself is a pointer member fixed at construction, so it is not itself
-        // interesting to ordering.
-        const AstVar* const varp = nodep->varp();
-        if (m_cgRefBoundps && varp->covergroupRefMember()) {
-            // Covergroup params are considered const-ref
-            UASSERT_OBJ(nodep->access().isReadOnly(), nodep, "covergroup ref argument is written");
-            for (AstVarScope* const boundp : *m_cgRefBoundps) {
-                accountVarAccess(boundp, VAccess::READ, nodep);
+
+        // Handle covergroup sample() body calls
+        if (m_cgRefBoundps) {
+            // Variable accesses within a covergroup sample() call should not affect ordering.
+            // Reads are not sensitivities, and there should be no other logic dependent on writes
+            // within the covergroup sample() body. Accesses must be recorded for the multi-threaded
+            // data hazard fixer, but no other edges need to be added.
+            const AstVar* const varp = nodep->varp();
+            if (varp->covergroupRefMember()) {
+                UASSERT_OBJ(nodep->access().isReadOnly(), nodep,
+                            "covergroup ref arguments are supposed to be read-only");
+                // Reading a covergroup 'ref' formal reads whatever it might be bound to.
+                for (AstVarScope* const boundp : *m_cgRefBoundps) {
+                    recordRawAccess(boundp, VAccess::READ, nodep);
+                }
+            } else {
+                recordRawAccess(varscp, nodep->access(), nodep);
             }
-        } else {
-            accountVarAccess(varscp, nodep->access(), nodep);
+            return;
         }
-    }
 
-    // Record the raw access for the multi-threaded data hazard fixer
-    void recordRawAccess(AstVarScope* varscp, const VAccess& access, AstNode* nodep) {
-        if (!m_parallel) return;
-        uint8_t recorded = 0;
-        if (access.isWriteOrRW()) recorded |= VA_WRITE;
-        if (access.isReadOrRW()) recorded |= VA_READ;
-        UASSERT_OBJ(recorded, nodep, "Unknown variable access type");
-        // Accumulate access type, record the variable on first access only
-        if (!varscp->user4Or(recorded)) m_accessedVscps.push_back(varscp);
-    }
-
-    // Add the graph edges, and record the raw access, for one access of one variable
-    void accountVarAccess(AstVarScope* varscp, const VAccess& access, AstNode* nodep) {
-        // Variable reference in logic. Add data dependency.
-        recordRawAccess(varscp, access, nodep);
+        recordRawAccess(varscp, nodep->access(), nodep);
 
         // Check whether this variable was already generated/consumed in the same logic. We
         // don't want to add extra edges if the logic has many usages of the same variable,
@@ -241,11 +244,12 @@ class OrderGraphBuilder final : public VNVisitor {
         const bool prevCon = varscp->user2() & VU_CON;
 
         // Compute whether the variable is produced (written) here
-        const bool gen = !prevGen && access.isWriteOrRW() && !varscp->varp()->ignoreSchedWrite();
+        const bool gen
+            = !prevGen && nodep->access().isWriteOrRW() && !varscp->varp()->ignoreSchedWrite();
 
         // Compute whether the value is consumed (read) here
         bool con = false;
-        if (!prevCon && access.isReadOrRW()) {
+        if (!prevCon && nodep->access().isReadOrRW()) {
             con = true;
             if (prevGen && !m_inClocked) {
                 // Dangerous assumption:
@@ -261,11 +265,7 @@ class OrderGraphBuilder final : public VNVisitor {
                 //       latch?).
                 con = false;
             }
-            if (!m_inClocked) {
-                // Ignored reads and references from within covergroups do not
-                // add to the combinational sensitivity of the block
-                if (m_forceReadEdgeIgnores.count(varscp) || m_cgRefBoundps) con = false;
-            }
+            if (!m_inClocked && m_forceReadEdgeIgnores.count(varscp)) con = false;
         }
 
         // Note: See V3OrderGraph.h about the roles of the various vertex types
