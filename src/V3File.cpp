@@ -763,10 +763,10 @@ void V3OutFormatter::putns(const AstNode* nodep, const char* strg) {
     bool equalsForBracket = false;  // Looking for "= {"
     for (const char* cp = strg; *cp; ++cp) {
         putcNoTracking(*cp);
-        if (std::isalpha(*cp)) {
-            if (wordstart && m_lang == LA_VERILOG && tokenNotStart(cp)) notstart = true;
-            if (wordstart && m_lang == LA_VERILOG && !notstart && tokenStart(cp)) indentInc();
-            if (wordstart && m_lang == LA_VERILOG && tokenEnd(cp)) indentDec();
+        if (m_lang == LA_VERILOG && std::isalpha(*cp)) {
+            if (wordstart && tokenNotStart(cp)) notstart = true;
+            if (wordstart && !notstart && tokenStart(cp)) indentInc();
+            if (wordstart && tokenEnd(cp)) indentDec();
         }
         const bool wasInBackslash = m_inBackslash;
         m_inBackslash = false;
