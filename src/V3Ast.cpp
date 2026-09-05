@@ -1090,6 +1090,10 @@ void AstNode::iterateAndNext(VNVisitor& v) {
         // edits"); Optimization note: Doing PREFETCH_RW on m_iterpp is a net even
         // cppcheck-suppress nullPointer
         niterp->m_iterpp = &niterp;
+        // Prefetch the first child. The visit usually descends into it, and issuing this
+        // before the visit gives the fetch the whole visit to complete, rather than the
+        // few instructions it would have if left to 'iterateChildren'.
+        ASTNODE_PREFETCH(niterp->m_op1p);
         niterp->accept(v);
         // accept may do a replaceNode and change niterp on us...
         // niterp maybe nullptr, so need cast if printing
@@ -1132,6 +1136,8 @@ void AstNode::iterateAndNextConst(VNVisitorConst& v) {
     do {
         AstNode* const nnextp = nodep->m_nextp;
         ASTNODE_PREFETCH(nnextp);
+        // Prefetch the first child, see iterateAndNext
+        ASTNODE_PREFETCH(nodep->m_op1p);
         nodep->accept(v);
         nodep = nnextp;
     } while (nodep);
