@@ -267,8 +267,8 @@ class ScopeVisitor final : public VNVisitor {
         // Add to list of blocks under this scope
         UINFO(4, "    FTASK " << nodep);
         // Class methods create only one scope, so avoid pointless cloning
-        AstNodeFTask* const clonep = VN_AS(
-            moveOrCloneBlock(nodep, nodep->classMethod() || m_lastUsage), NodeFTask);
+        AstNodeFTask* const clonep
+            = VN_AS(moveOrCloneBlock(nodep, nodep->classMethod() || m_lastUsage), NodeFTask);
         clonep->user2p(clonep);  // For recursive self-references after cloneTree
         // We iterate under the *clone*
         iterateChildren(clonep);
