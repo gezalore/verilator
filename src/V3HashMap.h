@@ -22,9 +22,9 @@
 // touches few cache lines, and suits the common case where the key can be
 // recovered from the value it belongs to.
 //
-// Entries with equal hashes are probed in the order they were inserted,
-// which callers relying on the first match being the earliest inserted can
-// depend on, but only if they never erase.
+// Entries with equal hashes are probed in the order they were inserted, so
+// callers can depend on the first match being the earliest inserted. Erasing
+// and growing both maintain this.
 //
 //*************************************************************************
 
@@ -34,7 +34,10 @@
 #include "config_build.h"
 #include "verilatedos.h"
 
+#include "V3Error.h"
+
 #include <algorithm>
+#include <array>
 #include <vector>
 
 template <typename T_Value>
@@ -64,11 +67,18 @@ class V3HashMap final {
 
     // Resize to the given number of slots, which must fit all entries
     void resize(size_t size) {
-        std::vector<Entry> oldTable{std::move(m_table)};
+        const std::vector<Entry> oldTable{std::move(m_table)};
         m_table.clear();
         m_table.resize(size);
-        for (const Entry& entry : oldTable) {
-            // Reinserting in slot order keeps entries with equal hashes in insertion order
+        if (oldTable.empty()) return;
+        // Reinsert in probing order, which keeps entries with equal hashes in insertion
+        // order. Start from a free slot, as a run of occupied slots that wraps around the
+        // end of the table would otherwise be traversed tail first.
+        const size_t oldMask = oldTable.size() - 1;
+        size_t begin = 0;
+        while (oldTable[begin].m_valuep) ++begin;  // Below full load, so this terminates
+        for (size_t n = 1; n <= oldMask + 1; ++n) {
+            const Entry& entry = oldTable[(begin + n) & oldMask];
             if (entry.m_valuep) m_table[freeSlot(entry.m_hash)] = entry;
         }
     }
@@ -114,7 +124,7 @@ public:
     }
 
     // Remove the entry with the given hash that 'equal' accepts, if there is one.
-    // Note this can reorder entries with equal hashes, see the file header.
+    // The remaining entries keep their relative probing order.
     template <typename T_Equal>
     void erase(size_t hash, T_Equal&& equal) {
         if (m_table.empty()) return;
@@ -141,6 +151,99 @@ public:
         m_table[i] = Entry{};
         --m_used;
     }
+
+    // SELF TEST
+    static void selfTest() VL_MT_DISABLED;
 };
+
+//######################################################################
+
+template <typename T_Value>
+void V3HashMap<T_Value>::selfTest() {
+    // Values are only ever compared by identity here, so any distinct addresses will do
+    std::array<T_Value, 8> values;
+    std::array<T_Value, 40> many;  // Enough entries to grow the smallest table twice
+    const auto valuep = [&values](size_t i) { return &values[i]; };
+    const auto isValue = [&values](size_t i) {
+        return [&values, i](const T_Value* p) { return p == &values[i]; };
+    };
+    // The order the entries with the given hash are probed in
+    const auto probeOrder = [](const V3HashMap<T_Value>& map, size_t hash) {
+        std::vector<const T_Value*> result;
+        map.find(hash, [&result](const T_Value* p) {
+            result.push_back(p);
+            return false;  // Never accept, so the whole probe sequence is visited
+        });
+        return result;
+    };
+
+    // Entries that are inserted are found, entries that are not are not
+    {
+        V3HashMap<T_Value> map;
+        UASSERT_SELFTEST(size_t, map.size(), 0);
+        UASSERT(!map.find(1, isValue(0)), "SelfTest: found entry in empty map");
+        map.insert(1, valuep(0));
+        UASSERT_SELFTEST(size_t, map.size(), 1);
+        UASSERT(map.find(1, isValue(0)) == valuep(0), "SelfTest: inserted entry not found");
+        UASSERT(!map.find(1, isValue(1)), "SelfTest: found entry never inserted");
+        UASSERT(!map.find(2, isValue(0)), "SelfTest: found entry under wrong hash");
+        map.erase(1, isValue(0));
+        UASSERT_SELFTEST(size_t, map.size(), 0);
+        UASSERT(!map.find(1, isValue(0)), "SelfTest: erased entry still found");
+        map.erase(1, isValue(0));  // Erasing what is absent is a no-op
+        UASSERT_SELFTEST(size_t, map.size(), 0);
+    }
+
+    // Entries with equal hashes are probed in insertion order, whichever is erased,
+    // including when other hashes collide into the same slots
+    for (size_t erase = 0; erase < 4; ++erase) {
+        for (const size_t hash : {size_t{0}, size_t{7}, ~size_t{0}}) {  // Also wrap the table
+            V3HashMap<T_Value> map;
+            // Interleave entries of an unrelated hash landing on the same slots
+            map.insert(hash, valuep(0));
+            map.insert(hash + 1, valuep(4));
+            map.insert(hash, valuep(1));
+            map.insert(hash, valuep(2));
+            map.insert(hash, valuep(3));
+            const std::vector<const T_Value*> before = probeOrder(map, hash);
+            UASSERT_SELFTEST(size_t, before.size(), 4);
+            map.erase(hash, isValue(erase));
+            UASSERT_SELFTEST(size_t, map.size(), 4);
+            // The others keep their order, and the unrelated entry is still there
+            std::vector<const T_Value*> expect;
+            for (const T_Value* p : before) {
+                if (p != valuep(erase)) expect.push_back(p);
+            }
+            UASSERT(probeOrder(map, hash) == expect, "SelfTest: erase changed probe order");
+            UASSERT(map.find(hash + 1, isValue(4)) == valuep(4),
+                    "SelfTest: erase lost a colliding entry");
+        }
+    }
+
+    // Growing keeps entries with equal hashes in insertion order, including when their run
+    // wraps around the end of the table. Note this only bites once there are enough
+    // entries to actually grow the table, so do not reserve here.
+    for (const size_t hash : {size_t{0}, size_t{7}, ~size_t{0}}) {
+        V3HashMap<T_Value> map;
+        for (size_t i = 0; i < many.size(); ++i) map.insert(hash, &many[i]);
+        UASSERT_SELFTEST(size_t, map.size(), many.size());
+        const std::vector<const T_Value*> order = probeOrder(map, hash);
+        UASSERT_SELFTEST(size_t, order.size(), many.size());
+        for (size_t i = 0; i < many.size(); ++i) {
+            UASSERT(order[i] == &many[i], "SelfTest: resize changed probe order");
+        }
+    }
+
+    // Reserving avoids growing, and all entries survive either way
+    for (const bool doReserve : {false, true}) {
+        V3HashMap<T_Value> map;
+        if (doReserve) map.reserve(values.size());
+        for (size_t i = 0; i < values.size(); ++i) map.insert(i * 1234567, valuep(i));
+        for (size_t i = 0; i < values.size(); ++i) {
+            UASSERT(map.find(i * 1234567, isValue(i)) == valuep(i), "SelfTest: entry lost");
+        }
+        UASSERT_SELFTEST(size_t, map.size(), values.size());
+    }
+}
 
 #endif  // Guard

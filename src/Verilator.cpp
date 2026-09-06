@@ -62,6 +62,7 @@
 #include "V3Gate.h"
 #include "V3Global.h"
 #include "V3Graph.h"
+#include "V3HashMap.h"
 #include "V3HierBlock.h"
 #include "V3Inline.h"
 #include "V3InlineCFuncs.h"
@@ -743,6 +744,7 @@ static bool verilate(const string& argString) {
         V3PreShell::selfTest();
         V3Broken::selfTest();
         V3Control::selfTest();
+        V3HashMap<int>::selfTest();
         V3ThreadPool::selfTest();
         UINFO(2, "selfTest done");
     }
