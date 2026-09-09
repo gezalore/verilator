@@ -191,6 +191,17 @@ public:
         : SplitEdge{graphp, fromp, top} {}
 };
 
+// True if no edge of the vertex will be followed by the coloring, so it connects nothing
+bool connectsNothing(const V3GraphVertex* vtxp) {
+    for (const V3GraphEdge& edge : vtxp->inEdges()) {
+        if (SplitEdge::followScoreboard(&edge)) return false;
+    }
+    for (const V3GraphEdge& edge : vtxp->outEdges()) {
+        if (SplitEdge::followScoreboard(&edge)) return false;
+    }
+    return true;
+}
+
 // Take the statements of the given list, and return them distributed into one list per color,
 // indexed by color, which V3Graph::weaklyConnected assigns densely. Statements are moved, so
 // the given list is left holding only what we do not split out. An 'if' is rebuilt around its
@@ -303,9 +314,12 @@ class SplitVisitor final : public VNVisitor {
         // if they both depend on locally-generated variable B, the statements must be kept
         // together.
         for (V3GraphVertex* const vtxp : m_graphp->vertices().unlinkable()) {
-            if (!vtxp->outEmpty()) continue;
             SplitVarStdVertex* const vstdp = vtxp->cast<SplitVarStdVertex>();
             if (!vstdp) continue;
+            // Also remove one that connects nothing the coloring will follow, as for a
+            // variable only written by an NBA and never read, whose post edge is not
+            // followed. It would otherwise form a component of its own, holding no statement.
+            if (!vstdp->outEmpty() && !connectsNothing(vstdp)) continue;
             UINFOTREE(9, vstdp->nodep(), "", "Will remove deps on var:");
             vstdp->nodep()->user1p(nullptr);  // Don't leave a dangling pointer behind
             vstdp->unlinkDelete(m_graphp);
@@ -350,15 +364,10 @@ class SplitVisitor final : public VNVisitor {
         if (nodep->user4()) return;
 
         UASSERT_OBJ(!m_graphp, nodep, "AstAlways should not nest");
-        // The scoreboard, and hence the user attributes, are per always block
-        const VNUser1InUse user1InUse;
-        const VNUser2InUse user2InUse;
-        const VNUser3InUse user3InUse;
         VL_RESTORER(m_graphp);
         VL_RESTORER(m_impureVtxp);
         VL_RESTORER(m_noSplitWhy);
         VL_RESTORER(m_inDly);
-
         V3Graph graph;
         m_graphp = &graph;
         m_impureVtxp = nullptr;
@@ -367,6 +376,9 @@ class SplitVisitor final : public VNVisitor {
         m_stmtStackps.clear();
 
         // Build the scoreboard
+        const VNUser1InUse user1InUse;
+        const VNUser2InUse user2InUse;
+        const VNUser3InUse user3InUse;
         scanBlock(nodep->stmtsp());
 
         // We might have to give up
@@ -375,30 +387,13 @@ class SplitVisitor final : public VNVisitor {
             return;
         }
 
-        // Look across the entire tree of if/else blocks in the always,
-        // and color regions that must be kept together.
-        UINFO(5, "SplitVisitor @ " << nodep);
+        // Color the graph to identify separable statements
         const uint32_t numColors = colorAlwaysGraph();
         if (numColors <= 1) return;  // The whole block is one component, nothing to split
 
-        // How many colors have a statement in them, which is how many blocks we will emit.
-        // Not every color does, e.g. a variable written by an NBA but never read forms a
-        // component holding only its own vertices.
-        std::vector<bool> hasStatement(numColors, false);
-        uint32_t numBlocks = 0;
-        for (V3GraphVertex& vertex : m_graphp->vertices()) {
-            if (const SplitLogicVertex* const logicp = vertex.cast<SplitLogicVertex>()) {
-                if (!hasStatement[logicp->color()]) {
-                    hasStatement[logicp->color()] = true;
-                    ++numBlocks;
-                }
-            }
-        }
-        if (numBlocks <= 1) return;  // Nothing to split
-
         // Counting original always blocks rather than newly-split always blocks makes it a
         // little easier to use this stat to check the result of the t_alw_split test:
-        m_statSplits += numBlocks - 1;  // -1 for the original always
+        m_statSplits += numColors - 1;  // -1 for the original always
 
         // Take the statements out of the original block, into one list per color
         UINFO(6, "  splitting always " << nodep);
@@ -492,7 +487,7 @@ class SplitVisitor final : public VNVisitor {
                 new SplitLVEdge{m_graphp, vpostp, vtxp};
             }
         } else if (nodep->access().isWriteOrRW()) {
-            // Non-delay; need to maintain existing ordering with all consumers of the signal
+            // Non-delay; need to maintain dataflow
             UINFO(4, "     VARREFLV: " << nodep);
             for (SplitLogicVertex* const vtxp : m_stmtStackps) {
                 new SplitLVEdge{m_graphp, vstdp, vtxp};
