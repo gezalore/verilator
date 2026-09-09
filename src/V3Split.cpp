@@ -458,7 +458,7 @@ class SplitVisitor final : public VNVisitor {
 
     void visit(AstVarRef* nodep) override {
         if (!m_graphp || m_noSplitWhy) return;
-        if (m_stmtStackps.empty()) return;
+        UASSERT_OBJ(!m_stmtStackps.empty(), nodep, "Not under a statement");
 
         AstVarScope* const vscp = nodep->varScopep();
         UASSERT_OBJ(vscp, nodep, "Not linked");
@@ -515,7 +515,8 @@ class SplitVisitor final : public VNVisitor {
         }
 
         // All impure statements must be grouped together.
-        if (!m_stmtStackps.empty() && !nodep->isPure()) {
+        UASSERT_OBJ(!m_stmtStackps.empty(), nodep, "Not under a statement");
+        if (!nodep->isPure()) {
             if (!m_impureVtxp) m_impureVtxp = new SplitImpureVertex{m_graphp, nodep};
             // One edge is enough to find the weakly connected components, but it must point at
             // the impure vertex, so it is an out edge of any enclosing 'if' to prevent pruning.
