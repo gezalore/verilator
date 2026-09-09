@@ -191,16 +191,13 @@ public:
         : SplitEdge{graphp, fromp, top} {}
 };
 
-// The statement list to put into each color's split always block, indexed by color.
-// Colors are dense, as assigned by V3Graph::weaklyConnected.
-using ColorLists = std::vector<AstNode*>;
-
-// Take the statements of the given list, and return them distributed into one list per color.
-// Statements are moved, so the given list is left holding only what we do not split out. An
-// 'if' is rebuilt around its branches once those are known, so is created only for the colors
-// that have something under it, and no empty 'if' is ever constructed.
-ColorLists splitStatements(AstNode* stmtsp, uint32_t numColors) {
-    ColorLists result{numColors, nullptr};
+// Take the statements of the given list, and return them distributed into one list per color,
+// indexed by color, which V3Graph::weaklyConnected assigns densely. Statements are moved, so
+// the given list is left holding only what we do not split out. An 'if' is rebuilt around its
+// branches once those are known, so is created only for the colors that have something under
+// it, and no empty 'if' is ever constructed.
+std::vector<AstNode*> splitStatements(AstNode* stmtsp, uint32_t numColors) {
+    std::vector<AstNode*> result{numColors, nullptr};
     AstNode* nextp = nullptr;
     for (AstNode* stmtp = stmtsp; stmtp; stmtp = nextp) {
         nextp = stmtp->nextp();  // 'stmtp' is unlinked below
@@ -210,8 +207,8 @@ ColorLists splitStatements(AstNode* stmtsp, uint32_t numColors) {
         // an 'if' that was removed there as having no dependencies at all.
         const SplitLogicVertex* const vtxp = stmtp->user3u().to<SplitLogicVertex*>();
         if (AstIf* const ifp = VN_CAST(stmtp, If)) {
-            const ColorLists thens = splitStatements(ifp->thensp(), numColors);
-            const ColorLists elses = splitStatements(ifp->elsesp(), numColors);
+            const auto thens = splitStatements(ifp->thensp(), numColors);
+            const auto elses = splitStatements(ifp->elsesp(), numColors);
             // Rebuild the 'if' in each color present in either branch
             bool anyColor = false;
             for (uint32_t color = 0; color < numColors; ++color) {
@@ -409,7 +406,7 @@ class SplitVisitor final : public VNVisitor {
 
         // Take the statements out of the original block, into one list per color
         UINFO(6, "  splitting always " << nodep);
-        const ColorLists lists = splitStatements(nodep->stmtsp(), numColors);
+        const auto lists = splitStatements(nodep->stmtsp(), numColors);
 
         // Splice a new block per color in after the original, which must stay linked until
         // they are all in, as it is the iteration point until unlinked below.
