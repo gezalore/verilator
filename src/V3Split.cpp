@@ -132,41 +132,21 @@ public:
 //######################################################################
 // Edge types
 
-class SplitEdge VL_NOT_FINAL : public V3GraphEdge {
-    VL_RTTI_IMPL(SplitEdge, V3GraphEdge)
-protected:
-    SplitEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top)
-        : V3GraphEdge{graphp, fromp, top, 1, CUTABLE} {}
-};
+// All edges are equivalent to the coloring, and are told apart only in the .dot dumps, by
+// the color they are constructed with
+constexpr const char* LV_EDGE = "yellowGreen";  // Variable to a statement writing it
+constexpr const char* RV_EDGE = "green";  // Statement to a variable it reads
+constexpr const char* IMPURE_EDGE = "blue";  // Impure statement to the impure vertex
 
-class SplitLVEdge final : public SplitEdge {
-    VL_RTTI_IMPL(SplitLVEdge, SplitEdge)
+class SplitEdge final : public V3GraphEdge {
+    const char* const m_dotColor;  // How to render this edge in the .dot dumps
 
-    std::string dotColor() const override { return "yellowGreen"; }
-
-public:
-    SplitLVEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top)
-        : SplitEdge{graphp, fromp, top} {}
-};
-
-class SplitRVEdge final : public SplitEdge {
-    VL_RTTI_IMPL(SplitRVEdge, SplitEdge)
-
-    std::string dotColor() const override { return "green"; }
+    std::string dotColor() const override { return m_dotColor; }
 
 public:
-    SplitRVEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top)
-        : SplitEdge{graphp, fromp, top} {}
-};
-
-class SplitScorebdEdge final : public SplitEdge {
-    VL_RTTI_IMPL(SplitScorebdEdge, SplitEdge)
-
-    std::string dotColor() const override { return "blue"; }
-
-public:
-    SplitScorebdEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top)
-        : SplitEdge{graphp, fromp, top} {}
+    SplitEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top, const char* dotColor)
+        : V3GraphEdge{graphp, fromp, top, 1, CUTABLE}
+        , m_dotColor{dotColor} {}
 };
 
 // Take the statements of the given list, and return them distributed into one list per color,
@@ -406,7 +386,7 @@ class SplitVisitor final : public VNVisitor {
         iterate(nodep->lhsp());
     }
 
-    void visit(AstJumpGo* nodep) override {
+    void visit(AstJumpGo*) override {
         if (!m_graphp || m_noSplitWhy) return;
         m_noSplitWhy = "JumpGo";
     }
@@ -435,22 +415,22 @@ class SplitVisitor final : public VNVisitor {
             if (!vscp->user2p()) vscp->user2p(new SplitVarPostVertex{m_graphp, vscp});
             SplitVarPostVertex* const vpostp = vscp->user2u().to<SplitVarPostVertex*>();
             for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-                new SplitLVEdge{m_graphp, vpostp, vtxp};
+                new SplitEdge{m_graphp, vpostp, vtxp, LV_EDGE};
             }
         } else if (nodep->access().isWriteOrRW()) {
             // Non-delay; need to maintain dataflow
             UINFO(4, "     VARREFLV: " << nodep);
             for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-                new SplitLVEdge{m_graphp, vstdp, vtxp};
+                new SplitEdge{m_graphp, vstdp, vtxp, LV_EDGE};
             }
         } else {
             UINFO(4, "     VARREF:   " << nodep);
-            // Each 'if' depends on rvalues in its own conditional ONLY,
-            // not rvalues in the if/else bodies.
             for (SplitStmtVertex* const vtxp : m_stmtStackps) {
+                // Each 'if' depends on rvalues in its own conditional ONLY,
+                // not rvalues in the if/else bodies.
                 const AstIf* const ifNodep = VN_CAST(vtxp->nodep(), If);
                 if (ifNodep && (m_curIfConditional != ifNodep)) continue;
-                new SplitRVEdge{m_graphp, vtxp, vstdp};
+                new SplitEdge{m_graphp, vtxp, vstdp, RV_EDGE};
             }
         }
     }
@@ -461,9 +441,10 @@ class SplitVisitor final : public VNVisitor {
             iterateChildren(nodep);
             return;
         }
-
         // Early exit if decided not to split
         if (m_noSplitWhy) return;
+
+        UASSERT_OBJ(!m_stmtStackps.empty(), nodep, "Not under a statement");
 
         // Timing control prevents splitting
         if (nodep->isTimingControl()) {
@@ -472,13 +453,12 @@ class SplitVisitor final : public VNVisitor {
         }
 
         // All impure statements must be grouped together.
-        UASSERT_OBJ(!m_stmtStackps.empty(), nodep, "Not under a statement");
         if (!nodep->isPure()) {
             if (!m_impureVtxp) m_impureVtxp = new SplitImpureVertex{m_graphp, nodep};
             // One edge is enough to find the weakly connected components, but it must point at
             // the impure vertex, so it is an out edge of any enclosing 'if' to prevent pruning.
             for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-                new SplitScorebdEdge{m_graphp, vtxp, m_impureVtxp};
+                new SplitEdge{m_graphp, vtxp, m_impureVtxp, IMPURE_EDGE};
             }
         }
 
