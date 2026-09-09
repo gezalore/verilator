@@ -260,16 +260,6 @@ class SplitVisitor final : public VNVisitor {
         }
     }
 
-    void makeRvalueEdges(SplitVarStdVertex* vstdp) {
-        // Each 'if' depends on rvalues in its own conditional ONLY,
-        // not rvalues in the if/else bodies.
-        for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-            const AstIf* const ifNodep = VN_CAST(vtxp->nodep(), If);
-            if (ifNodep && (m_curIfConditional != ifNodep)) continue;
-            new SplitRVEdge{m_graphp, vtxp, vstdp};
-        }
-    }
-
     uint32_t colorAlwaysGraph() {
         // Color the graph to indicate subsets, each of which
         // we can split into its own always block.
@@ -442,7 +432,7 @@ class SplitVisitor final : public VNVisitor {
         if (m_inDly && nodep->access().isWriteOrRW()) {
             UINFO(4, "     VARREFDLY: " << nodep);
             // Delayed variable is different from non-delayed variable
-            if (!vscp->user2p()) { vscp->user2p(new SplitVarPostVertex{m_graphp, vscp}); }
+            if (!vscp->user2p()) vscp->user2p(new SplitVarPostVertex{m_graphp, vscp});
             SplitVarPostVertex* const vpostp = vscp->user2u().to<SplitVarPostVertex*>();
             for (SplitStmtVertex* const vtxp : m_stmtStackps) {
                 new SplitLVEdge{m_graphp, vpostp, vtxp};
@@ -455,7 +445,13 @@ class SplitVisitor final : public VNVisitor {
             }
         } else {
             UINFO(4, "     VARREF:   " << nodep);
-            makeRvalueEdges(vstdp);
+            // Each 'if' depends on rvalues in its own conditional ONLY,
+            // not rvalues in the if/else bodies.
+            for (SplitStmtVertex* const vtxp : m_stmtStackps) {
+                const AstIf* const ifNodep = VN_CAST(vtxp->nodep(), If);
+                if (ifNodep && (m_curIfConditional != ifNodep)) continue;
+                new SplitRVEdge{m_graphp, vtxp, vstdp};
+            }
         }
     }
 
