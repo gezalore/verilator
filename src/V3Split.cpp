@@ -412,12 +412,12 @@ class SplitVisitor final : public VNVisitor {
 
         // Splice a new block per color in after the original, which must stay linked until
         // they are all in, as it is the iteration point until unlinked below.
-        for (uint32_t color = 0; color < numColors; ++color) {
-            if (!lists[color]) continue;
+        for (AstNode* const stmtsp : lists) {
+            if (!stmtsp) continue;  // This color has no statements
             // We don't need to clone nodep->sensesp() here, V3Activate already moved it to
             // a parent node.
             AstAlways* const newp
-                = new AstAlways{nodep->fileline(), VAlwaysKwd::ALWAYS, nullptr, lists[color]};
+                = new AstAlways{nodep->fileline(), VAlwaysKwd::ALWAYS, nullptr, stmtsp};
             newp->user4(1);  // Do not split again
             nodep->addNextHere(newp);
         }
