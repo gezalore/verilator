@@ -384,6 +384,7 @@ class SplitVisitor final : public VNVisitor {
         // and color regions that must be kept together.
         UINFO(5, "SplitVisitor @ " << nodep);
         const uint32_t numColors = colorAlwaysGraph();
+        if (numColors <= 1) return;  // The whole block is one component, nothing to split
 
         // How many colors have a statement in them, which is how many blocks we will emit.
         // Not every color does, e.g. a variable written by an NBA but never read forms a
