@@ -98,13 +98,13 @@ public:
         : SplitNodeVertex{graphp, nodep} {}
 };
 
-class SplitLogicVertex final : public SplitNodeVertex {
-    VL_RTTI_IMPL(SplitLogicVertex, SplitNodeVertex)
+class SplitStmtVertex final : public SplitNodeVertex {
+    VL_RTTI_IMPL(SplitStmtVertex, SplitNodeVertex)
 
     std::string dotColor() const override { return "yellow"; }
 
 public:
-    SplitLogicVertex(V3Graph* graphp, AstNode* nodep)
+    SplitStmtVertex(V3Graph* graphp, AstNode* nodep)
         : SplitNodeVertex{graphp, nodep} {}
 };
 
@@ -216,7 +216,7 @@ std::vector<AstNode*> splitStatements(AstNode* stmtsp, uint32_t numColors) {
         if (VN_IS(stmtp, Comment)) continue;
         // The vertex holding the color assigned by 'SplitVisitor::colorAlwaysGraph'. Null for
         // an 'if' that was removed there as having no dependencies at all.
-        const SplitLogicVertex* const vtxp = stmtp->user3u().to<SplitLogicVertex*>();
+        const SplitStmtVertex* const vtxp = stmtp->user3u().to<SplitStmtVertex*>();
         if (AstIf* const ifp = VN_CAST(stmtp, If)) {
             const auto thens = splitStatements(ifp->thensp(), numColors);
             const auto elses = splitStatements(ifp->elsesp(), numColors);
@@ -263,13 +263,13 @@ class SplitVisitor final : public VNVisitor {
     // NODE STATE - Only under AstAlways
     // AstVarScope::user1p  -> SplitVarStdVertex*.  Usage var, 0=not set yet
     // AstVarScope::user2p  -> SplitVarPostVertex*.  Delayed assignment var, 0=not set yet
-    // Ast*::user3p         -> SplitLogicVertex*.  Statement (temporary only)
+    // Ast*::user3p         -> SplitStmtVertex*.  Statement (temporary only)
 
     // STATE
     // Scoreboard of var usages/dependencies. Only set while under an AstAlways, so also
     // serves as the flag for whether the scoreboard and user attributes are available.
     V3Graph* m_graphp = nullptr;
-    std::vector<SplitLogicVertex*> m_stmtStackps;  // Current statements being tracked
+    std::vector<SplitStmtVertex*> m_stmtStackps;  // Current statements being tracked
     SplitImpureVertex* m_impureVtxp = nullptr;  // Element specifying impure statement order
     const char* m_noSplitWhy = nullptr;  // Reason we can't split
     bool m_inDly = false;  // Inside ASSIGNDLY
@@ -285,7 +285,7 @@ class SplitVisitor final : public VNVisitor {
             // component, and hence a split block, of their own. 'splitStatements' drops them.
             if (VN_IS(stmtp, Comment)) continue;
             UASSERT_OBJ(!stmtp->user3p(), stmtp, "user3p should not be set");
-            SplitLogicVertex* const vtxp = new SplitLogicVertex{m_graphp, stmtp};
+            SplitStmtVertex* const vtxp = new SplitStmtVertex{m_graphp, stmtp};
             stmtp->user3p(vtxp);
             m_stmtStackps.push_back(vtxp);
             iterate(stmtp);
@@ -296,7 +296,7 @@ class SplitVisitor final : public VNVisitor {
     void makeRvalueEdges(SplitVarStdVertex* vstdp) {
         // Each 'if' depends on rvalues in its own conditional ONLY,
         // not rvalues in the if/else bodies.
-        for (SplitLogicVertex* const vtxp : m_stmtStackps) {
+        for (SplitStmtVertex* const vtxp : m_stmtStackps) {
             const AstIf* const ifNodep = VN_CAST(vtxp->nodep(), If);
             if (ifNodep && (m_curIfConditional != ifNodep)) continue;
             new SplitRVEdge{m_graphp, vtxp, vstdp};
@@ -328,14 +328,14 @@ class SplitVisitor final : public VNVisitor {
         // For any 'if' node with no remaining out edges (meaning, its conditional expression
         // only looks at block inputs) remove all edges that depend on the 'if'.
         for (V3GraphVertex* const vtxp : m_graphp->vertices().unlinkable()) {
-            SplitLogicVertex* const logicp = vtxp->cast<SplitLogicVertex>();
-            if (!logicp) continue;
-            if (!VN_IS(logicp->nodep(), If)) continue;
+            SplitStmtVertex* const stmtVtxp = vtxp->cast<SplitStmtVertex>();
+            if (!stmtVtxp) continue;
+            if (!VN_IS(stmtVtxp->nodep(), If)) continue;
 
             // An out edge remains only for a dependency we could not remove - a variable
             // generated in the current block, or an impure statement under the 'if'
-            if (!logicp->outEmpty()) {
-                const V3GraphEdge* const edgep = logicp->outEdges().frontp();
+            if (!stmtVtxp->outEmpty()) {
+                const V3GraphEdge* const edgep = stmtVtxp->outEdges().frontp();
                 UINFOTREE(9, edgep->top()->as<SplitNodeVertex>()->nodep(),
                           "Cannot remove if-node due to edge " << edgep, "Edge points to node:");
                 continue;
@@ -344,8 +344,8 @@ class SplitVisitor final : public VNVisitor {
             // This 'if' can be split, so remove it, and with it the dependencies on it.
             // Clearing user3p also stops it forming a color, and hence an empty split
             // always block, of its own.
-            logicp->nodep()->user3p(nullptr);
-            logicp->unlinkDelete(m_graphp);
+            stmtVtxp->nodep()->user3p(nullptr);
+            stmtVtxp->unlinkDelete(m_graphp);
         }
 
         if (dumpGraphLevel() >= 9) m_graphp->dumpDotFilePrefixed("splitg_nodup", false);
@@ -483,13 +483,13 @@ class SplitVisitor final : public VNVisitor {
                 new SplitPostEdge{m_graphp, vstdp, vpostp};
             }
             SplitVarPostVertex* const vpostp = vscp->user2u().to<SplitVarPostVertex*>();
-            for (SplitLogicVertex* const vtxp : m_stmtStackps) {
+            for (SplitStmtVertex* const vtxp : m_stmtStackps) {
                 new SplitLVEdge{m_graphp, vpostp, vtxp};
             }
         } else if (nodep->access().isWriteOrRW()) {
             // Non-delay; need to maintain dataflow
             UINFO(4, "     VARREFLV: " << nodep);
-            for (SplitLogicVertex* const vtxp : m_stmtStackps) {
+            for (SplitStmtVertex* const vtxp : m_stmtStackps) {
                 new SplitLVEdge{m_graphp, vstdp, vtxp};
             }
         } else {
@@ -519,7 +519,7 @@ class SplitVisitor final : public VNVisitor {
             if (!m_impureVtxp) m_impureVtxp = new SplitImpureVertex{m_graphp, nodep};
             // One edge is enough to find the weakly connected components, but it must point at
             // the impure vertex, so it is an out edge of any enclosing 'if' to prevent pruning.
-            for (SplitLogicVertex* const vtxp : m_stmtStackps) {
+            for (SplitStmtVertex* const vtxp : m_stmtStackps) {
                 new SplitScorebdEdge{m_graphp, vtxp, m_impureVtxp};
             }
         }
