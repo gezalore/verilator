@@ -231,14 +231,18 @@ ColorLists splitStatements(AstNode* stmtsp, uint32_t numColors) {
                     = AstNode::addNext(result[color], cloneIf(ifp, thens[color], elses[color]));
             }
             if (!anyColor) {
-                // Nothing under the 'if'. If its vertex was removed as having no dependencies
-                // at all, then its condition reads only block inputs and is pure, so the whole
-                // 'if' can go. Otherwise keep it, under its own color, as the condition might
-                // have a side effect.
+                // Nothing under the 'if' to guard. If its vertex was removed as having no
+                // dependencies at all, then its condition reads only block inputs and is
+                // pure, so the whole 'if' can go. Otherwise the condition might have a side
+                // effect, so keep just the condition, evaluated as a statement, under the
+                // color of the 'if' itself. There is only this one 'if' to emit, so the
+                // condition can be taken rather than cloned.
                 if (ifp->user3p()) {
                     const uint32_t color = colorOf(ifp);
+                    AstNodeExpr* const condp = ifp->condp();
+                    condp->unlinkFrBack();
                     result[color]
-                        = AstNode::addNext(result[color], cloneIf(ifp, nullptr, nullptr));
+                        = AstNode::addNext(result[color], new AstStmtExpr{ifp->fileline(), condp});
                 }
             }
         } else if (!VN_IS(stmtp, Comment)) {
