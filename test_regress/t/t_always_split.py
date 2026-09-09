@@ -14,7 +14,7 @@ test.scenarios('simulator')
 test.compile(verilator_flags2=["--stats"])
 
 if test.vlt_all:
-    test.file_grep(test.stats, r'Optimizations, Split always\s+(\d+)', 4)
+    test.file_grep(test.stats, r'Optimizations, Split always\s+(\d+)', 5)
 
 test.execute()
 

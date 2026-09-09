@@ -55,6 +55,17 @@ module t (
     l_split_1 <= l_split_2 | m_din;
   end
 
+  reg [15:0] p_split_1, p_split_2;
+  always @(posedge clk) begin
+    // The 'if' condition reads only block inputs, so dependencies on the 'if' could be
+    // pruned, but the impure $write must stay grouped with the statements under the 'if'.
+    if (m_din != 16'h0) begin
+      $write("");
+      p_split_1 <= m_din;
+    end
+    p_split_2 <= ~m_din;
+  end
+
   // (The checker block is an exception, it won't split.)
   always @(posedge clk) begin
     if (cyc != 0) begin
@@ -70,18 +81,21 @@ module t (
         if (!(a_split_1 == 16'hfeed && a_split_2 == 16'hfeed)) $stop;
         if (!(d_split_1 == 16'h0112 && d_split_2 == 16'h0112)) $stop;
         if (!(h_split_1 == 16'hfeed && h_split_2 == 16'h0112)) $stop;
+        if (!(p_split_1 == 16'hfeed && p_split_2 == 16'h0112)) $stop;
       end
       if (cyc == 5) begin
         m_din <= 16'he22e;
         if (!(a_split_1 == 16'he11e && a_split_2 == 16'he11e)) $stop;
         if (!(d_split_1 == 16'h0112 && d_split_2 == 16'h0112)) $stop;
         if (!(h_split_1 == 16'hfeed && h_split_2 == 16'h0112)) $stop;
+        if (!(p_split_1 == 16'hfeed && p_split_2 == 16'h0112)) $stop;
       end
       if (cyc == 6) begin
         m_din <= 16'he33e;
         if (!(a_split_1 == 16'he22e && a_split_2 == 16'he22e)) $stop;
         if (!(d_split_1 == 16'h1ee1 && d_split_2 == 16'h0112)) $stop;
         if (!(h_split_1 == 16'he11e && h_split_2 == 16'h1ee1)) $stop;
+        if (!(p_split_1 == 16'he11e && p_split_2 == 16'h1ee1)) $stop;
       end
       if (cyc == 7) begin
         $write("*-* All Finished *-*\n");
