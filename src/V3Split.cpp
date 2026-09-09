@@ -194,197 +194,75 @@ public:
 };
 
 using ColorSet = std::unordered_set<uint32_t>;
-using AlwaysVec = std::vector<AstAlways*>;
 
-// Results of IfColorVisitor
-struct IfColors final {
-    ColorSet m_allColors;  // All colors in the original always block
-    // Map each if-statement to the set of colors (split blocks)
-    // that will get a copy of that if-statement
-    std::unordered_map<AstIf*, ColorSet> m_ifColors;
-};
+// For each color, the statement list to put into that color's split always block
+using ColorLists = std::unordered_map<uint32_t, AstNode*>;
 
-class IfColorVisitor final : public VNVisitorConst {
-    // MEMBERS
-    IfColors m_result;  // The computed colors
+// The color of a statement, as assigned by 'SplitVisitor::colorAlwaysGraph'
+uint32_t colorOf(const AstNode* nodep) { return nodep->user3u().to<SplitLogicVertex*>()->color(); }
 
-    std::vector<AstIf*> m_ifStack;  // Stack of nested if-statements we're currently processing
+// Clone 'ifp', with the given branches, which the caller has already built
+AstIf* cloneIf(const AstIf* ifp, AstNode* thensp, AstNode* elsesp) {
+    // The condition is checked for isPure earlier, but may still be a non-pure expression we
+    // are separating from other pure statements.
+    AstIf* const clonep
+        = new AstIf{ifp->fileline(), ifp->condp()->cloneTree(true), thensp, elsesp};
+    // Preserve pragmas from unique if's so assertions work properly
+    clonep->uniquePragma(ifp->uniquePragma());
+    clonep->unique0Pragma(ifp->unique0Pragma());
+    clonep->priorityPragma(ifp->priorityPragma());
+    return clonep;
+}
 
-    // METHODS
-    void trackNode(AstNode* nodep) {
-        if (nodep->user3p()) {
-            const SplitLogicVertex* const vertexp = nodep->user3u().to<SplitLogicVertex*>();
-            const uint32_t color = vertexp->color();
-            m_result.m_allColors.insert(color);
-            UINFO(8, "  SVL " << vertexp << " has color " << color);
-
-            // Record that all containing ifs have this color.
-            for (AstIf* const ifp : m_ifStack) m_result.m_ifColors[ifp].insert(color);
+// Take the statements of the given list, and return them distributed into one list per color.
+// Statements are moved, so the given list is left holding only what we do not split out. An
+// 'if' is rebuilt around its branches once those are known, so is created only for the colors
+// that have something under it, and no empty 'if' is ever constructed.
+ColorLists splitStatements(AstNode* stmtsp) {
+    ColorLists result;
+    for (AstNode* stmtp = stmtsp; stmtp;) {
+        AstNode* const nextp = stmtp->nextp();  // 'stmtp' is unlinked below
+        if (AstIf* const ifp = VN_CAST(stmtp, If)) {
+            ColorLists thens = splitStatements(ifp->thensp());
+            ColorLists elses = splitStatements(ifp->elsesp());
+            if (thens.empty() && elses.empty()) {
+                // Nothing under the 'if'. If its vertex was removed as having no dependencies
+                // at all, then its condition reads only block inputs and is pure, so the whole
+                // 'if' can go. Otherwise keep it, under its own color, as the condition might
+                // have a side effect.
+                if (ifp->user3p()) {
+                    const uint32_t color = colorOf(ifp);
+                    result[color]
+                        = AstNode::addNext(result[color], cloneIf(ifp, nullptr, nullptr));
+                }
+            } else {
+                // Rebuild the 'if' in each color present in either branch
+                for (const auto& pair : thens) {
+                    const uint32_t color = pair.first;
+                    AstNode* elsesp = nullptr;
+                    const auto it = elses.find(color);
+                    if (it != elses.end()) {
+                        elsesp = it->second;
+                        elses.erase(it);
+                    }
+                    result[color]
+                        = AstNode::addNext(result[color], cloneIf(ifp, pair.second, elsesp));
+                }
+                for (const auto& pair : elses) {  // Colors under the else branch only
+                    result[pair.first]
+                        = AstNode::addNext(result[pair.first], cloneIf(ifp, nullptr, pair.second));
+                }
+            }
+        } else if (!VN_IS(stmtp, Comment)) {
+            // Move the leaf into its color's list. Comments are dropped, see
+            // 'SplitVisitor::scanBlock'.
+            const uint32_t color = colorOf(stmtp);
+            result[color] = AstNode::addNext(result[color], stmtp->unlinkFrBack());
         }
+        stmtp = nextp;
     }
-
-    // VISITORS
-    void visit(AstIf* nodep) override {
-        m_ifStack.push_back(nodep);
-        trackNode(nodep);
-        iterateChildrenConst(nodep);
-        m_ifStack.pop_back();
-    }
-    void visit(AstNode* nodep) override {
-        trackNode(nodep);
-        iterateChildrenConst(nodep);
-    }
-
-    // CONSTRUCTORS
-    explicit IfColorVisitor(AstAlways* nodep) { iterateConst(nodep); }
-
-    VL_UNCOPYABLE(IfColorVisitor);
-
-public:
-    // Visit through *nodep and map each AstIf within to the set of
-    // colors it will participate in. Also find the whole set of colors.
-    static IfColors apply(AstAlways* nodep) {
-        IfColorVisitor visitor{nodep};
-        return std::move(visitor.m_result);
-    }
-};
-
-class EmitSplitVisitor final : public VNVisitor {
-    // MEMBERS
-    const AstAlways* const m_origAlwaysp;  // Block that *this will split
-    const IfColors& m_colors;  // Digest of results of prior coloring
-
-    // Map each color to our current place within the color's new always
-    std::unordered_map<uint32_t, AstNode*> m_addAfter;
-
-    AlwaysVec m_newBlocks;  // Split always blocks we have generated
-
-    // METHODS
-    AstSplitPlaceholder* makePlaceholderp() {
-        return new AstSplitPlaceholder{m_origAlwaysp->fileline()};
-    }
-
-    // VISITORS
-    void visit(AstComment* nodep) override {
-        // Dropped, see 'SplitVisitor::scanBlock'. Not worth duplicating into every split block.
-    }
-
-    void visit(AstNode* nodep) override {
-        // Anything that's not an if/else we assume is a leaf
-        // (that is, something we won't split.) Don't visit further
-        // into the leaf.
-        //
-        // A leaf might contain another if, for example a WHILE loop
-        // could contain an if. We can't split WHILE loops, so we
-        // won't split its nested if either. Just treat it as part
-        // of the leaf; do not visit further; do not reach visit(AstIf*)
-        // for such an embedded if.
-
-        // Each leaf must have a user3p
-        UASSERT_OBJ(nodep->user3p(), nodep, "null user3p in V3Split leaf");
-
-        // Move the leaf into its new always block. The original block is deleted by
-        // 'SplitVisitor::visit(AstAlways*)' once emitting is done, so we can take the
-        // statements rather than clone them.
-        const SplitLogicVertex* const vxp = nodep->user3u().to<SplitLogicVertex*>();
-        const uint32_t color = vxp->color();
-        AstNode* const movedp = nodep->unlinkFrBack();
-        m_addAfter[color]->addNextHere(movedp);
-        m_addAfter[color] = movedp;
-    }
-
-    void visit(AstIf* nodep) override {
-        const ColorSet& colors = m_colors.m_ifColors.at(nodep);
-        using CloneMap = std::unordered_map<uint32_t, AstIf*>;
-        CloneMap clones;
-
-        for (const unsigned int color : colors) {
-            // Clone this if into its set of split blocks
-            AstSplitPlaceholder* const if_placeholderp = makePlaceholderp();
-            AstSplitPlaceholder* const else_placeholderp = makePlaceholderp();
-            // We check for condition isPure earlier, but may still clone a
-            // non-pure to separate from other pure statements.
-            AstIf* const clonep = new AstIf{nodep->fileline(), nodep->condp()->cloneTree(true),
-                                            if_placeholderp, else_placeholderp};
-            // Preserve pragmas from unique if's so assertions work properly
-            clonep->uniquePragma(nodep->uniquePragma());
-            clonep->unique0Pragma(nodep->unique0Pragma());
-            clonep->priorityPragma(nodep->priorityPragma());
-            clones[color] = clonep;
-            m_addAfter[color]->addNextHere(clonep);
-            m_addAfter[color] = if_placeholderp;
-        }
-
-        iterateAndNextNull(nodep->thensp());
-
-        for (const auto& color : colors) m_addAfter[color] = clones[color]->elsesp();
-
-        iterateAndNextNull(nodep->elsesp());
-
-        for (const auto& color : colors) m_addAfter[color] = clones[color];
-    }
-
-    // CONSTRUCTORS
-    EmitSplitVisitor(AstAlways* nodep, const IfColors& ifColors)
-        : m_origAlwaysp{nodep}
-        , m_colors{ifColors} {
-        UINFO(6, "  splitting always " << nodep);
-
-        // Create a new always for each color
-        for (const unsigned int color : m_colors.m_allColors) {
-            // We don't need to clone m_origAlwaysp->sensesp() here;
-            // V3Activate already moved it to a parent node.
-            AstAlways* const alwaysp
-                = new AstAlways{m_origAlwaysp->fileline(), VAlwaysKwd::ALWAYS, nullptr, nullptr};
-            // Put a placeholder node into stmtp to track our position.
-            // We'll strip these out after the blocks are fully cloned.
-            AstSplitPlaceholder* const placeholderp = makePlaceholderp();
-            alwaysp->addStmtsp(placeholderp);
-            m_addAfter[color] = placeholderp;
-            m_newBlocks.push_back(alwaysp);
-        }
-        // Scan the body of the always. We'll handle if/else
-        // specially, everything else is a leaf node that we can
-        // just clone into one of the split always blocks.
-        iterateAndNextNull(m_origAlwaysp->stmtsp());
-    }
-
-    VL_UNCOPYABLE(EmitSplitVisitor);
-
-public:
-    // Visit through always block *nodep and return its split blocks
-    static AlwaysVec apply(AstAlways* nodep, const IfColors& ifColors) {
-        EmitSplitVisitor visitor{nodep, ifColors};
-        return std::move(visitor.m_newBlocks);
-    }
-};
-
-class RemovePlaceholdersVisitor final : public VNVisitor {
-    // MEMBERS
-    bool m_isPure = true;
-
-    // VISITORS
-    void visit(AstSplitPlaceholder* nodep) override { pushDeletep(nodep->unlinkFrBack()); }
-    void visit(AstIf* nodep) override {
-        VL_RESTORER(m_isPure);
-        m_isPure = true;
-        iterateChildren(nodep);
-        if (!nodep->thensp() && !nodep->elsesp() && m_isPure) pushDeletep(nodep->unlinkFrBack());
-    }
-    void visit(AstNode* nodep) override {
-        m_isPure &= nodep->isPure();
-        iterateChildren(nodep);  // must visit regardless of m_isPure to remove placeholders
-    }
-
-    // CONSTRUCTORS
-    RemovePlaceholdersVisitor() = default;
-
-    VL_UNCOPYABLE(RemovePlaceholdersVisitor);
-
-public:
-    // Remove the placeholders under always block *nodep
-    static void apply(AstAlways* nodep) { RemovePlaceholdersVisitor{}.iterate(nodep); }
-};
+    return result;
+}
 
 class SplitVisitor final : public VNVisitor {
     // NODE STATE
@@ -412,7 +290,7 @@ class SplitVisitor final : public VNVisitor {
         // Iterate across current block, making the scoreboard
         for (AstNode* stmtp = nodep; stmtp; stmtp = stmtp->nextp()) {
             // Skip comments. They have no dependencies at all, so would always form a
-            // component, and hence a split block, of their own. 'EmitSplitVisitor' drops them.
+            // component, and hence a split block, of their own. 'splitStatements' drops them.
             if (VN_IS(stmtp, Comment)) continue;
             UASSERT_OBJ(!stmtp->user3p(), stmtp, "user3p should not be set");
             SplitLogicVertex* const vtxp = new SplitLogicVertex{m_graphp, stmtp};
@@ -525,33 +403,39 @@ class SplitVisitor final : public VNVisitor {
         UINFO(5, "SplitVisitor @ " << nodep);
         colorAlwaysGraph();
 
-        // Map each AstIf to the set of colors (split always blocks)
-        // it must participate in. Also find the whole set of colors.
-        const IfColors ifColors = IfColorVisitor::apply(nodep);
-
-        if (ifColors.m_allColors.size() > 1) {
-            // Counting original always blocks rather than newly-split
-            // always blocks makes it a little easier to use this stat to
-            // check the result of the t_alw_split test:
-            m_statSplits += ifColors.m_allColors.size() - 1;  // -1 for the original always
-
-            // Visit through the original always block one more time, and emit the split
-            // always blocks, which takes all the statements out of the original.
-            const AlwaysVec newBlocks = EmitSplitVisitor::apply(nodep, ifColors);
-
-            // Splice the new blocks in after the original, which must stay linked until
-            // they are all in, as it is the iteration point until unlinked below.
-            for (AstAlways* const newp : newBlocks) {
-                newp->user4(1);  // Do not split again
-                nodep->addNextHere(newp);
-                RemovePlaceholdersVisitor::apply(newp);
+        // The set of colors, one split always block per color. The statement vertices are
+        // exactly the statements to emit, so their colors are the whole set.
+        ColorSet colors;
+        for (V3GraphVertex& vertex : m_graphp->vertices()) {
+            if (const SplitLogicVertex* const logicp = vertex.cast<SplitLogicVertex>()) {
+                colors.insert(logicp->color());
             }
-
-            // Unlinking moves the iteration point on to the new blocks, which are skipped
-            // above, so the now empty original can go.
-            nodep->unlinkFrBack();  // Without next
-            VL_DO_DANGLING(nodep->deleteTree(), nodep);
         }
+        if (colors.size() <= 1) return;  // Nothing to split
+
+        // Counting original always blocks rather than newly-split always blocks makes it a
+        // little easier to use this stat to check the result of the t_alw_split test:
+        m_statSplits += colors.size() - 1;  // -1 for the original always
+
+        // Take the statements out of the original block, into one list per color
+        UINFO(6, "  splitting always " << nodep);
+        const ColorLists lists = splitStatements(nodep->stmtsp());
+
+        // Splice a new block per color in after the original, which must stay linked until
+        // they are all in, as it is the iteration point until unlinked below.
+        for (const auto& pair : lists) {
+            // We don't need to clone nodep->sensesp() here, V3Activate already moved it to
+            // a parent node.
+            AstAlways* const newp
+                = new AstAlways{nodep->fileline(), VAlwaysKwd::ALWAYS, nullptr, pair.second};
+            newp->user4(1);  // Do not split again
+            nodep->addNextHere(newp);
+        }
+
+        // Unlinking moves the iteration point on to the new blocks, which are skipped
+        // above, so the now empty original can go.
+        nodep->unlinkFrBack();  // Without next
+        VL_DO_DANGLING(nodep->deleteTree(), nodep);
     }
 
     void visit(AstIf* nodep) override {
