@@ -137,31 +137,11 @@ class SplitEdge VL_NOT_FINAL : public V3GraphEdge {
 protected:
     SplitEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top)
         : V3GraphEdge{graphp, fromp, top, 1, CUTABLE} {}
-
-    virtual bool followScoreboard() const = 0;
-
-public:
-    // Iterator for graph functions
-    static bool followScoreboard(const V3GraphEdge* edgep) {
-        return edgep->as<SplitEdge>()->followScoreboard();
-    }
-};
-
-class SplitPostEdge final : public SplitEdge {
-    VL_RTTI_IMPL(SplitPostEdge, SplitEdge)
-
-    bool followScoreboard() const override { return false; }
-    std::string dotColor() const override { return "khaki"; }
-
-public:
-    SplitPostEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top)
-        : SplitEdge{graphp, fromp, top} {}
 };
 
 class SplitLVEdge final : public SplitEdge {
     VL_RTTI_IMPL(SplitLVEdge, SplitEdge)
 
-    bool followScoreboard() const override { return true; }
     std::string dotColor() const override { return "yellowGreen"; }
 
 public:
@@ -172,7 +152,6 @@ public:
 class SplitRVEdge final : public SplitEdge {
     VL_RTTI_IMPL(SplitRVEdge, SplitEdge)
 
-    bool followScoreboard() const override { return true; }
     std::string dotColor() const override { return "green"; }
 
 public:
@@ -183,24 +162,12 @@ public:
 class SplitScorebdEdge final : public SplitEdge {
     VL_RTTI_IMPL(SplitScorebdEdge, SplitEdge)
 
-    bool followScoreboard() const override { return true; }
     std::string dotColor() const override { return "blue"; }
 
 public:
     SplitScorebdEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top)
         : SplitEdge{graphp, fromp, top} {}
 };
-
-// True if no edge of the vertex will be followed by the coloring, so it connects nothing
-bool connectsNothing(const V3GraphVertex* vtxp) {
-    for (const V3GraphEdge& edge : vtxp->inEdges()) {
-        if (SplitEdge::followScoreboard(&edge)) return false;
-    }
-    for (const V3GraphEdge& edge : vtxp->outEdges()) {
-        if (SplitEdge::followScoreboard(&edge)) return false;
-    }
-    return true;
-}
 
 // Take the statements of the given list, and return them distributed into one list per color,
 // indexed by color, which V3Graph::weaklyConnected assigns densely. Statements are moved, so
@@ -316,10 +283,13 @@ class SplitVisitor final : public VNVisitor {
         for (V3GraphVertex* const vtxp : m_graphp->vertices().unlinkable()) {
             SplitVarStdVertex* const vstdp = vtxp->cast<SplitVarStdVertex>();
             if (!vstdp) continue;
-            // Also remove one that connects nothing the coloring will follow, as for a
-            // variable only written by an NBA and never read, whose post edge is not
-            // followed. It would otherwise form a component of its own, holding no statement.
-            if (!vstdp->outEmpty() && !connectsNothing(vstdp)) continue;
+            // A var vertex has an out edge only for a blocking write, and a post vertex only
+            // for an NBA write, so with neither the variable is never written in this block,
+            // and so is an input to it. Also remove one with no edges at all, as for a
+            // variable only written by an NBA and never read, which would otherwise form a
+            // component of its own, holding no statement.
+            const bool isInput = vstdp->outEmpty() && !vstdp->nodep()->user2p();
+            if (!isInput && !(vstdp->inEmpty() && vstdp->outEmpty())) continue;
             UINFOTREE(9, vstdp->nodep(), "", "Will remove deps on var:");
             vstdp->nodep()->user1p(nullptr);  // Don't leave a dangling pointer behind
             vstdp->unlinkDelete(m_graphp);
@@ -353,7 +323,7 @@ class SplitVisitor final : public VNVisitor {
         // Weak coloring to determine what needs to remain grouped
         // in a single always. This follows all edges excluding:
         //  - PostEdges, which are done later
-        const uint32_t numColors = m_graphp->weaklyConnected(&SplitEdge::followScoreboard);
+        const uint32_t numColors = m_graphp->weaklyConnected(&V3GraphEdge::followAlwaysTrue);
         if (dumpGraphLevel() >= 9) m_graphp->dumpDotFilePrefixed("splitg_colored", false);
         return numColors;
     }
@@ -477,11 +447,7 @@ class SplitVisitor final : public VNVisitor {
         if (m_inDly && nodep->access().isWriteOrRW()) {
             UINFO(4, "     VARREFDLY: " << nodep);
             // Delayed variable is different from non-delayed variable
-            if (!vscp->user2p()) {
-                SplitVarPostVertex* const vpostp = new SplitVarPostVertex{m_graphp, vscp};
-                vscp->user2p(vpostp);
-                new SplitPostEdge{m_graphp, vstdp, vpostp};
-            }
+            if (!vscp->user2p()) { vscp->user2p(new SplitVarPostVertex{m_graphp, vscp}); }
             SplitVarPostVertex* const vpostp = vscp->user2u().to<SplitVarPostVertex*>();
             for (SplitStmtVertex* const vtxp : m_stmtStackps) {
                 new SplitLVEdge{m_graphp, vpostp, vtxp};
