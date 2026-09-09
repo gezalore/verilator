@@ -267,6 +267,12 @@ class CleanVisitor final : public VNVisitor {
     }
 
     // Control flow operators
+    void visit(AstBlend* nodep) override {
+        // Bits of the condition mask above the width are irrelevant, as they are only ever
+        // combined with the corresponding bits of the branches
+        iterateChildren(nodep);
+        setClean(nodep, isClean(nodep->thenp()) && isClean(nodep->elsep()));
+    }
     void visit(AstCond* nodep) override {
         iterateChildren(nodep);
         ensureClean(nodep->condp());

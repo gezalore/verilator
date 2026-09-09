@@ -5310,6 +5310,44 @@ public:
 
 // === AstNodeTriop ===
 
+class AstBlend final : public AstNodeTriop {
+    // Branch-free bit-wise selection: '(thenp & condp) | (elsep & ~condp)'. 'condp' is the
+    // condition of the equivalent AstCond, replicated to the full width, that is: it is all
+    // ones, or all zeroes. Unlike AstCond, both branches are always evaluated, so they must
+    // be safe to evaluate unconditionally. This is faster than a conditional branch when the
+    // branches are cheap and the condition is hard to predict. Created by V3DfgPeephole.
+    // @astgen alias op1 := condp
+    // @astgen alias op2 := thenp
+    // @astgen alias op3 := elsep
+    // @astgen makeDfgVertex
+public:
+    AstBlend(FileLine* fl, AstNodeExpr* condp, AstNodeExpr* thenp, AstNodeExpr* elsep)
+        : ASTGEN_SUPER_Blend(fl, condp, thenp, elsep) {
+        UASSERT_OBJ(!thenp->isWide(), this, "AstBlend does not support wide values");
+        dtypeFrom(thenp);
+    }
+    ASTGEN_MEMBERS_AstBlend;
+    void numberOperate(V3Number& out, const V3Number& lhs, const V3Number& rhs,
+                       const V3Number& ths) override {
+        V3Number notCond{&out, out.width()};
+        notCond.opNot(lhs);
+        V3Number thenMasked{&out, out.width()};
+        thenMasked.opAnd(rhs, lhs);
+        V3Number elseMasked{&out, out.width()};
+        elseMasked.opAnd(ths, notCond);
+        out.opOr(thenMasked, elseMasked);
+    }
+    string emitVerilog() override { return "%k((%r %f& %l) %f| (%t %f& ~%l))"; }
+    string emitC() override { return "VL_BLEND_%nq(%li, %ri, %ti)"; }
+    bool cleanOut() const override { return false; }  // Clean if 'then' and 'else' are clean
+    bool cleanLhs() const override { return false; }  // Bits above the width are irrelevant
+    bool cleanRhs() const override { return false; }  // Propagates up
+    bool cleanThs() const override { return false; }  // Propagates up
+    bool sizeMattersLhs() const override { return false; }
+    bool sizeMattersRhs() const override { return false; }
+    bool sizeMattersThs() const override { return false; }
+    int instrCount() const override { return 3; }  // 2 ands and an or, no branch
+};
 class AstCond final : public AstNodeTriop {
     // @astgen alias op1 := condp
     // @astgen alias op2 := thenp

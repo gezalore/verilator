@@ -678,6 +678,15 @@ void DfgVertex::typeCheck(const DfgGraph& dfg) const {
         return;
     }
 
+    case VDfgType::Blend: {
+        const DfgBlend& v = *as<DfgBlend>();
+        CHECK(v.isPacked(), "Should be Packed type");
+        CHECK(v.condp()->dtype() == v.dtype(), "Condition should be same type");
+        CHECK(v.thenp()->dtype() == v.dtype(), "Then should be same type");
+        CHECK(v.elsep()->dtype() == v.dtype(), "Else should be same type");
+        return;
+    }
+
     case VDfgType::Cond: {
         const DfgCond& v = *as<DfgCond>();
         CHECK(v.isPacked(), "Should be Packed type");

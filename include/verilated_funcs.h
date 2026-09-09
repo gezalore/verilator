@@ -3469,6 +3469,17 @@ inline void VL_SELASSIGN_WW(int rbits, int obits, WDataOutP iowp, WDataInP const
 #define VL_COND_WIWW(obits, owp, cond, w1p, w2p) \
     VL_MEMCPY_W(owp, (cond) ? (w1p) : (w2p), VL_WORDS_I(obits))
 
+// Branch-free conditional. 'condv' is the condition replicated to the full width, that is:
+// it is all ones, or all zeroes. Both values are evaluated by the caller, which is cheaper
+// than a hard to predict branch, as long as computing the unused value is cheap. These are
+// functions (not macros), so 'condv' does not need a temporary at the call site.
+static VL_ATTR_ALWINLINE IData VL_BLEND_I(IData condv, IData thenv, IData elsev) VL_PURE {
+    return (thenv & condv) | (elsev & ~condv);
+}
+static VL_ATTR_ALWINLINE QData VL_BLEND_Q(QData condv, QData thenv, QData elsev) VL_PURE {
+    return (thenv & condv) | (elsev & ~condv);
+}
+
 //======================================================================
 // Constification
 

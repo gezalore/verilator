@@ -188,6 +188,15 @@ template <> void foldOp<DfgXor>        (V3Number& out, const V3Number& lhs, cons
 }
 // clang-format on
 
+// Maximum estimated cost, in fictional instructions, of the branches of a conditional for it
+// to be if-converted into a branch-free blend. See 'evalCost'.
+constexpr int MAX_BLEND_COST = 6;
+// Cost of an operation that is never worth evaluating speculatively
+constexpr int EXPENSIVE_COST = MAX_BLEND_COST + 1;
+// Maximum number of conditionals sharing a condition that are if-converted into blends.
+// Beyond this, a single branch amortized over all of them by V3MergeCond is cheaper.
+constexpr unsigned MAX_BLENDS_PER_CONDITION = 4;
+
 class V3DfgPeephole final : public DfgVisitor {
     // TYPES
     struct VertexInfo final {
@@ -210,6 +219,7 @@ class V3DfgPeephole final : public DfgVisitor {
     size_t m_currentGeneration = 0;  // Current generation number
     size_t m_lastId = 0;  // Last unique vertex ID assigned
     size_t m_nTemps = 0;  // Number of temporary variables created
+    bool m_blend = false;  // If-convert conditionals into blends (final iteration only)
     // Scope for transient temporariy variables cerated in this pass. They should all be
     // eliminated wihtin this pass, so anything should be ok, pick the top scope as easy to find.
     AstScope* const m_tmpScopep = v3Global.rootp()->topScopep()->scopep();
@@ -476,6 +486,66 @@ class V3DfgPeephole final : public DfgVisitor {
     static bool isEqOne(const DfgVertex* vtxp) {
         if (const DfgConst* const constp = vtxp->cast<DfgConst>()) return constp->num().isEqOne();
         return false;
+    }
+
+    // Is the given condition shared by more conditionals than it is worth if-converting?
+    // V3MergeCond can hoist a whole run of conditional assignments with the same condition
+    // under a single branch, which is cheaper than a blend for each of them.
+    static bool isSharedCondition(const DfgVertex* condp) {
+        unsigned n = 0;
+        return condp->foreachSink([&](const DfgVertex& sink) {  //
+            return sink.is<DfgCond>() && ++n > MAX_BLENDS_PER_CONDITION;
+        });
+    }
+
+    // Estimated cost, in fictional instructions, of the operation of the given vertex,
+    // ignoring the cost of computing its operands. See 'evalCost'.
+    static int opCost(const DfgVertex* vtxp) {
+        switch (vtxp->type()) {
+        case VDfgType::Mul:
+        case VDfgType::MulS: return 3;
+        // Expensive operations, or loops. Never worth evaluating these speculatively.
+        case VDfgType::CountOnes:
+        case VDfgType::Div:
+        case VDfgType::DivS:
+        case VDfgType::MatchMasked:
+        case VDfgType::ModDiv:
+        case VDfgType::ModDivS:
+        case VDfgType::OneHot:
+        case VDfgType::OneHot0:
+        case VDfgType::Pow:
+        case VDfgType::PowSS:
+        case VDfgType::PowSU:
+        case VDfgType::PowUS:
+        case VDfgType::StreamL:
+        case VDfgType::StreamR: return EXPENSIVE_COST;
+        default: return 1;
+        }
+    }
+
+    // Estimated cost, in fictional instructions, of computing the given vertex at the point
+    // where it is used. Vertices that are assigned to a variable (see V3DfgRegularize) are
+    // computed unconditionally anyway, so those only cost the load. Returns -1 if the vertex
+    // must not be computed speculatively, which is what if-conversion would do. The traversal
+    // gives up (returning a cost above 'budget') once the budget is exhausted.
+    static int evalCost(const DfgVertex* vtxp, int budget) {
+        // Reading a variable is a load
+        if (vtxp->is<DfgVertexVar>()) return 1;
+        // Constants are immediate operands
+        if (vtxp->is<DfgConst>()) return 0;
+        // Vertices with multiple sinks are assigned to a variable, unless they are cheaper to
+        // recompute, so those are computed unconditionally anyway, and only cost the load
+        if (vtxp->hasMultipleSinks() && !vtxp->isCheaperThanLoad()) return 1;
+        // Must not speculatively evaluate anything that might have a terminating side-effect
+        if (vtxp->unsafe()) return -1;
+        // Otherwise it is computed where it is used, so add the cost of the operands
+        int cost = opCost(vtxp);
+        for (size_t i = 0; cost <= budget && i < vtxp->nInputs(); ++i) {
+            const int srcCost = evalCost(vtxp->inputp(i), budget - cost);
+            if (srcCost < 0) return -1;
+            cost += srcCost;
+        }
+        return cost;
     }
 
     static bool areAdjacent(uint32_t& lsb, const DfgSel* lSelp, const DfgSel* rSelp) {
@@ -3120,6 +3190,24 @@ class V3DfgPeephole final : public DfgVisitor {
                 }
             }
         }
+
+        // If-convert into a branch-free blend, if both branches are cheap to compute. This
+        // trades computing the unused value for not having a branch, which is a win when the
+        // condition is hard to predict, as is common in simulation. This must be the last
+        // pattern, and is only applied once all others have been exhausted (see 'm_blend'),
+        // as a blend inhibits every other pattern matching a conditional.
+        if (m_blend && vtxp->width() <= VL_QUADSIZE && !isSharedCondition(condp)) {
+            const int thenCost = evalCost(thenp, MAX_BLEND_COST);
+            if (thenCost >= 0 && thenCost <= MAX_BLEND_COST) {
+                const int elseCost = evalCost(elsep, MAX_BLEND_COST - thenCost);
+                if (elseCost >= 0 && thenCost + elseCost <= MAX_BLEND_COST) {
+                    APPLYING(REPLACE_COND_WITH_BLEND) {
+                        replace(make<DfgBlend>(vtxp, replicate(vtxp, condp), thenp, elsep));
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     void visit(DfgVertexVar* const vtxp) override {
@@ -3156,34 +3244,9 @@ class V3DfgPeephole final : public DfgVisitor {
         }
     }
 
-    V3DfgPeephole(DfgGraph& dfg, V3DfgPeepholeContext& ctx)
-        : m_dfg{dfg}
-        , m_ctx{ctx} {
-
-        // Assign vertex IDs
-        m_dfg.forEachVertex([&](DfgVertex& vtx) { m_vInfo[vtx].m_id = ++m_lastId; });
-
-        // Add all operation vertices to the cache
-        for (DfgVertex& vtx : m_dfg.opVertices()) cacheVertex(&vtx);
-
-        // Initialize the work list and iter list. They can't get bigger than
-        // m_dfg.size(), but new vertices are created in the loop, so over alloacte
-        m_workList.reserve(m_dfg.size() * 2);
-        m_iterList.reserve(m_dfg.size() * 2);
-
-        // Need a nullptr at index 0 so VertexInfo::m_*ListIndex == 0 can check membership
-        m_workList.push_back(nullptr);
-        m_iterList.push_back(nullptr);
-
-        // Add all variable vertices to the work list. Do this first so they are processed
-        // last. This order has a better chance of preserving original variables in case
-        // they are needed to hold intermediate results.
-        for (DfgVertexVar& vtx : m_dfg.varVertices()) addToWorkList(&vtx);
-
-        // Add all operation vertices to the work list
-        for (DfgVertex& vtx : m_dfg.opVertices()) addToWorkList(&vtx);
-
-        // Process iteratively
+    // Process the work list, then the neighbourhood of everything that changed,
+    // until a fixed point is reached
+    void runToFixedPoint() {
         while (true) {
             // Process the work list - keep the placeholder at index 0
             while (m_workList.size() > 1) {
@@ -3258,6 +3321,46 @@ class V3DfgPeephole final : public DfgVisitor {
             // Reset the iter list
             m_iterList.resize(1);
         }
+    }
+
+    V3DfgPeephole(DfgGraph& dfg, V3DfgPeepholeContext& ctx)
+        : m_dfg{dfg}
+        , m_ctx{ctx} {
+
+        // Assign vertex IDs
+        m_dfg.forEachVertex([&](DfgVertex& vtx) { m_vInfo[vtx].m_id = ++m_lastId; });
+
+        // Add all operation vertices to the cache
+        for (DfgVertex& vtx : m_dfg.opVertices()) cacheVertex(&vtx);
+
+        // Initialize the work list and iter list. They can't get bigger than
+        // m_dfg.size(), but new vertices are created in the loop, so over alloacte
+        m_workList.reserve(m_dfg.size() * 2);
+        m_iterList.reserve(m_dfg.size() * 2);
+
+        // Need a nullptr at index 0 so VertexInfo::m_*ListIndex == 0 can check membership
+        m_workList.push_back(nullptr);
+        m_iterList.push_back(nullptr);
+
+        // Add all variable vertices to the work list. Do this first so they are processed
+        // last. This order has a better chance of preserving original variables in case
+        // they are needed to hold intermediate results.
+        for (DfgVertexVar& vtx : m_dfg.varVertices()) addToWorkList(&vtx);
+
+        // Add all operation vertices to the work list
+        for (DfgVertex& vtx : m_dfg.opVertices()) addToWorkList(&vtx);
+
+        // Run all patterns to a fixed point
+        runToFixedPoint();
+
+        // Finally if-convert conditionals into branch-free blends. This is done
+        // separately at the end, as a blend inhibits every other pattern matching a
+        // conditional, so we only want to consider it once nothing else applies.
+        m_blend = true;
+        for (DfgVertex& vtx : m_dfg.opVertices()) {
+            if (vtx.is<DfgCond>()) addToWorkList(&vtx);
+        }
+        runToFixedPoint();
     }
 
 #undef APPLYING

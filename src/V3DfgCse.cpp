@@ -94,6 +94,7 @@ private:
         case VDfgType::Add:
         case VDfgType::And:
         case VDfgType::ArraySel:
+        case VDfgType::Blend:
         case VDfgType::Concat:
         case VDfgType::Cond:
         case VDfgType::CountOnes:
@@ -246,6 +247,7 @@ private:
         case VDfgType::Add:
         case VDfgType::And:
         case VDfgType::ArraySel:
+        case VDfgType::Blend:
         case VDfgType::Concat:
         case VDfgType::Cond:
         case VDfgType::CountOnes:

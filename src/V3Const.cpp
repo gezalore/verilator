@@ -4375,6 +4375,7 @@ class ConstVisitor final : public VNVisitor {
     TREEOPC("AstAnd   {$lhsp.isOne, matchRedundantClean(nodep)}", "DONE")  // 1 & (a == b) -> (IData)(a == b)
     // Trinary ops
     // Note V3Case::Sel requires Cond to always be conditionally executed in C to prevent core dump!
+    TREEOPA("AstBlend{$condp.castConst, $thenp.castConst, $elsep.castConst}", "replaceConst(nodep)");
     TREEOP ("AstCond{$condp.isZero,       $thenp, $elsep}", "replaceWChild(nodep,$elsep)");
     TREEOP ("AstCond{$condp.isNeqZero,    $thenp, $elsep}", "replaceWChild(nodep,$thenp)");
     TREEOPA("AstCond{$condp.isZero,       $thenp.castConst, $elsep.castConst}", "replaceWChild(nodep,$elsep)");

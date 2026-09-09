@@ -237,6 +237,8 @@ module t (
   `signal(REPLACE_COND_WITH_ELSE_BRANCH_COND, rand_a[0] ? rand_a[1] : rand_a[0]);
   `signal(REPLACE_COND_WITH_ELSE_BRANCH_ZERO, rand_a[0] ? rand_a[1] : 1'd0);
   `signal(REPLACE_COND_WITH_ELSE_BRANCH_ONES, rand_a[0] ? rand_a[1] : 1'd1);
+  `signal(REPLACE_COND_WITH_BLEND, rand_a[0] ? rand_a[15:8] : rand_b[23:16]);
+  `signal(NO_REPLACE_COND_WITH_BLEND, rand_a[0] ? rand_a / rand_b : rand_b / rand_a);
   `signal(INLINE_ARRAYSEL_SPLICE, array[0]);
   `signal(NO_INLINE_ARRAYSEL_SPLICE_PARTIAL, array[2]);
   `signal(INLINE_ARRAYSEL_UNIT, unitArrayWhole[0]);
