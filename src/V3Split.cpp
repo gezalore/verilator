@@ -292,9 +292,16 @@ class SplitVisitor final : public VNVisitor {
         }
     }
 
-    void removeInputVars() {
-        // A var vertex with no out edges is never written in this block, so is an input to it.
-        // Remove those vertices, and with them the dependencies on them.
+    uint32_t colorAlwaysGraph() {
+        // Color the graph to indicate subsets, each of which
+        // we can split into its own always block.
+        m_graphp->removeRedundantEdgesMax(&V3GraphEdge::followAlwaysTrue);
+
+        // A var vertex with no out edges is never written in this block, so is an input to
+        // it. Remove those vertices, and with them the dependencies on them. Reasoning: if
+        // two statements both depend on input A, it's ok to split these statements. Whereas
+        // if they both depend on locally-generated variable B, the statements must be kept
+        // together.
         for (V3GraphVertex* const vtxp : m_graphp->vertices().unlinkable()) {
             if (!vtxp->outEmpty()) continue;
             SplitVarStdVertex* const vstdp = vtxp->cast<SplitVarStdVertex>();
@@ -303,18 +310,6 @@ class SplitVisitor final : public VNVisitor {
             vstdp->nodep()->user1p(nullptr);  // Don't leave a dangling pointer behind
             vstdp->unlinkDelete(m_graphp);
         }
-    }
-
-    uint32_t colorAlwaysGraph() {
-        // Color the graph to indicate subsets, each of which
-        // we can split into its own always block.
-        m_graphp->removeRedundantEdgesMax(&V3GraphEdge::followAlwaysTrue);
-
-        // Some vars are inputs to the always block; remove them. Reasoning: if two
-        // statements both depend on input A, it's ok to split these statements. Whereas
-        // if they both depend on locally-generated variable B, the statements must be
-        // kept together.
-        removeInputVars();
 
         // For any 'if' node with no remaining out edges (meaning, its conditional expression
         // only looks at block inputs) remove all edges that depend on the 'if'.
@@ -374,8 +369,8 @@ class SplitVisitor final : public VNVisitor {
         // Build the scoreboard
         scanBlock(nodep->stmtsp());
 
+        // We might have to give up
         if (m_noSplitWhy) {
-            // We saw a jump or something else rare that we don't handle.
             UINFO(9, "  NoSplitBlock because " << m_noSplitWhy);
             return;
         }
