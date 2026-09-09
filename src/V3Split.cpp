@@ -195,17 +195,20 @@ public:
 // Colors are dense, as assigned by V3Graph::weaklyConnected.
 using ColorLists = std::vector<AstNode*>;
 
-// The color of a statement, as assigned by 'SplitVisitor::colorAlwaysGraph'
-uint32_t colorOf(const AstNode* nodep) { return nodep->user3u().to<SplitLogicVertex*>()->color(); }
-
 // Take the statements of the given list, and return them distributed into one list per color.
 // Statements are moved, so the given list is left holding only what we do not split out. An
 // 'if' is rebuilt around its branches once those are known, so is created only for the colors
 // that have something under it, and no empty 'if' is ever constructed.
 ColorLists splitStatements(AstNode* stmtsp, uint32_t numColors) {
     ColorLists result{numColors, nullptr};
-    for (AstNode* stmtp = stmtsp; stmtp;) {
-        AstNode* const nextp = stmtp->nextp();  // 'stmtp' is unlinked below
+    AstNode* nextp = nullptr;
+    for (AstNode* stmtp = stmtsp; stmtp; stmtp = nextp) {
+        nextp = stmtp->nextp();  // 'stmtp' is unlinked below
+        // Comments are dropped, see 'SplitVisitor::scanBlock'
+        if (VN_IS(stmtp, Comment)) continue;
+        // The vertex holding the color assigned by 'SplitVisitor::colorAlwaysGraph'. Null for
+        // an 'if' that was removed there as having no dependencies at all.
+        const SplitLogicVertex* const vtxp = stmtp->user3u().to<SplitLogicVertex*>();
         if (AstIf* const ifp = VN_CAST(stmtp, If)) {
             const ColorLists thens = splitStatements(ifp->thensp(), numColors);
             const ColorLists elses = splitStatements(ifp->elsesp(), numColors);
@@ -229,20 +232,18 @@ ColorLists splitStatements(AstNode* stmtsp, uint32_t numColors) {
             // the whole 'if' can go. Otherwise the condition might have a side effect, so keep
             // just the condition, evaluated as a statement, under the color of the 'if' itself.
             // There is only this one 'if' to emit, so the condition can be taken, not cloned.
-            if (!anyColor && ifp->user3p()) {
-                const uint32_t color = colorOf(ifp);
+            if (!anyColor && vtxp) {
+                const uint32_t color = vtxp->color();
                 AstNodeExpr* const condp = ifp->condp();
                 condp->unlinkFrBack();
                 result[color]
                     = AstNode::addNext(result[color], new AstStmtExpr{ifp->fileline(), condp});
             }
-        } else if (!VN_IS(stmtp, Comment)) {
-            // Move the leaf into its color's list. Comments are dropped, see
-            // 'SplitVisitor::scanBlock'.
-            const uint32_t color = colorOf(stmtp);
+        } else {
+            // Move the leaf into its color's list
+            const uint32_t color = vtxp->color();
             result[color] = AstNode::addNext(result[color], stmtp->unlinkFrBack());
         }
-        stmtp = nextp;
     }
     return result;
 }
