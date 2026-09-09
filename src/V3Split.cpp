@@ -129,26 +129,6 @@ public:
         : SplitNodeVertex{graphp, vscp} {}
 };
 
-//######################################################################
-// Edge types
-
-// All edges are equivalent to the coloring, and are told apart only in the .dot dumps, by
-// the color they are constructed with
-constexpr const char* LV_EDGE = "yellowGreen";  // Variable to a statement writing it
-constexpr const char* RV_EDGE = "green";  // Statement to a variable it reads
-constexpr const char* IMPURE_EDGE = "blue";  // Impure statement to the impure vertex
-
-class SplitEdge final : public V3GraphEdge {
-    const char* const m_dotColor;  // How to render this edge in the .dot dumps
-
-    std::string dotColor() const override { return m_dotColor; }
-
-public:
-    SplitEdge(V3Graph* graphp, V3GraphVertex* fromp, V3GraphVertex* top, const char* dotColor)
-        : V3GraphEdge{graphp, fromp, top, 1, CUTABLE}
-        , m_dotColor{dotColor} {}
-};
-
 // Take the statements of the given list, and return them distributed into one list per color,
 // indexed by color, which V3Graph::weaklyConnected assigns densely. Statements are moved, so
 // the given list is left holding only what we do not split out. An 'if' is rebuilt around its
@@ -395,18 +375,10 @@ class SplitVisitor final : public VNVisitor {
         if (!m_graphp || m_noSplitWhy) return;
         UASSERT_OBJ(!m_stmtStackps.empty(), nodep, "Not under a statement");
 
-        AstVarScope* const vscp = nodep->varScopep();
-        UASSERT_OBJ(vscp, nodep, "Not linked");
-
         // Constant lookups can be ignored
         if (nodep->varp()->isConst()) return;
 
-        // Note it is safe to split an always block containing a public variable, as splitting
-        // does not perturb PLI's view of the variable.
-
-        // Create vertexes for variable
-        if (!vscp->user1p()) vscp->user1p(new SplitVarStdVertex{m_graphp, vscp});
-        SplitVarStdVertex* const vstdp = vscp->user1u().to<SplitVarStdVertex*>();
+        AstVarScope* const vscp = nodep->varScopep();
 
         // SPEEDUP: We add duplicate edges, that should be fixed
         if (m_inDly && nodep->access().isWriteOrRW()) {
@@ -415,22 +387,25 @@ class SplitVisitor final : public VNVisitor {
             if (!vscp->user2p()) vscp->user2p(new SplitVarPostVertex{m_graphp, vscp});
             SplitVarPostVertex* const vpostp = vscp->user2u().to<SplitVarPostVertex*>();
             for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-                new SplitEdge{m_graphp, vpostp, vtxp, LV_EDGE};
+                new V3GraphEdge{m_graphp, vpostp, vtxp, 1};
             }
         } else if (nodep->access().isWriteOrRW()) {
             // Non-delay; need to maintain dataflow
             UINFO(4, "     VARREFLV: " << nodep);
+            if (!vscp->user1p()) vscp->user1p(new SplitVarStdVertex{m_graphp, vscp});
+            SplitVarStdVertex* const vstdp = vscp->user1u().to<SplitVarStdVertex*>();
             for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-                new SplitEdge{m_graphp, vstdp, vtxp, LV_EDGE};
+                new V3GraphEdge{m_graphp, vstdp, vtxp, 1};
             }
         } else {
             UINFO(4, "     VARREF:   " << nodep);
+            if (!vscp->user1p()) vscp->user1p(new SplitVarStdVertex{m_graphp, vscp});
+            SplitVarStdVertex* const vstdp = vscp->user1u().to<SplitVarStdVertex*>();
             for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-                // Each 'if' depends on rvalues in its own conditional ONLY,
-                // not rvalues in the if/else bodies.
+                // Each 'if' depends on refs in its own condition ONLY, not refs in the branches
                 const AstIf* const ifNodep = VN_CAST(vtxp->nodep(), If);
                 if (ifNodep && (m_curIfConditional != ifNodep)) continue;
-                new SplitEdge{m_graphp, vtxp, vstdp, RV_EDGE};
+                new V3GraphEdge{m_graphp, vtxp, vstdp, 1};
             }
         }
     }
@@ -458,7 +433,7 @@ class SplitVisitor final : public VNVisitor {
             // One edge is enough to find the weakly connected components, but it must point at
             // the impure vertex, so it is an out edge of any enclosing 'if' to prevent pruning.
             for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-                new SplitEdge{m_graphp, vtxp, m_impureVtxp, IMPURE_EDGE};
+                new V3GraphEdge{m_graphp, vtxp, m_impureVtxp, 1};
             }
         }
 
