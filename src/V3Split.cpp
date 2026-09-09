@@ -324,25 +324,23 @@ class SplitVisitor final : public VNVisitor {
         UINFO(6, "  splitting always " << nodep);
         const auto lists = splitStatements(nodep->stmtsp(), numColors);
 
-        // Whatever 'splitStatements' did not take, the comments and the hollowed out 'if's,
-        // is not needed any more
+        // Whatever 'splitStatements' did not take,  is not needed any more
         if (AstNode* const restp = nodep->stmtsp()) {
-            restp->unlinkFrBackWithNext();
-            VL_DO_DANGLING(restp->deleteTree(), restp);
+            VL_DO_DANGLING(restp->unlinkFrBackWithNext()->deleteTree(), restp);
         }
 
-        // Every color has a statement in it, see 'colorAlwaysGraph'. Reuse the original
-        // block for the first color, and add a new block after it for each of the rest.
-        // Iteration continues with those, so mark them to not split again.
+        // Every color has a statement in it. Reuse the original block for the first color, and add
+        // a new block after it for each of the rest.
         UASSERT_OBJ(lists.front(), nodep, "Color with no statements");
         nodep->addStmtsp(lists.front());
         AstNode* lastp = nodep;
+        FileLine* const flp = nodep->fileline();
+        const VAlwaysKwd kwd = nodep->keyword();
         for (auto it = lists.begin() + 1; it != lists.end(); ++it) {
-            UASSERT_OBJ(*it, nodep, "Color with no statements");
-            // We don't need to clone nodep->sensesp() here, V3Activate already moved it to
-            // a parent node.
-            AstAlways* const newp
-                = new AstAlways{nodep->fileline(), VAlwaysKwd::ALWAYS, nullptr, *it};
+            AstNode* const stmtsp = *it;
+            UASSERT_OBJ(stmtsp, nodep, "Color with no statements");
+            // No need to clone nodep->sensesp(), V3Active already moved it to a parent node
+            AstAlways* const newp = new AstAlways{flp, kwd, nullptr, stmtsp};
             newp->user4(1);  // Do not split again
             lastp->addNextHere(newp);
             lastp = newp;
