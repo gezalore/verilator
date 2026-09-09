@@ -324,22 +324,29 @@ class SplitVisitor final : public VNVisitor {
         UINFO(6, "  splitting always " << nodep);
         const auto lists = splitStatements(nodep->stmtsp(), numColors);
 
-        // Splice a new block per color in after the original, which must stay linked until
-        // they are all in, as it is the iteration point until unlinked below.
-        for (AstNode* const stmtsp : lists) {
-            if (!stmtsp) continue;  // This color has no statements
+        // Whatever 'splitStatements' did not take, the comments and the hollowed out 'if's,
+        // is not needed any more
+        if (AstNode* const restp = nodep->stmtsp()) {
+            restp->unlinkFrBackWithNext();
+            VL_DO_DANGLING(restp->deleteTree(), restp);
+        }
+
+        // Every color has a statement in it, see 'colorAlwaysGraph'. Reuse the original
+        // block for the first color, and add a new block after it for each of the rest.
+        // Iteration continues with those, so mark them to not split again.
+        UASSERT_OBJ(lists.front(), nodep, "Color with no statements");
+        nodep->addStmtsp(lists.front());
+        AstNode* lastp = nodep;
+        for (auto it = lists.begin() + 1; it != lists.end(); ++it) {
+            UASSERT_OBJ(*it, nodep, "Color with no statements");
             // We don't need to clone nodep->sensesp() here, V3Activate already moved it to
             // a parent node.
             AstAlways* const newp
-                = new AstAlways{nodep->fileline(), VAlwaysKwd::ALWAYS, nullptr, stmtsp};
+                = new AstAlways{nodep->fileline(), VAlwaysKwd::ALWAYS, nullptr, *it};
             newp->user4(1);  // Do not split again
-            nodep->addNextHere(newp);
+            lastp->addNextHere(newp);
+            lastp = newp;
         }
-
-        // Unlinking moves the iteration point on to the new blocks, which are skipped
-        // above, so the now empty original can go.
-        nodep->unlinkFrBack();  // Without next
-        VL_DO_DANGLING(nodep->deleteTree(), nodep);
     }
 
     void visit(AstIf* nodep) override {
