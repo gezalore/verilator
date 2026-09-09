@@ -15,23 +15,9 @@
 //*************************************************************************
 // V3Split transformation:
 //
-//  splitAll() splits large always blocks into smaller always blocks
-//  when possible (but does not change the order of statements relative
-//  to one another.)
-//
-// The scoreboard tracks data deps as follows:
-//
-//      ALWAYS
-//              ASSIGN ({var} <= {cons})
-//              Record as generating var_DLY (independent of use of var), consumers
-//              ASSIGN ({var} = {cons}
-//              Record generator and consumer
-//      Any var that is only consumed can be ignored.
-//      Then we split into separate ALWAYS blocks.
-//
-// The scoreboard includes innards of if/else nodes also.  Splitting is no
-// longer limited to top-level statements, we can split within if-else
-// blocks. We want to be able to split this:
+//  splitAll() splits large always blocks into smaller always blocks when possible,
+//  without changing the order of statements relative to one another. Splitting is not
+//  limited to top-level statements, we can split within if-else blocks, so that:
 //
 //    always @ (...) begin
 //      if (reset) begin
@@ -46,10 +32,30 @@
 //      end
 //    end
 //
-// ...into a separate block for each of a, b, and so on.  Even though this
+// ...becomes a separate block for each of a, b, and so on.  Even though this
 // requires duplicating the conditional many times, it's usually
 // better. Later modules (V3Gate, V3Order) run faster if they aren't
 // handling enormous blocks with long lists of inputs and outputs.
+//
+// To find what must stay together, a graph is built per always block, holding a vertex
+// per statement, each 'if' included, and up to two vertices per variable. Statements in
+// the same connected component must stay in one block, and each component then becomes
+// a block of its own. The edges are:
+//
+//   - Blocking write: variable -> statement. Such a write is observable within the
+//     block, so the readers of the variable stay with the writer.
+//   - Non-blocking write: a separate 'post' vertex of the variable -> statement. All
+//     writers of a variable stay together, but the readers, which see the value from
+//     before the block, are not held together with them.
+//   - Read: statement -> variable. For an 'if', only the reads in its own condition
+//     count, not those in its branches.
+//   - Impure statement: statement -> a vertex shared by all of them, so that $display
+//     and such stay in one block, in order.
+//
+// A variable with no blocking write is an input to the block, so its vertex is removed,
+// and with it the dependencies on it, as two statements both reading an input need not
+// stay together. An 'if' left with no dependencies of its own is removed likewise, so
+// that the statements under it can separate, each taking a copy of the condition.
 //
 //*************************************************************************
 
@@ -271,9 +277,7 @@ class SplitVisitor final : public VNVisitor {
 
         if (dumpGraphLevel() >= 9) m_graphp->dumpDotFilePrefixed("splitg_nodup", false);
 
-        // Weak coloring to determine what needs to remain grouped
-        // in a single always. This follows all edges excluding:
-        //  - PostEdges, which are done later
+        // Weak coloring to determine what must remain grouped in a single always block
         const uint32_t numColors = m_graphp->weaklyConnected(&V3GraphEdge::followAlwaysTrue);
         if (dumpGraphLevel() >= 9) m_graphp->dumpDotFilePrefixed("splitg_colored", false);
         return numColors;
@@ -294,7 +298,7 @@ class SplitVisitor final : public VNVisitor {
         m_impureVtxp = nullptr;
         m_noSplitWhy = nullptr;
         m_inDly = false;
-        m_stmtStackps.clear();
+        UASSERT_OBJ(m_stmtStackps.empty(), nodep, "Statement stack not empty");
 
         // Build the scoreboard
         const VNUser1InUse user1InUse;
