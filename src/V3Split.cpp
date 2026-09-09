@@ -247,8 +247,12 @@ class SplitVisitor final : public VNVisitor {
             VL_DO_DANGLING(vstdp->unlinkDelete(m_graphp), vstdp);
         }
 
-        // For any 'if' node with no remaining out edges (meaning, its conditional expression
-        // only reads block inputs) remove all edges that depend on the 'if'.
+        // A statement under an 'if' also has an edge to the 'if' itself, from each variable
+        // it writes, so an 'if' holds its whole body together. An 'if' has out edges only for
+        // what its own condition reads, so with none of those left it constrains nothing.
+        // Remove it then, so its contents can split apart, each part taking a copy of the
+        // condition. This is what allows splitting within an if/else at all, and is what
+        // breaks up the reset tree in the example at the top of this file.
         for (V3GraphVertex* const vtxp : m_graphp->vertices().unlinkable()) {
             SplitStmtVertex* const stmtVtxp = vtxp->cast<SplitStmtVertex>();
             if (!stmtVtxp || !VN_IS(stmtVtxp->nodep(), If)) continue;
