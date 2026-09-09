@@ -233,31 +233,25 @@ class SplitVisitor final : public VNVisitor {
     }
 
     uint32_t colorAlwaysGraph() {
-        // Color the graph to indicate subsets, each of which
-        // we can split into its own always block.
-        m_graphp->removeRedundantEdgesMax(&V3GraphEdge::followAlwaysTrue);
+        if (dumpGraphLevel() >= 9) m_graphp->dumpDotFilePrefixed("splitg_built", false);
 
+        m_graphp->removeRedundantEdgesMax(&V3GraphEdge::followAlwaysTrue);
+        if (dumpGraphLevel() >= 9) m_graphp->dumpDotFilePrefixed("splitg_nodup", false);
+
+        // Remove variable vertices that are not written in the block
         for (V3GraphVertex* const vtxp : m_graphp->vertices().unlinkable()) {
             SplitVarStdVertex* const vstdp = vtxp->cast<SplitVarStdVertex>();
-            if (!vstdp) continue;
-            // A var vertex has an out edge only for a blocking write, which is the only kind
-            // of write observable within the block, as an NBA takes effect only after it. So
-            // with no out edge the variable is an input to the block, whoever writes it.
-            // Remove it, together with the dependencies on it. Reasoning: if two statements
-            // both depend on input A, it's ok to split these statements. Whereas if they both
-            // depend on locally-generated variable B, they must be kept together.
-            if (!vstdp->outEmpty()) continue;
-            UINFOTREE(9, vstdp->nodep(), "", "Will remove deps on var:");
+            if (!vstdp || !vstdp->outEmpty()) continue;
+            UINFOTREE(9, vstdp->nodep(), "", "Will remove deps on block input var:");
             vstdp->nodep()->user1p(nullptr);  // Don't leave a dangling pointer behind
-            vstdp->unlinkDelete(m_graphp);
+            VL_DO_DANGLING(vstdp->unlinkDelete(m_graphp), vstdp);
         }
 
         // For any 'if' node with no remaining out edges (meaning, its conditional expression
-        // only looks at block inputs) remove all edges that depend on the 'if'.
+        // only reads block inputs) remove all edges that depend on the 'if'.
         for (V3GraphVertex* const vtxp : m_graphp->vertices().unlinkable()) {
             SplitStmtVertex* const stmtVtxp = vtxp->cast<SplitStmtVertex>();
-            if (!stmtVtxp) continue;
-            if (!VN_IS(stmtVtxp->nodep(), If)) continue;
+            if (!stmtVtxp || !VN_IS(stmtVtxp->nodep(), If)) continue;
 
             // An out edge remains only for a dependency we could not remove - a variable
             // generated in the current block, or an impure statement under the 'if'
@@ -274,8 +268,6 @@ class SplitVisitor final : public VNVisitor {
             stmtVtxp->nodep()->user3p(nullptr);
             stmtVtxp->unlinkDelete(m_graphp);
         }
-
-        if (dumpGraphLevel() >= 9) m_graphp->dumpDotFilePrefixed("splitg_nodup", false);
 
         // Weak coloring to determine what must remain grouped in a single always block
         const uint32_t numColors = m_graphp->weaklyConnected(&V3GraphEdge::followAlwaysTrue);
