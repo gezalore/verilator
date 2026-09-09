@@ -198,19 +198,6 @@ using ColorLists = std::vector<AstNode*>;
 // The color of a statement, as assigned by 'SplitVisitor::colorAlwaysGraph'
 uint32_t colorOf(const AstNode* nodep) { return nodep->user3u().to<SplitLogicVertex*>()->color(); }
 
-// Clone 'ifp', with the given branches, which the caller has already built
-AstIf* cloneIf(const AstIf* ifp, AstNode* thensp, AstNode* elsesp) {
-    // The condition is checked for isPure earlier, but may still be a non-pure expression we
-    // are separating from other pure statements.
-    AstIf* const clonep
-        = new AstIf{ifp->fileline(), ifp->condp()->cloneTree(true), thensp, elsesp};
-    // Preserve pragmas from unique if's so assertions work properly
-    clonep->uniquePragma(ifp->uniquePragma());
-    clonep->unique0Pragma(ifp->unique0Pragma());
-    clonep->priorityPragma(ifp->priorityPragma());
-    return clonep;
-}
-
 // Take the statements of the given list, and return them distributed into one list per color.
 // Statements are moved, so the given list is left holding only what we do not split out. An
 // 'if' is rebuilt around its branches once those are known, so is created only for the colors
@@ -227,8 +214,15 @@ ColorLists splitStatements(AstNode* stmtsp, uint32_t numColors) {
             for (uint32_t color = 0; color < numColors; ++color) {
                 if (!thens[color] && !elses[color]) continue;
                 anyColor = true;
-                result[color]
-                    = AstNode::addNext(result[color], cloneIf(ifp, thens[color], elses[color]));
+                // The condition is checked for isPure earlier, but may still be a non-pure
+                // expression we are separating from other pure statements.
+                AstIf* const clonep = new AstIf{ifp->fileline(), ifp->condp()->cloneTree(true),
+                                                thens[color], elses[color]};
+                // Preserve pragmas from unique if's so assertions work properly
+                clonep->uniquePragma(ifp->uniquePragma());
+                clonep->unique0Pragma(ifp->unique0Pragma());
+                clonep->priorityPragma(ifp->priorityPragma());
+                result[color] = AstNode::addNext(result[color], clonep);
             }
             // Nothing under the 'if' to guard. If its vertex was removed as having no
             // dependencies at all, then its condition reads only block inputs and is pure, so
