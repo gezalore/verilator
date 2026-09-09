@@ -204,6 +204,12 @@ class SplitVisitor final : public VNVisitor {
     VDouble0 m_statSplits;  // Statistic tracking
 
     // METHODS
+    // All edges are equivalent to the coloring, and the weight is irrelevant, it only has to
+    // be non zero for the edge to show up in the .dot dumps
+    void addEdge(V3GraphVertex* fromp, V3GraphVertex* top) {
+        new V3GraphEdge{m_graphp, fromp, top, 1};
+    }
+
     void scanBlock(AstNode* nodep) {
         if (m_noSplitWhy) return;
         // Iterate across current block, making the scoreboard
@@ -386,17 +392,13 @@ class SplitVisitor final : public VNVisitor {
             // Delayed variable is different from non-delayed variable
             if (!vscp->user2p()) vscp->user2p(new SplitVarPostVertex{m_graphp, vscp});
             SplitVarPostVertex* const vpostp = vscp->user2u().to<SplitVarPostVertex*>();
-            for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-                new V3GraphEdge{m_graphp, vpostp, vtxp, 1};
-            }
+            for (SplitStmtVertex* const vtxp : m_stmtStackps) addEdge(vpostp, vtxp);
         } else if (nodep->access().isWriteOrRW()) {
             // Non-delay; need to maintain dataflow
             UINFO(4, "     VARREFLV: " << nodep);
             if (!vscp->user1p()) vscp->user1p(new SplitVarStdVertex{m_graphp, vscp});
             SplitVarStdVertex* const vstdp = vscp->user1u().to<SplitVarStdVertex*>();
-            for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-                new V3GraphEdge{m_graphp, vstdp, vtxp, 1};
-            }
+            for (SplitStmtVertex* const vtxp : m_stmtStackps) addEdge(vstdp, vtxp);
         } else {
             UINFO(4, "     VARREF:   " << nodep);
             if (!vscp->user1p()) vscp->user1p(new SplitVarStdVertex{m_graphp, vscp});
@@ -405,7 +407,7 @@ class SplitVisitor final : public VNVisitor {
                 // Each 'if' depends on refs in its own condition ONLY, not refs in the branches
                 const AstIf* const ifNodep = VN_CAST(vtxp->nodep(), If);
                 if (ifNodep && (m_curIfConditional != ifNodep)) continue;
-                new V3GraphEdge{m_graphp, vtxp, vstdp, 1};
+                addEdge(vtxp, vstdp);
             }
         }
     }
@@ -432,9 +434,7 @@ class SplitVisitor final : public VNVisitor {
             if (!m_impureVtxp) m_impureVtxp = new SplitImpureVertex{m_graphp, nodep};
             // One edge is enough to find the weakly connected components, but it must point at
             // the impure vertex, so it is an out edge of any enclosing 'if' to prevent pruning.
-            for (SplitStmtVertex* const vtxp : m_stmtStackps) {
-                new V3GraphEdge{m_graphp, vtxp, m_impureVtxp, 1};
-            }
+            for (SplitStmtVertex* const vtxp : m_stmtStackps) addEdge(vtxp, m_impureVtxp);
         }
 
         iterateChildren(nodep);
