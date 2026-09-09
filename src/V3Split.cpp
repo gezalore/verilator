@@ -275,21 +275,16 @@ class SplitVisitor final : public VNVisitor {
         // we can split into its own always block.
         m_graphp->removeRedundantEdgesMax(&V3GraphEdge::followAlwaysTrue);
 
-        // A var vertex with no out edges is never written in this block, so is an input to
-        // it. Remove those vertices, and with them the dependencies on them. Reasoning: if
-        // two statements both depend on input A, it's ok to split these statements. Whereas
-        // if they both depend on locally-generated variable B, the statements must be kept
-        // together.
         for (V3GraphVertex* const vtxp : m_graphp->vertices().unlinkable()) {
             SplitVarStdVertex* const vstdp = vtxp->cast<SplitVarStdVertex>();
             if (!vstdp) continue;
-            // A var vertex has an out edge only for a blocking write, and a post vertex only
-            // for an NBA write, so with neither the variable is never written in this block,
-            // and so is an input to it. Also remove one with no edges at all, as for a
-            // variable only written by an NBA and never read, which would otherwise form a
-            // component of its own, holding no statement.
-            const bool isInput = vstdp->outEmpty() && !vstdp->nodep()->user2p();
-            if (!isInput && !(vstdp->inEmpty() && vstdp->outEmpty())) continue;
+            // A var vertex has an out edge only for a blocking write, which is the only kind
+            // of write observable within the block, as an NBA takes effect only after it. So
+            // with no out edge the variable is an input to the block, whoever writes it.
+            // Remove it, together with the dependencies on it. Reasoning: if two statements
+            // both depend on input A, it's ok to split these statements. Whereas if they both
+            // depend on locally-generated variable B, they must be kept together.
+            if (!vstdp->outEmpty()) continue;
             UINFOTREE(9, vstdp->nodep(), "", "Will remove deps on var:");
             vstdp->nodep()->user1p(nullptr);  // Don't leave a dangling pointer behind
             vstdp->unlinkDelete(m_graphp);

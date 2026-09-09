@@ -14,7 +14,7 @@ test.scenarios('simulator')
 test.compile(verilator_flags2=["--stats", test.wno_unopthreads_for_few_cores])
 
 if test.vlt_all:
-    test.file_grep(test.stats, r'Optimizations, Split always\s+(\d+)', 12)
+    test.file_grep(test.stats, r'Optimizations, Split always\s+(\d+)', 13)
 
 test.execute()
 

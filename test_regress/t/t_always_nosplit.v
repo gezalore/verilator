@@ -8,8 +8,8 @@ module t (
     input clk
 );
 
-  integer cyc;
-  initial cyc = 1;
+  integer cyc = 1;
+  always @(posedge clk) cyc <= cyc + 1;
 
   reg [15:0] m_din;
 
@@ -102,9 +102,6 @@ module t (
   end  // always @ (posedge clk)
 
   always @(posedge clk) begin
-    if (cyc != 0) begin
-      cyc <= cyc + 1;
-    end
     if (cyc == 1) begin
       m_din <= 16'hfeed;
     end
