@@ -61,8 +61,6 @@
 #include "V3Stats.h"
 
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 VL_DEFINE_DEBUG_FUNCTIONS;
@@ -193,10 +191,9 @@ public:
         : SplitEdge{graphp, fromp, top} {}
 };
 
-using ColorSet = std::unordered_set<uint32_t>;
-
-// For each color, the statement list to put into that color's split always block
-using ColorLists = std::unordered_map<uint32_t, AstNode*>;
+// The statement list to put into each color's split always block, indexed by color.
+// Colors are dense, as assigned by V3Graph::weaklyConnected.
+using ColorLists = std::vector<AstNode*>;
 
 // The color of a statement, as assigned by 'SplitVisitor::colorAlwaysGraph'
 uint32_t colorOf(const AstNode* nodep) { return nodep->user3u().to<SplitLogicVertex*>()->color(); }
@@ -218,14 +215,22 @@ AstIf* cloneIf(const AstIf* ifp, AstNode* thensp, AstNode* elsesp) {
 // Statements are moved, so the given list is left holding only what we do not split out. An
 // 'if' is rebuilt around its branches once those are known, so is created only for the colors
 // that have something under it, and no empty 'if' is ever constructed.
-ColorLists splitStatements(AstNode* stmtsp) {
-    ColorLists result;
+ColorLists splitStatements(AstNode* stmtsp, uint32_t numColors) {
+    ColorLists result{numColors, nullptr};
     for (AstNode* stmtp = stmtsp; stmtp;) {
         AstNode* const nextp = stmtp->nextp();  // 'stmtp' is unlinked below
         if (AstIf* const ifp = VN_CAST(stmtp, If)) {
-            ColorLists thens = splitStatements(ifp->thensp());
-            ColorLists elses = splitStatements(ifp->elsesp());
-            if (thens.empty() && elses.empty()) {
+            const ColorLists thens = splitStatements(ifp->thensp(), numColors);
+            const ColorLists elses = splitStatements(ifp->elsesp(), numColors);
+            // Rebuild the 'if' in each color present in either branch
+            bool anyColor = false;
+            for (uint32_t color = 0; color < numColors; ++color) {
+                if (!thens[color] && !elses[color]) continue;
+                anyColor = true;
+                result[color]
+                    = AstNode::addNext(result[color], cloneIf(ifp, thens[color], elses[color]));
+            }
+            if (!anyColor) {
                 // Nothing under the 'if'. If its vertex was removed as having no dependencies
                 // at all, then its condition reads only block inputs and is pure, so the whole
                 // 'if' can go. Otherwise keep it, under its own color, as the condition might
@@ -234,23 +239,6 @@ ColorLists splitStatements(AstNode* stmtsp) {
                     const uint32_t color = colorOf(ifp);
                     result[color]
                         = AstNode::addNext(result[color], cloneIf(ifp, nullptr, nullptr));
-                }
-            } else {
-                // Rebuild the 'if' in each color present in either branch
-                for (const auto& pair : thens) {
-                    const uint32_t color = pair.first;
-                    AstNode* elsesp = nullptr;
-                    const auto it = elses.find(color);
-                    if (it != elses.end()) {
-                        elsesp = it->second;
-                        elses.erase(it);
-                    }
-                    result[color]
-                        = AstNode::addNext(result[color], cloneIf(ifp, pair.second, elsesp));
-                }
-                for (const auto& pair : elses) {  // Colors under the else branch only
-                    result[pair.first]
-                        = AstNode::addNext(result[pair.first], cloneIf(ifp, nullptr, pair.second));
                 }
             }
         } else if (!VN_IS(stmtp, Comment)) {
@@ -324,7 +312,7 @@ class SplitVisitor final : public VNVisitor {
         }
     }
 
-    void colorAlwaysGraph() {
+    uint32_t colorAlwaysGraph() {
         // Color the graph to indicate subsets, each of which
         // we can split into its own always block.
         m_graphp->removeRedundantEdgesMax(&V3GraphEdge::followAlwaysTrue);
@@ -363,8 +351,9 @@ class SplitVisitor final : public VNVisitor {
         // Weak coloring to determine what needs to remain grouped
         // in a single always. This follows all edges excluding:
         //  - PostEdges, which are done later
-        m_graphp->weaklyConnected(&SplitEdge::followScoreboard);
+        const uint32_t numColors = m_graphp->weaklyConnected(&SplitEdge::followScoreboard);
         if (dumpGraphLevel() >= 9) m_graphp->dumpDotFilePrefixed("splitg_colored", false);
+        return numColors;
     }
 
     // VISITORS
@@ -401,33 +390,39 @@ class SplitVisitor final : public VNVisitor {
         // Look across the entire tree of if/else blocks in the always,
         // and color regions that must be kept together.
         UINFO(5, "SplitVisitor @ " << nodep);
-        colorAlwaysGraph();
+        const uint32_t numColors = colorAlwaysGraph();
 
-        // The set of colors, one split always block per color. The statement vertices are
-        // exactly the statements to emit, so their colors are the whole set.
-        ColorSet colors;
+        // How many colors have a statement in them, which is how many blocks we will emit.
+        // Not every color does, e.g. a variable written by an NBA but never read forms a
+        // component holding only its own vertices.
+        std::vector<bool> hasStatement(numColors, false);
+        uint32_t numBlocks = 0;
         for (V3GraphVertex& vertex : m_graphp->vertices()) {
             if (const SplitLogicVertex* const logicp = vertex.cast<SplitLogicVertex>()) {
-                colors.insert(logicp->color());
+                if (!hasStatement[logicp->color()]) {
+                    hasStatement[logicp->color()] = true;
+                    ++numBlocks;
+                }
             }
         }
-        if (colors.size() <= 1) return;  // Nothing to split
+        if (numBlocks <= 1) return;  // Nothing to split
 
         // Counting original always blocks rather than newly-split always blocks makes it a
         // little easier to use this stat to check the result of the t_alw_split test:
-        m_statSplits += colors.size() - 1;  // -1 for the original always
+        m_statSplits += numBlocks - 1;  // -1 for the original always
 
         // Take the statements out of the original block, into one list per color
         UINFO(6, "  splitting always " << nodep);
-        const ColorLists lists = splitStatements(nodep->stmtsp());
+        const ColorLists lists = splitStatements(nodep->stmtsp(), numColors);
 
         // Splice a new block per color in after the original, which must stay linked until
         // they are all in, as it is the iteration point until unlinked below.
-        for (const auto& pair : lists) {
+        for (uint32_t color = 0; color < numColors; ++color) {
+            if (!lists[color]) continue;
             // We don't need to clone nodep->sensesp() here, V3Activate already moved it to
             // a parent node.
             AstAlways* const newp
-                = new AstAlways{nodep->fileline(), VAlwaysKwd::ALWAYS, nullptr, pair.second};
+                = new AstAlways{nodep->fileline(), VAlwaysKwd::ALWAYS, nullptr, lists[color]};
             newp->user4(1);  // Do not split again
             nodep->addNextHere(newp);
         }
