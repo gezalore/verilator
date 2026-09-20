@@ -65,6 +65,7 @@ set(HEADERS
     V3ClassGraph.h
     V3Clean.h
     V3Clock.h
+    V3Coalesce.h
     V3Combine.h
     V3Common.h
     V3Const.h
@@ -235,6 +236,7 @@ set(COMMON_SOURCES
     V3ClassGraph.cpp
     V3Clean.cpp
     V3Clock.cpp
+    V3Coalesce.cpp
     V3Combine.cpp
     V3Common.cpp
     V3Control.cpp

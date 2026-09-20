@@ -33,6 +33,7 @@
 #include "V3Class.h"
 #include "V3Clean.h"
 #include "V3Clock.h"
+#include "V3Coalesce.h"
 #include "V3Combine.h"
 #include "V3Common.h"
 #include "V3Const.h"
@@ -365,6 +366,9 @@ static void process() {
             // detect into local graph state, then lower that completed state
             // into the concrete coverage machinery.
             if (v3Global.opt.coverageFsm()) V3FsmDetect::detect(v3Global.rootp());
+
+            // Coalesce variables that are always the same
+            if (v3Global.opt.fCoalesce()) V3Coalesce::coalesceAll(v3Global.rootp());
 
             // Relocate classes (after linkDot)
             V3Class::classAll(v3Global.rootp());
