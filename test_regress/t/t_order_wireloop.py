@@ -18,7 +18,7 @@ test.compile(fails=test.vlt_all, verilator_flags2=["-fno-dfg"])
 # Can't use expect_filename here as unstable output
 test.file_grep(
     test.compile_log_filename,
-    r"%Warning-UNOPTFLAT: t/t_order_wireloop.v:\d+:\d+: Signal unoptimizable: Circular combinational logic: \'t.foo\'"
+    r"%Warning-UNOPTFLAT: t/t_order_wireloop.v:\d+:\d+: Signal unoptimizable: Circular combinational logic: \'bar\'"
 )
 
 test.passes()
