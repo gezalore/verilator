@@ -22,14 +22,11 @@
 // acyclic.  See the internals documentation for more details.
 //
 // To achieve this we build a dependency graph of all combinational logic in
-// the design, and then breaks all combinational cycles by converting all
-// combinational logic that consumes a variable driven via a 'back-edge' into
-// hybrid logic. Here back-edge' just means a graph edge that points from a
-// higher rank vertex to a lower rank vertex in some consistent ranking of
-// the directed graph. Variables driven via a back-edge in the dependency
-// graph are marked, and all combinational logic that depends on such
-// variables is converted into hybrid logic, with the back-edge driven
-// variables listed as explicit 'changed' sensitivities.
+// the design, and then compute a feedback vertex set of the variables: a set
+// of variables that covers every dependency cycle. All combinational logic
+// that consumes one of these 'cut' variables is converted into hybrid logic,
+// with the cut variables it reads listed as explicit 'changed'
+// sensitivities.
 //
 //*************************************************************************
 
@@ -38,12 +35,14 @@
 #include "V3EmitV.h"
 #include "V3File.h"
 #include "V3Graph.h"
+#include "V3InstrCount.h"
 #include "V3Sched.h"
 #include "V3SenTree.h"
 #include "V3SplitVar.h"
 #include "V3Stats.h"
 
 #include <map>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -135,8 +134,8 @@ std::unique_ptr<Graph> buildGraph(const LogicByScope& lbs) {
         return vscp->user1u().to<SchedAcyclicVarVertex*>();
     };
 
-    const auto addEdge = [&](V3GraphVertex* fromp, V3GraphVertex* top, int weight, bool cuttable) {
-        new V3GraphEdge{graphp.get(), fromp, top, weight, cuttable};
+    const auto addEdge = [&](V3GraphVertex* fromp, V3GraphVertex* top) {
+        new V3GraphEdge{graphp.get(), fromp, top, 1};
     };
 
     for (const auto& pair : lbs) {
@@ -158,18 +157,16 @@ std::unique_ptr<Graph> buildGraph(const LogicByScope& lbs) {
             nodep->foreach([&](AstVarRef* refp) {
                 AstVarScope* const vscp = refp->varScopep();
                 SchedAcyclicVarVertex* const vvtxp = getVarVertex(vscp);
-                // We want to cut the narrowest signals
-                const int weight = vscp->width() / 8 + 1;
                 // If written, add logic -> var edge
                 if (refp->access().isWriteOrRW() && !refp->varp()->ignoreSchedWrite()
                     && !vscp->user2SetOnce())
-                    addEdge(lvtxp, vvtxp, weight, true);
+                    addEdge(lvtxp, vvtxp);
                 // If read, add var -> logic edge
                 // Note: Use same heuristic as ordering does to ignore written variables
                 // TODO: Use live variable analysis.
                 if (refp->access().isReadOrRW() && !vscp->user3SetOnce() && !vscp->user2()
                     && !forceReadEdgeIgnores.count(vscp))
-                    addEdge(vvtxp, lvtxp, weight, true);
+                    addEdge(vvtxp, lvtxp);
             });
         }
     }
@@ -217,51 +214,209 @@ void removeNonCyclic(Graph* graphp) {
     }
 }
 
-// Has this VarVertex been cut? (any edges in or out has been cut)
-bool isCut(const SchedAcyclicVarVertex* vtxp) {
-    for (const V3GraphEdge& edge : vtxp->inEdges()) {
-        if (edge.weight() == 0) return true;
+// Greedily select a set of variables (a feedback vertex set) that covers every dependency
+// cycle in the given graph. Cutting these will make the graph acyclic. Note that optimal
+// feedback vertex set is NP-hard, so anything below is a heuristic.
+//
+// The caller will cut the returned variables (make all their readers hybrid logic), so
+// prefer cutting the variables read by the most expensive logic: cutting a variable gives
+// every reader of it an explicit 'changed' sensitivity, and that explicit sensitivity
+// suppresses the reader's implicit sensitivity on the same variable. Where the reader is
+// expensive, the cut gives it a value-change wakeup instead of the coarser sensitivity it would
+// otherwise be left with (in the worst case a clock edge, which re-evaluates it every cycle
+// regardless of its data). A reader is only fully gated once all of its inputs are cut, so each
+// input is credited a share of the reader's cost rather than the whole of it, and logic already
+// gated by earlier cuts attracts no further cuts.
+std::vector<SchedAcyclicVarVertex*> feedbackVertexSet(Graph* graphp) {
+    // Collect statistics
+    if (v3Global.opt.stats()) {
+        size_t nCyclicVtxs = 0;  // Number of vertices that are part of an SCC (cycle)
+        size_t nCyclicVars = 0;  // Number of variables that are part of an SCC (cycle)
+        std::unordered_set<uint32_t> sccs;  // Unique SCC colors
+        for (V3GraphVertex& vtx : graphp->vertices()) {
+            ++nCyclicVtxs;
+            if (vtx.cast<SchedAcyclicVarVertex>()) ++nCyclicVars;
+            sccs.insert(vtx.color());
+        }
+        V3Stats::addStat("Scheduling, Cycles, cyclic variables", nCyclicVars);
+        V3Stats::addStat("Scheduling, Cycles, cyclic logic blocks", nCyclicVtxs - nCyclicVars);
+        V3Stats::addStat("Scheduling, Cycles, unique SCCs", sccs.size());
     }
-    for (const V3GraphEdge& edge : vtxp->outEdges()) {
-        if (edge.weight() == 0) return true;
-    }
-    return false;
-}
 
-std::vector<SchedAcyclicVarVertex*> findCutVertices(Graph* graphp) {
-    // List of cut vertices being computed here
+    // Vertex state for algorithm.
+    struct VtxState final {
+        size_t liveIns = 0;  // Number of in-edges from live vertices
+        size_t liveOuts = 0;  // Number of out-edges to live vertices
+        int64_t cost = 0;  // Logic: evaluation cost of the block. Variable: score when queued
+        // A vertex is dead when it has no live predecessor or successor
+        bool isDead() const { return !liveIns || !liveOuts; }
+    };
+
+    // Number of live vertices remaining
+    size_t nLive = graphp->vertices().size();
+
+    // The vertex state records - sized up front, so pointers into it are stable
+    std::vector<VtxState> states(nLive);
+
+    // Initialize the vertex state records. Vertex userp() points to its record.
+    size_t n = 0;
+    for (V3GraphVertex& vtx : graphp->vertices()) {
+        VtxState& state = states[n++];
+        vtx.userp(&state);
+        state.liveIns = vtx.inEdges().size();
+        state.liveOuts = vtx.outEdges().size();
+        UASSERT(state.liveIns && state.liveOuts, "SCC vertex should have edges within SCCs");
+        if (const SchedAcyclicLogicVertex* const lvtxp = vtx.cast<SchedAcyclicLogicVertex>()) {
+            state.cost = V3InstrCount::count(lvtxp->logicp(), false);
+        }
+    }
+
+    const auto stateOf = [](const V3GraphVertex* vtxp) -> VtxState& {
+        return *static_cast<VtxState*>(vtxp->userp());
+    };
+
+    // Score of cutting the given variable: its share of the evaluation cost of its live
+    // readers, net of the cost of the change detector the cut adds. A reader is only fully
+    // change-gated once all of its inputs are cut, so each live input is credited an equal
+    // share of the reader's cost. The share grows as the reader's other inputs die - the
+    // remaining inputs carry the residual benefit.
+    const auto scoreOf = [&](const SchedAcyclicVarVertex* vvtxp) -> int64_t {
+        int64_t score = 0;
+        for (const V3GraphEdge& edge : vvtxp->outEdges()) {
+            const VtxState& readerState = stateOf(edge.top());
+            if (!readerState.isDead()) {
+                score += readerState.cost / static_cast<int64_t>(readerState.liveIns);
+            }
+        }
+        // The change detector runs on every trigger evaluation, whether the variable
+        // changed or not, consider it's cost, e.g. wide variables are more expensive.
+        constexpr int64_t BYTES_PER_WORD = VL_EDATASIZE / 8;
+        constexpr int64_t DETECT_INSTRS_PER_WORD = 2 * AstNode::INSTR_COUNT_LD  // Loads
+                                                   + 1  // Compare
+                                                   + 1;  // Store previous value
+        const int64_t nBytes = vvtxp->varp()->dtypep()->widthTotalBytes();
+        const int64_t detectCost
+            = (nBytes + BYTES_PER_WORD - 1) / BYTES_PER_WORD * DETECT_INSTRS_PER_WORD;
+        // Negative means the cut costs more than the gating it buys. Still ordered: when a
+        // cut is nevertheless required to break a cycle, the least bad one wins.
+        return score - detectCost;
+    };
+
+    // Orders variables
+    struct VarCmp final {
+        bool operator()(const SchedAcyclicVarVertex* ap, const SchedAcyclicVarVertex* bp) const {
+            const VtxState& a = *static_cast<VtxState*>(ap->userp());
+            const VtxState& b = *static_cast<VtxState*>(bp->userp());
+            // First by cost, most expensive first
+            if (a.cost != b.cost) return a.cost > b.cost;
+            // Then by graph order (which the pointer comparison preserves here deterministically)
+            return &a < &b;
+        }
+    };
+
+    // Candidate variables to cut
+    std::set<SchedAcyclicVarVertex*, VarCmp> candidates;
+    for (V3GraphVertex& vtx : graphp->vertices()) {
+        if (SchedAcyclicVarVertex* const vvtxp = vtx.cast<SchedAcyclicVarVertex>()) {
+            stateOf(vvtxp).cost = scoreOf(vvtxp);
+            candidates.insert(vvtxp);
+        }
+    }
+
+    // Greedily pick the most expensive variable - the one whose live readers cost the most
+    // to evaluate - as the next one to cut, kill it, then peel the rest of the graph that
+    // becomes acyclic. Repeat until no cycles remain (and hence no live vertices) remain.
+    // Note: as cuts fragment an SCC, a still-live variable may no longer be on a cycle,
+    // so a pick is not guaranteed to break one - the greedy choice is a heuristic.
     std::vector<SchedAcyclicVarVertex*> result;
-    const VNUser1InUse user1InUse;  // bool: already added to result
+    std::vector<const V3GraphVertex*> queue;  // Work queue of dead vertices pending update
+    while (nLive) {
+        UASSERT(!candidates.empty(), "Live variables should have candidate entries");
+        // Pick the most expensive variable
+        const auto it = candidates.begin();
+        SchedAcyclicVarVertex* const vvtxp = *it;
+        VtxState& state = stateOf(vvtxp);
+        candidates.erase(it);
+
+        // If fixed by a cut since queued, discard
+        if (state.isDead()) continue;
+
+        // Queued scores never underestimate: increases (shares growing when a reader loses
+        // another input) are applied eagerly below, decreases (readers dying) are handled
+        // lazily here - when the best entry's score went stale, it is re-queued with its
+        // current score instead of being picked.
+        const int64_t score = scoreOf(vvtxp);
+        if (score != state.cost) {
+            state.cost = score;
+            candidates.insert(vvtxp);
+            continue;
+        }
+
+        // Cutting this variable
+        result.push_back(vvtxp);
+
+        // Mark it dead: the cut vertex is live (has live neighbours on both sides), so zero both
+        state.liveIns = 0;
+        state.liveOuts = 0;
+
+        // Peel off all vertices no longer part of a cycle
+        // (those left without a live predecessor or successor)
+        queue.push_back(vvtxp);
+        while (!queue.empty()) {
+            const V3GraphVertex* const deadp = queue.back();
+            queue.pop_back();
+            UASSERT(stateOf(deadp).isDead(), "Enqueued vertex should be dead");
+
+            // This vertex is now dead
+            --nLive;
+
+            // Mark downstream vertices as dead
+            for (const V3GraphEdge& edge : deadp->outEdges()) {
+                V3GraphVertex* const top = edge.top();
+                VtxState& toState = stateOf(top);
+
+                // Reader already dead, ignore
+                if (!toState.liveOuts) continue;
+
+                // If reader dies here, enqueue it
+                if (!--toState.liveIns) {
+                    queue.push_back(top);
+                    continue;
+                }
+
+                // Otherwise the reader had an input cut, but still lives:
+                // requeue other input variables whose score have increased.
+                if (deadp->is<SchedAcyclicVarVertex>()) {
+                    for (const V3GraphEdge& inEdge : top->inEdges()) {
+                        V3GraphVertex* const fromp = inEdge.fromp();
+                        SchedAcyclicVarVertex* const inp = fromp->as<SchedAcyclicVarVertex>();
+                        VtxState& inState = stateOf(inp);
+                        if (inState.isDead()) continue;
+                        candidates.erase(inp);
+                        inState.cost = scoreOf(inp);
+                        candidates.insert(inp);
+                    }
+                }
+            }
+
+            // Mark upstream vertices as dead
+            for (const V3GraphEdge& edge : deadp->inEdges()) {
+                V3GraphVertex* const fromp = edge.fromp();
+                VtxState& fromState = stateOf(fromp);
+
+                // Driver already dead, ignore
+                if (!fromState.liveIns) continue;
+
+                // Driver dies here, enqueue it
+                if (!--fromState.liveOuts) queue.push_back(fromp);
+            }
+        }
+    }
 
     // Statistics
-    size_t nCyclicVtxs = 0;  // Number of vertices that are part of an SCC (cycle)
-    size_t nCyclicVars = 0;  // Number of variables that are part of an SCC (cycle)
-    std::unordered_set<uint32_t> sccs;  // Unique SCC colors
-
-    for (V3GraphVertex& vtx : graphp->vertices()) {
-        if (!vtx.color()) continue;  // Not part of an SCC (cycle), can ignore
-        ++nCyclicVtxs;
-        if (SchedAcyclicVarVertex* const vvtxp = vtx.cast<SchedAcyclicVarVertex>()) {
-            ++nCyclicVars;
-            if (!vvtxp->vscp()->user1SetOnce() && isCut(vvtxp)) result.push_back(vvtxp);
-        }
-        // Don't bother counting if not dumping statistics
-        if (v3Global.opt.stats()) sccs.insert(vtx.color());
-    }
-
-    V3Stats::addStat("Scheduling, Cycles, cyclic variables", nCyclicVars);
-    V3Stats::addStat("Scheduling, Cycles, cyclic logic blocks", nCyclicVtxs - nCyclicVars);
-    V3Stats::addStat("Scheduling, Cycles, unique SCCs", sccs.size());
     V3Stats::addStat("Scheduling, Cycles, cut variables", result.size());
 
     return result;
-}
-
-void resetEdgeWeights(const std::vector<SchedAcyclicVarVertex*>& cutVertices) {
-    for (SchedAcyclicVarVertex* const vvtxp : cutVertices) {
-        for (V3GraphEdge& e : vvtxp->inEdges()) e.weight(1);
-        for (V3GraphEdge& e : vvtxp->outEdges()) e.weight(1);
-    }
 }
 
 // A VarVertex together with its fanout
@@ -500,20 +655,18 @@ LogicByScope breakCycles(AstNetlist* netlistp, const LogicByScope& combinational
     // Nothing to do if no cycles, yay!
     if (graphp->empty()) return LogicByScope{};
 
+    // Color strongly connected components. Delete every vertex not in an SCC.
+    // (In case one cycle feeds into another cycle)
+    graphp->stronglyConnected(&V3GraphEdge::followAlwaysTrue);
+    for (V3GraphVertex* const vtxp : graphp->vertices().unlinkable()) {
+        if (!vtxp->color()) VL_DO_DANGLING(vtxp->unlinkDelete(graphp.get()), vtxp);
+    }
+
     // Dump for debug
     if (dumpGraphLevel() >= 6) graphp->dumpDotFilePrefixed("sched-comb-cycles");
 
-    // Make graph acyclic by cutting some edges. Note: This also colors strongly connected
-    // components which reportCycles uses to print each SCCs separately.
-    // TODO: A more optimal algorithm that cuts by removing/marking VarVertex vertices is possible
-    //       Search for "Feedback vertex set" (current algorithm is "Feedback arc set")
-    graphp->acyclic(&V3GraphEdge::followAlwaysTrue);
-
-    // Find all cut vertices
-    const std::vector<SchedAcyclicVarVertex*> cutVertices = findCutVertices(graphp.get());
-
-    // Reset edge weights for reporting
-    resetEdgeWeights(cutVertices);
+    // Select the set of variables to cut in order to make the graph acyclic
+    const std::vector<SchedAcyclicVarVertex*> cutVertices = feedbackVertexSet(graphp.get());
 
     // Report warnings/diagnostics
     reportCycles(graphp.get(), cutVertices);
