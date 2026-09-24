@@ -27,18 +27,29 @@ fi
 # Run IDs of PR jobs processed
 PR_RUN_IDS=""
 
+# Lists the runs of the given workflows created since ${OLDEST}, as one JSON array.
+# Note the run numbers are per workflow, so they do not order runs across them.
+list_runs() {
+  for WORKFLOW in "$@"; do
+    gh run list -w ${WORKFLOW} --limit 1000 --created ">=${OLDEST}" --json "databaseId,event,status,conclusion,createdAt,number"
+  done | jq -s 'add'
+}
+
 # Populates ${PAGES_ROOT}/coverage-reports
 compile_coverage_reports() {
   # We will process all runs up to and including this date. This is chosen to be
   # slightly less than the artifact retention period for simplicity.
   local OLDEST=$(date --date="28 days ago" --iso-8601=date)
 
-  # Gather all coverage workflow runs within the time window
-  gh run list -w coverage.yml --limit 1000 --created ">=${OLDEST}" --json "databaseId,event,status,conclusion,createdAt,number" > recentRuns.json
+  # Gather all coverage workflow runs within the time window, including those
+  # invoked from 'pr.yml' on pull requests
+  list_runs coverage.yml pr.yml > recentRuns.json
 
-  # Select completd runs that were not cancelled or skipped, sort by descending run number
-  jq 'sort_by(-.number) | map(select(.status == "completed" and (.conclusion == "success" or .conclusion == "failure")))' recentRuns.json > completedRuns.json
-  echo "@@@ $(jq length completedRuns.json) of $(jq length recentRuns.json) runs since ${OLDEST} completed with success or failure"
+  # Select completed runs that were not skipped, newest first. A cancelled run
+  # is kept, as a run of 'pr.yml' is cancelled as a whole when only one of
+  # the workflows it invoked was, the others can still have a report.
+  jq 'sort_by(.createdAt) | reverse | map(select(.status == "completed" and (.conclusion == "success" or .conclusion == "failure" or .conclusion == "cancelled")))' recentRuns.json > completedRuns.json
+  echo "@@@ $(jq length completedRuns.json) of $(jq length recentRuns.json) runs since ${OLDEST} completed with success, failure, or cancelled"
 
   # Create artifacts root directory
   local ARTIFACTS_ROOT=artifacts-coverage
@@ -149,12 +160,15 @@ compile_rtlmeter_reports() {
   # slightly less than the artifact retention period for simplicity.
   local OLDEST=$(date --date="28 days ago" --iso-8601=date)
 
-  # Gather all RTLMeter workflow runs within the time window
-  gh run list -w rtlmeter.yml --limit 1000 --created ">=${OLDEST}" --json "databaseId,event,status,conclusion,createdAt,number" > recentRuns.json
+  # Gather all RTLMeter workflow runs within the time window, including those
+  # invoked from 'pr.yml' on pull requests
+  list_runs rtlmeter.yml pr.yml > recentRuns.json
 
-  # Select completd runs that were not cancelled or skipped, sort by descending run number
-  jq 'sort_by(-.number) | map(select(.status == "completed" and (.conclusion == "success" or .conclusion == "failure")))' recentRuns.json > completedRuns.json
-  echo "@@@ $(jq length completedRuns.json) of $(jq length recentRuns.json) runs since ${OLDEST} completed with success or failure"
+  # Select completed runs that were not skipped, newest first. A cancelled run
+  # is kept, as a run of 'pr.yml' is cancelled as a whole when only one of
+  # the workflows it invoked was, the others can still have a report.
+  jq 'sort_by(.createdAt) | reverse | map(select(.status == "completed" and (.conclusion == "success" or .conclusion == "failure" or .conclusion == "cancelled")))' recentRuns.json > completedRuns.json
+  echo "@@@ $(jq length completedRuns.json) of $(jq length recentRuns.json) runs since ${OLDEST} completed with success, failure, or cancelled"
 
   # Create artifacts root directory
   local ARTIFACTS_ROOT=artifacts-rtlmeter

@@ -1,0 +1,148 @@
+---
+# DESCRIPTION: Github actions config
+# SPDX-License-Identifier: LGPL-3.0-only OR Artistic-2.0
+
+# Runs the label gated workflows on pull requests. These do not trigger on
+# pull request events themselves, but are invoked from here, one job each:
+#
+#   'pr: regression'   -> 'regression.yml'
+#   'pr: dev-coverage' -> 'coverage.yml'
+#   'pr: rtlmeter'     -> 'rtlmeter.yml'
+#
+# Each workflow has its own concurrency group, so adding a label starts that
+# workflow, removing it cancels its in-progress run, a push restarts the ones
+# enabled, and anything else has no effect, without disturbing the others.
+# A job skipped by its condition does not take part in its concurrency group,
+# so the removal of the gating label runs a 'Cancel' job of its own in the same
+# group, which does nothing else.
+# Key the groups on the pull request number: 'github.ref' is the base branch
+# once the pull request is closed.
+#
+# The 'results' job records the outcome of each workflow, which
+# 'pr-automation.yml' then acts on.
+
+name: PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  actions: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+
+  regression:
+    name: Regression
+    if: |
+      (github.event.action == 'labeled'
+       && github.event.label.name == 'pr: regression')
+      || (github.event.action != 'labeled'
+          && github.event.action != 'unlabeled'
+          && contains(github.event.pull_request.labels.*.name, 'pr: regression'))
+    concurrency:
+      group: ${{ github.workflow }}-pr-${{ github.event.number }}-regression
+      cancel-in-progress: true
+    uses: ./.github/workflows/regression.yml
+    secrets: inherit
+
+  cancel-regression:
+    name: Cancel | Regression
+    if: |
+      github.event.action == 'unlabeled'
+      && github.event.label.name == 'pr: regression'
+    concurrency:
+      group: ${{ github.workflow }}-pr-${{ github.event.number }}-regression
+      cancel-in-progress: true
+    runs-on: ubuntu-slim
+    steps:
+      - name: Cancel
+        run: |-
+          echo "Cancelled any in-progress 'Regression' run, as 'pr: regression' was removed"
+
+  coverage:
+    name: Code coverage
+    if: |
+      (github.event.action == 'labeled'
+       && github.event.label.name == 'pr: dev-coverage')
+      || (github.event.action != 'labeled'
+          && github.event.action != 'unlabeled'
+          && contains(github.event.pull_request.labels.*.name, 'pr: dev-coverage'))
+    concurrency:
+      group: ${{ github.workflow }}-pr-${{ github.event.number }}-coverage
+      cancel-in-progress: true
+    uses: ./.github/workflows/coverage.yml
+    secrets: inherit
+
+  cancel-coverage:
+    name: Cancel | Code coverage
+    if: |
+      github.event.action == 'unlabeled'
+      && github.event.label.name == 'pr: dev-coverage'
+    concurrency:
+      group: ${{ github.workflow }}-pr-${{ github.event.number }}-coverage
+      cancel-in-progress: true
+    runs-on: ubuntu-slim
+    steps:
+      - name: Cancel
+        run: |-
+          echo "Cancelled any in-progress 'Code coverage' run, as 'pr: dev-coverage' was removed"
+
+  rtlmeter:
+    name: RTLMeter
+    if: |
+      (github.event.action == 'labeled'
+       && github.event.label.name == 'pr: rtlmeter')
+      || (github.event.action != 'labeled'
+          && github.event.action != 'unlabeled'
+          && contains(github.event.pull_request.labels.*.name, 'pr: rtlmeter'))
+    concurrency:
+      group: ${{ github.workflow }}-pr-${{ github.event.number }}-rtlmeter
+      cancel-in-progress: true
+    uses: ./.github/workflows/rtlmeter.yml
+    secrets: inherit
+
+  cancel-rtlmeter:
+    name: Cancel | RTLMeter
+    if: |
+      github.event.action == 'unlabeled'
+      && github.event.label.name == 'pr: rtlmeter'
+    concurrency:
+      group: ${{ github.workflow }}-pr-${{ github.event.number }}-rtlmeter
+      cancel-in-progress: true
+    runs-on: ubuntu-slim
+    steps:
+      - name: Cancel
+        run: |-
+          echo "Cancelled any in-progress 'RTLMeter' run, as 'pr: rtlmeter' was removed"
+
+  results:
+    name: Save results
+    needs: [regression, coverage, rtlmeter]
+    # Also when a workflow failed or was cancelled, but only if one was started
+    if: |
+      always()
+      && (contains(needs.*.result, 'success')
+          || contains(needs.*.result, 'failure')
+          || contains(needs.*.result, 'cancelled'))
+    runs-on: ubuntu-slim
+    steps:
+      - name: Save results
+        run: |
+          mkdir pr-results
+          echo "${{ github.event.number }}" > pr-results/pr-number.txt
+          # The result of each workflow, keyed by the job ID above
+          jq 'map_values(.result)' <<< '${{ toJSON(needs) }}' > pr-results/results.json
+          cat pr-results/results.json
+
+      - name: Upload results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: pr-results
+          path: pr-results
+          overwrite: true
