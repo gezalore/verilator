@@ -197,8 +197,7 @@ class EmitCRtmdScopes final : public EmitCBaseVisitorConst {
                     = varp->isParam() ? VN_CAST(varp->valuep(), Const) : nullptr;
                 UASSERT_OBJ(constp || !varp->isParam(), ep, "Parameter without a constant value");
                 const bool isConst = constp;
-                const std::string dataOfs
-                    = constp ? cvtToStr(poolConst(constp)) : valueOffset(ep);
+                const std::string dataOfs = constp ? cvtToStr(poolConst(constp)) : valueOffset(ep);
                 puts("    {VlRtmdScopeOp::"s + (isConst ? "SIGNAL_CONST" : "SIGNAL")
                      + ", VlRtmdScopeKind::MODULE, " + nameLiteral(ep->name(), false) + ", \"\", "
                      + cvtToStr(m_signalTypes.m_rowOf.at(ep->typeDescp())) + ", " + dataOfs + ", "

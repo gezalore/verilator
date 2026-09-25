@@ -10,7 +10,7 @@ suggestion, icache measurements), [#6706](https://github.com/verilator/verilator
 trace formats), [#6707](https://github.com/verilator/verilator/issues/6707) (per-dtype trace
 function dedup, landed as `7f571971c`).
 
----
+______________________________________________________________________
 
 ## 1. Motivation
 
@@ -21,11 +21,11 @@ costs:
 
 1. **Object code size and link scaling.** Reported in #6706, up to and including
    `-mcmodel=large`-class linker relocation problems.
-2. **Instruction cache.** Measured in #2259: 60 icache misses per thousand instructions and 64%
+1. **Instruction cache.** Measured in #2259: 60 icache misses per thousand instructions and 64%
    frontend stall on a tracing SweRV run. Every byte of the dump code is touched exactly once per
    dump, so essentially every fetch is a miss. This is the dominant runtime cost, not the value
    comparisons or the formatting.
-3. **Verilation time and memory.** Trace decls are built per scope and, with `--trace-structs`,
+1. **Verilation time and memory.** Trace decls are built per scope and, with `--trace-structs`,
    materialise a `Sel`/`ArraySel`/`StructSel` tree plus an `AstTraceDecl` per struct member per
    instance, plus an `AstTraceInc` clone per signal per dump kind.
 
@@ -55,7 +55,7 @@ Two levels of sharing are available, and this design uses both:
 - The dump hierarchy becomes **structurally** independent of inlining, rather than reconstructed
   from `__DOT__`-joined names and repaired when it diverges (`a031dd1a2`).
 
----
+______________________________________________________________________
 
 ## 2. Scope
 
@@ -89,7 +89,7 @@ Ten new AST nodes are added: `AstRtmdType` and `AstRtmdScope` under a common
 type by convention, and a descriptor is not a data type — it *describes* one. No new container node
 is added either; type descriptors live in the existing `AstTypeTable`.
 
----
+______________________________________________________________________
 
 ## 3. Architecture
 
@@ -165,7 +165,7 @@ axis where the design is clearly worse than generated code — note that the com
 Mitigations: keep `code` rather than a second resolved `oldp` pointer; never materialise
 filtered-out signals. **Measure this early.**
 
----
+______________________________________________________________________
 
 ## 4. AST representation
 
@@ -413,7 +413,7 @@ available, including wide values and doubles, and an aggregate constant decompos
 descriptor exactly like a variable does. Parameters are a large fraction of the #6706 bulk and must
 **not** be materialised as pinned runtime variables.
 
----
+______________________________________________________________________
 
 ## 5. Pipeline integration
 
@@ -527,7 +527,7 @@ under `-Winvalid-offsetof`. Needs a wrapper macro with pragma suppression, a
 `static_assert(sizeof(Syms) <= UINT32_MAX)` (or a 64-bit offset fallback), and a debug-mode
 self-check comparing a computed offset against a real address.
 
----
+______________________________________________________________________
 
 ## 6. Generated data
 
@@ -547,8 +547,7 @@ Per model:
 `dtypep()` now materialised: `LEAF {bits, msb, lsb, sigType, flags, enumIdx}`,
 `ARRAY {kind, left, right, elements, stride, subIdx}`,
 A row is just `{op, pointer to the descriptor of that kind}`, and the descriptor names its own
-fields: `VlRtmdAtom {sigType, flags, bits, left, right, enump}`, `VlRtmdPackedArray {value, count,
-elemBits, elemIdx, left, right}`, `VlRtmdUnpackedArray {count, elemBytes, elemIdx, left, right}`,
+fields: `VlRtmdAtom {sigType, flags, bits, left, right, enump}`, `VlRtmdPackedArray {value, count, elemBits, elemIdx, left, right}`, `VlRtmdUnpackedArray {count, elemBytes, elemIdx, left, right}`,
 `VlRtmdPackedStruct {value, count, membersp}`, `VlRtmdUnpackedStruct {count, membersp}`, and
 `VlRtmdEnum {nameOfs, bits, count, namesOfs, valuesOfs, dtypenum}`. Every kind a dump shows as a
 single value carries a `VlRtmdAtom` describing that value, so nothing has to reconstruct it.
@@ -616,7 +615,7 @@ Note the three formats consume *different* subsets of the declaration fields —
 layer exists precisely to discard them at compile time. A format-agnostic descriptor carries the
 union: slightly more data, in exchange for the format no longer being baked in.
 
----
+______________________________________________________________________
 
 ## 7. Runtime
 
@@ -651,13 +650,13 @@ At trace-open, per model, in one recursive walk:
 
 1. descend `SCOPE` and `INSTANCE` rows, maintaining the name prefix stack and a composed base
    offset;
-2. for each `SIGNAL`, expand its type descriptor recursively, composing the leaf name (`name`,
+1. for each `SIGNAL`, expand its type descriptor recursively, composing the leaf name (`name`,
    `.member`, `[idx]`) and the leaf address (instance base + signal offset + type offset), and
    propagating the signal's direction and kind down to each leaf;
-3. apply the tracing policy (§7.2), dropping filtered leaves without materialising them;
-4. group the surviving leaves by the signal's activity set, then allocate codes in that order
+1. apply the tracing policy (§7.2), dropping filtered leaves without materialising them;
+1. group the surviving leaves by the signal's activity set, then allocate codes in that order
    (§7.3), then partition into fidx ranges (§7.4);
-5. second pass: declare, calling the format's `pushPrefix` / `decl*` / `declDTypeEnum`.
+1. second pass: declare, calling the format's `pushPrefix` / `decl*` / `declDTypeEnum`.
 
 **Code allocation must follow dump order, not declaration order.** Today `V3Trace` allocates codes
 while iterating the activity-sorted `traces` multimap in `createConstTraceFunctions`, deliberately:
@@ -813,7 +812,7 @@ statement list into a single activity vertex — which is exactly the #6706 case
 are called from the same `if` body, so they do share. But scope sharing is a measured outcome, not a
 guarantee; type sharing is unconditional, which is why it carries the bulk of the win.
 
----
+______________________________________________________________________
 
 ## 8. Pinning
 
@@ -834,14 +833,14 @@ value to be an address, so pinning becomes explicit. All three hooks follow esta
    `VirtIface`/`SigPublic`/`isTop`. `setConsumed` prevents the "Remove unconsumed" path at
    `:1273-1277` from deleting it; `clearReducibleAndDedupable` prevents substitution-and-elimination
    and matches the conservative `SigPublic` choice.
-2. **`V3Localize`** — marks each described `AstVarScope` as not optimizable (`user1`), the same
+1. **`V3Localize`** — marks each described `AstVarScope` as not optimizable (`user1`), the same
    mechanism the pass already uses for a variable it must not localize. Today localization is
    blocked only as a side effect of the trace CFunc's read references (`:201-222`).
-3. **`V3Dead`** — `mightElimVar` (`src/V3Dead.cpp:422`) already reads
+1. **`V3Dead`** — `mightElimVar` (`src/V3Dead.cpp:422`) already reads
    `if (nodep->isTemp() && !nodep->isTrace()) return true;`, so temps are covered; the non-temp path
    falls through to `m_elimUserVars` and wants checking. Real `AstVarRef`s in the entries may make
    this a no-op.
-4. **`V3SplitVar`** — **no change for v1.** `src/V3SplitVar.cpp:1209` and `:1228-1240` already keep a
+1. **`V3SplitVar`** — **no change for v1.** `src/V3SplitVar.cpp:1209` and `:1228-1240` already keep a
    traced variable whole and reconstruct it via `Concat`. That is exactly the v1 behaviour we want.
    Letting it split and carrying per-piece entries belongs with option 2.
 
@@ -900,7 +899,7 @@ At descriptor finalisation, assert that every `SIGNAL`'s `valuep` is `AstVarRef`
 wrong dump into an immediate localized failure, and whatever trips it becomes the precise work list
 for option 2.
 
----
+______________________________________________________________________
 
 ## 9. Required changes elsewhere
 
@@ -1160,7 +1159,7 @@ together.
   whole `m_dtypeFuncs` / `m_dtypeNonConstFuncs` / `createNonConstDtypeTraceFunctions` machinery
   (#6707) are subsumed by data type descriptors.
 
----
+______________________________________________________________________
 
 ## 10. Parallel world
 
@@ -1192,7 +1191,7 @@ component plus two codegen backends.
 On the runtime side, a new `verilated_trace_table.*` needs at least one test that compiles it,
 because `t/t_verilated_all.py` asserts every `include/*.cpp` is compiled by some test.
 
----
+______________________________________________________________________
 
 ## 11. Testing
 
@@ -1213,7 +1212,7 @@ Three tiers, because "all trace tests" covers more than the commons-structured o
    `--trace-vcd` flag slots into the same place, so a single command runs the entire regression in
    descriptor mode. This is the mechanism that makes "all trace tests, both ways" a one-liner in CI
    rather than 289 per-test edits.
-2. **A `_descriptor` variant in the commons for always-on coverage.** The trace commons already fan out
+1. **A `_descriptor` variant in the commons for always-on coverage.** The trace commons already fan out
    over `{cc,sc} × {vcd,fst,saif} ×` variants via `parse_name`, and variants share one golden:
    ```python
    test.golden_filename = test.py_filename.rpartition(fmt)[0] + fmt + ".out"
@@ -1221,7 +1220,7 @@ Three tiers, because "all trace tests" covers more than the commons-structured o
    so `_noinl`, `_portable` and `_cmake` all compare against the same file. A `_descriptor` variant that
    flips the option and compares to the *same* golden gives a direct A/B over ~200 golden dumps for
    a few lines per common module, running in normal CI rather than only in sweeps.
-3. **An explicit opt-out list** for the tests that cannot match by construction — the ~15 that grep
+1. **An explicit opt-out list** for the tests that cannot match by construction — the ~15 that grep
    generated C++ for functions the descriptor path does not emit (table below). These need
    mode-awareness or exclusion; regoldening cannot help them.
 
@@ -1344,7 +1343,7 @@ exercises the splice, the de-array fixup, the per-instance interface links and t
 once. The same flattener is what will diff a descriptor dump against a legacy VCD's scope tree once
 emission exists.
 
----
+______________________________________________________________________
 
 ## 12. Measurement
 
@@ -1374,7 +1373,7 @@ Metrics per design, legacy vs descriptor mode, VCD and FST, single-threaded and 
 Validate `--threads` tracing under TSAN; OpenTitan is a good signal there since its cycle counts are
 deterministic again after #7913.
 
----
+______________________________________________________________________
 
 ## 13. Milestones
 
@@ -1384,7 +1383,7 @@ deterministic again after #7913.
    touching any pass. Two harness questions to settle here because they shape later stages: whether
    `wavediff` tolerates scope-kind differences (§11), and whether one model can be bound to two
    trace files so a single run can dump both ways (§10).
-2. **Stage 1 — option, nodes, `V3Rtmd`, plumbing.** The option; the descriptor nodes and
+1. **Stage 1 — option, nodes, `V3Rtmd`, plumbing.** The option; the descriptor nodes and
    `VRtmdScopeKind`; `AstTypeTable::rtmdTypesp`; `V3Rtmd` building type descriptors (with
    uniquing and structural dedup) and scope descriptors; the top wrapper descriptor; the
    `V3Inst::dearrayAll` fixup; `V3Inline` splicing; the `V3Scope` visitor and `V3LinkDot`
@@ -1393,33 +1392,33 @@ deterministic again after #7913.
    No emit yet — validate by dumping the tree, diffing the derived hierarchy inlined against
    `-fno-inline`, and comparing it against what `V3TraceDecl` produces for the same design. Closes
    with the two items the audit left open: forced variables and split unpacked arrays.
-3. **Stage 2 — declarations end to end.** Generated type and scope tables, enum descriptors,
+1. **Stage 2 — declarations end to end.** Generated type and scope tables, enum descriptors,
    `PARTITION`, runtime elaboration and expansion, runtime code allocation with `valueId` aliasing,
    declaration replay.
-4. **Stage 3 — dumping end to end.** Entry materialisation, packed extraction (§7.1), activity
+1. **Stage 3 — dumping end to end.** Entry materialisation, packed extraction (§7.1), activity
    groups, const entries, generic cleanup, the hot loop (fidx partitioning deferred, §7.4). Gate:
    the whole
    trace suite passing in both modes, via the global flag *and* the always-on `_descriptor` variants
    (§11), with no golden changes; RTLMeter perf and memory within agreed bounds. Output must be
    hierarchy-identical to the legacy path at this stage — no fidelity improvements yet.
-5. **Stage 4 — scope dedup.** Hashing and sharing of identical scope descriptors (type sharing is
+1. **Stage 4 — scope dedup.** Hashing and sharing of identical scope descriptors (type sharing is
    already in from Stage 1). Gate: object-size improvement measured; dumps unchanged.
-6. **Stage 5 — option 2.** Trace-only prologue writing `__VtraceTmp`, removing the pinning and
+1. **Stage 5 — option 2.** Trace-only prologue writing `__VtraceTmp`, removing the pinning and
    recovering the eval regression; then let `V3SplitVar` split traced variables.
-7. **Stage 6 — hierarchy fidelity (#7001).** Only now start *using* the source-level information the
+1. **Stage 6 — hierarchy fidelity (#7001).** Only now start *using* the source-level information the
    early anchor made available: proper generate / begin / function / task scope kinds, real module
    type names, statics inside functions and tasks. This is the first stage that may deliberately
    change dump content, so it carries its own golden update and cannot be mixed into the
    differential stages above. Requires extending the runtime `VerilatedTracePrefixType`
    (`include/verilated_trace.h:50-60`).
-8. **Stage 7 — retire the legacy path** once the differential has been clean for a release cycle.
+1. **Stage 7 — retire the legacy path** once the differential has been clean for a release cycle.
    Delete `AstTraceDecl`, `AstTraceInc`, `AstTracePushPrefix`, `AstTracePopPrefix`, `VTraceType`,
    `V3TraceDecl`, `V3Trace`'s codegen half, `EmitCTrace`, `EmitCTraceTypes`, the `VL_TRACE_DECL_*` /
    `VL_TRACE_PUSH_PREFIX` macro layers, and the trace-specific special cases in `V3Clean`,
    `V3Hasher`, `V3InlineCFuncs`, `V3Combine`, `V3Undriven` and `V3EmitV`. The descriptor nodes are then
    the only tracing-related ones.
 
----
+______________________________________________________________________
 
 ## 14. Open questions
 
@@ -1454,8 +1453,7 @@ mechanism has a latent fragility worth fixing rather than porting.
 
 **How it works today.** Every model registers a `traceBaseModelCb` on the context when constructed
 (`src/V3EmitCModel.cpp:315-317`), and `VerilatedContext::trace()` invokes all of them
-(`include/verilated.cpp:3802`), each doing `addModel` + `addInitCb(cb, userp, name(), isLibInstance,
-nTraceCodes)` + `trace_register`. Then `traceInit` runs *every* registered init callback as a root:
+(`include/verilated.cpp:3802`), each doing `addModel` + `addInitCb(cb, userp, name(), isLibInstance, nTraceCodes)` + `trace_register`. Then `traceInit` runs *every* registered init callback as a root:
 `for (size_t i = 0; i < m_initCbs.size(); ++i) runInitCallback(i, true);`
 (`include/verilated_trace_imp.h:135`). A parent's walk reaches its child via generated code emitting
 `tracep->initLib(__VlibName)` (`V3TraceDecl::fixupLibStub`), which matches on
@@ -1474,30 +1472,30 @@ because `t_trace_lib_as_top_*` requires a library to be traceable *as* a root wh
 1. **A name-to-tables registry** replacing the name-to-callback match. The runtime must compose the
    same string the generated code does today (parent instance name, `'.'`, cell pretty name) from
    the `PARTITION` row and the parent's instance name.
-2. **Resolve root-vs-nested up front, not by arrival order.** Because every parent's `PARTITION` rows
+1. **Resolve root-vs-nested up front, not by arrival order.** Because every parent's `PARTITION` rows
    are *data*, the runtime can scan all registered models before walking any of them, collect the
    set of names claimed by some parent, and then walk as roots only the models nobody claimed. That
    is order-independent, handles as-top and embedded use with the same rule, and lets
    `m_isLibInstance` be deleted rather than reimplemented. This is a small behavioural improvement
    over today, so it wants its own test — two libraries, or a library constructed before its parent.
-3. **Per-model context during the walk.** `m_initUserp` is not just bookkeeping: FST keys its
+1. **Per-model context during the walk.** `m_initUserp` is not just bookkeeping: FST keys its
    enum-type map on it (`m_local2fstdtype.at(initUserp())`). The walk must maintain an equivalent
    current-model handle, or enum references break for multi-model traces.
-4. **`rootInit` logic must move from code into data.** It currently lives in the generated
+1. **`rootInit` logic must move from code into data.** It currently lives in the generated
    `trace_init` (`src/V3EmitCModel.cpp:561-580`): when rooted, push the instance name, call
    `trace_init_root`, then push the library's top name. In descriptor form that is a root-phase entry
    range and a top-phase entry range plus conditional scope entries — the existing
    `trace_init_leaf_root__*` / `trace_init_leaf_top__*` split (`src/V3TraceDecl.cpp:313-316`)
    expressed as data.
-5. **`sameRootInitAlias` becomes `valueId` aliasing.** Today the wrapper IO codes are matched to the
+1. **`sameRootInitAlias` becomes `valueId` aliasing.** Today the wrapper IO codes are matched to the
    top module's by name, direction, width and range (`src/V3Trace.cpp:244-254`); with explicit value
    ids the root-phase and top-phase entries for one IO simply share an id. Intra-model, so no
    cross-model code sharing is needed.
-6. **`m_nTraceCodes` and `__Vm_baseCode` disappear.** `runInitCallback` currently pre-reserves each
+1. **`m_nTraceCodes` and `__Vm_baseCode` disappear.** `runInitCallback` currently pre-reserves each
    model's code range before invoking it; with runtime allocation each model's codes are allocated
    when that model is processed. Determinism across reopen is preserved because the walk is
    deterministic, which is what the reopen check relied on.
-7. **A library compiled without tracing must stay a silent no-op** — today `initLib` simply finds no
+1. **A library compiled without tracing must stay a silent no-op** — today `initLib` simply finds no
    matching name ("Note it's possible the instance doesn't exist if the lib was compiled without
    tracing").
 

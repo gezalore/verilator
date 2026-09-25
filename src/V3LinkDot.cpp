@@ -2651,7 +2651,7 @@ class LinkDotScopeVisitor final : public VNVisitor {
     VSymEnt* m_modSymp = nullptr;  // Symbol entry for current module
     // Deferred AliasScope processing - must be done outer-to-inner for correct alias resolution
     std::vector<std::pair<AstAliasScope*, VSymEnt*>> m_deferredAliasScopes;
-    std::vector<AstRtmdIfaceRef*> m_rtmdIfaceRefs; // RtmdIfaceRefs to resolve at the end
+    std::vector<AstRtmdIfaceRef*> m_rtmdIfaceRefs;  // RtmdIfaceRefs to resolve at the end
     std::vector<AstScope*> m_scopesWithRtmdp;  // Scopes with a rtmdp() set
 
     // METHODS

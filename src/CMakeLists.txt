@@ -416,9 +416,9 @@ add_custom_command(
     COMMAND ${PYTHON3}
     ARGS
         ${ASTGEN} -I "${srcdir}" --astdef V3AstNodeDType.h --astdef
-        V3AstNodeExpr.h --astdef V3AstNodeOther.h --astdef V3AstNodeRtmd.h --astdef
-        V3AstNodeRtmdType.h --astdef V3AstNodeStmt.h
-        --dfgdef V3DfgVertices.h --classes
+        V3AstNodeExpr.h --astdef V3AstNodeOther.h --astdef V3AstNodeRtmd.h
+        --astdef V3AstNodeRtmdType.h --astdef V3AstNodeStmt.h --dfgdef
+        V3DfgVertices.h --classes
 )
 list(
     APPEND GENERATED_FILES
@@ -529,9 +529,9 @@ foreach(astgen_name ${ASTGENERATED_NAMES})
         COMMAND ${PYTHON3}
         ARGS
             ${ASTGEN} -I "${srcdir}" --astdef V3AstNodeDType.h --astdef
-            V3AstNodeExpr.h --astdef V3AstNodeOther.h --astdef V3AstNodeRtmd.h --astdef
-            V3AstNodeRtmdType.h --astdef V3AstNodeStmt.h
-            --dfgdef V3DfgVertices.h ${astgen_name}.cpp
+            V3AstNodeExpr.h --astdef V3AstNodeOther.h --astdef V3AstNodeRtmd.h
+            --astdef V3AstNodeRtmdType.h --astdef V3AstNodeStmt.h --dfgdef
+            V3DfgVertices.h ${astgen_name}.cpp
     )
     list(APPEND GENERATED_FILES ${astgen_name}__gen.cpp)
 endforeach()

@@ -18,9 +18,9 @@ test.mkdir_ok(secret_dir)
 
 test.run(logfile=secret_dir + "/vlt_compile.log",
          cmd=[
-             os.environ["VERILATOR_ROOT"] + "/bin/verilator", "--cc", "--no-timing",
-             "--trace-vcd", "--prefix", secret_prefix, "-Mdir",
-             secret_dir, "--lib-create", "secret", "t/t_lib_prot_secret.v"
+             os.environ["VERILATOR_ROOT"] + "/bin/verilator", "--cc", "--no-timing", "--trace-vcd",
+             "--prefix", secret_prefix, "-Mdir", secret_dir, "--lib-create", "secret",
+             "t/t_lib_prot_secret.v"
          ],
          verilator_run=True)
 

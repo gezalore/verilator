@@ -67,8 +67,8 @@ public:
     static RtmdSignalTypes emitcRtmdSignalTypes(const RtmdDataTypes&) VL_MT_DISABLED;
     static RtmdActSets emitcRtmdActSets() VL_MT_DISABLED;
     static RtmdScopes emitcRtmdScopes(const RtmdSignalTypes&, const RtmdActSets&) VL_MT_DISABLED;
-    static void emitcRtmdRegister(const RtmdDataTypes&, const RtmdSignalTypes&,
-                                  const RtmdActSets&, const RtmdScopes&) VL_MT_DISABLED;
+    static void emitcRtmdRegister(const RtmdDataTypes&, const RtmdSignalTypes&, const RtmdActSets&,
+                                  const RtmdScopes&) VL_MT_DISABLED;
     // Emit all descriptor tables and the registration function
     static void emitcRtmd() {
         const RtmdDataTypes dataTypes = emitcRtmdDataTypes();

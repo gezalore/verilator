@@ -247,9 +247,8 @@ void VerilatedTrace<VL_SUB_T, VL_BUF_T>::declareRtmdValue(const VlRtmdTables& ta
 }
 
 template <>
-void VerilatedTrace<VL_SUB_T, VL_BUF_T>::declareRtmdSignal(const VlRtmdTables& tables,
-                                                           const VlRtmdScopeRow& row)
-    VL_MT_UNSAFE {
+void VerilatedTrace<VL_SUB_T, VL_BUF_T>::declareRtmdSignal(
+    const VlRtmdTables& tables, const VlRtmdScopeRow& row) VL_MT_UNSAFE {
     const size_t addr = row.m_dataOfs;
     const VlRtmdSignalType& sig = tables.m_signalsp[row.m_typeIdx];
     declareRtmdValue(tables, sig.m_typeIdx, row.m_namep, VL_RTMD_NO_INDEX, row, addr);

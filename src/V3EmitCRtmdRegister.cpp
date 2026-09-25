@@ -151,9 +151,8 @@ public:
 //######################################################################
 // Rtmd registration emit
 
-void V3EmitC::emitcRtmdRegister(const RtmdDataTypes& dataTypes,
-                                const RtmdSignalTypes& signalTypes, const RtmdActSets& actSets,
-                                const RtmdScopes& scopes) {
+void V3EmitC::emitcRtmdRegister(const RtmdDataTypes& dataTypes, const RtmdSignalTypes& signalTypes,
+                                const RtmdActSets& actSets, const RtmdScopes& scopes) {
     UINFO(2, __FUNCTION__ << ":");
     EmitCRtmdRegister::apply(v3Global.rootp(), dataTypes, signalTypes, actSets, scopes);
 }
