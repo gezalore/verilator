@@ -11052,6 +11052,26 @@ public:
                 // Unpacking consumes the leftmost bits of the queue (IEEE 1800-2023 11.4.14.3)
                 newp->leftmost(!VN_IS(rhsDTypep, UnpackArrayDType));
                 nodep->rhsp(newp);
+            } else if (AstNodeStream* const srcStreamp = VN_CAST(nodep->rhsp(), NodeStream)) {
+                // Source is a stream of an array, pack the array to the target width first
+                AstNodeDType* const arrDTypep = srcStreamp->lhsp()->dtypep()->skipRefp();
+                if (VN_IS(srcStreamp->dtypep()->skipRefp(), StreamDType)
+                    && VN_IS(streamp->dtypep()->skipRefp(), BasicDType)
+                    && (VN_IS(arrDTypep, QueueDType) || VN_IS(arrDTypep, DynArrayDType))) {
+                    AstNodeExpr* const arrp = srcStreamp->lhsp()->unlinkFrBack();
+                    AstCvtArrayToPacked* const cvtp
+                        = new AstCvtArrayToPacked{arrp->fileline(), arrp, streamp->dtypep()};
+                    if (VN_IS(srcStreamp, StreamR)) {
+                        // Right streaming does not reorder, just use the leftmost bits
+                        cvtp->leftmost(true);
+                        srcStreamp->replaceWith(cvtp);
+                        VL_DO_DANGLING(pushDeletep(srcStreamp), srcStreamp);
+                    } else {
+                        // Reversing slices of the whole target left aligns the stream
+                        srcStreamp->lhsp(cvtp);
+                        srcStreamp->dtypeFrom(streamp->dtypep());
+                    }
+                }
             }
         }
     }

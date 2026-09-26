@@ -60,6 +60,16 @@ module t;
     `checkh(h, 16'h0102);
     `checkh(b8, 8'h03);
 
+    // From a stream of a queue
+    {>>{b8, c8}} = {<<8{bq}};
+    `checkh(b8, 8'h04);
+    `checkh(c8, 8'h03);
+    {>>{a}} = {<<8{bq}};
+    `checkh(a, 32'h04030201);
+    {>>{b8, c8}} = {<<8{bq[0:1]}};
+    `checkh(b8, 8'h02);
+    `checkh(c8, 8'h01);
+
     // Round trip through a queue of wide elements
     b = 32'hdeadbeef;
     c = 32'h12345678;
