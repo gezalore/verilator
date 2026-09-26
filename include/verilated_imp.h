@@ -320,8 +320,10 @@ public:  // But only for verilated*.cpp
         const VerilatedLockGuard lock{m_fdMutex};
         const VerilatedFpList fdlist = fdToFpList(fdi);
         if (VL_UNLIKELY(fdlist.size() != 1)) return ~0U;  // -1
-        return static_cast<IData>(
-            std::fseek(*fdlist.begin(), static_cast<long>(offset), static_cast<int>(origin)));
+        // Offset is a signed integer
+        return static_cast<IData>(std::fseek(*fdlist.begin(),
+                                             static_cast<long>(static_cast<int32_t>(offset)),
+                                             static_cast<int>(origin)));
     }
     IData fdTell(IData fdi) VL_MT_SAFE_EXCLUDES(m_fdMutex) {
         const VerilatedLockGuard lock{m_fdMutex};
