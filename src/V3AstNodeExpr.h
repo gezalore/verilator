@@ -1319,7 +1319,7 @@ public:
 class AstCvtArrayToPacked final : public AstNodeExpr {
     // Cast from dynamic queue data type to packed array
     // @astgen op1 := fromp : AstNodeExpr
-    bool m_leftmost = false;  // Larger queue gives its leftmost bits, as for a streaming unpack
+    bool m_leftmost = false;  // Stream in leftmost bits of target, as for streaming (un)pack
 public:
     // cppcheck-suppress constParameterPointer
     // cppcheck-suppress constParameterCallback

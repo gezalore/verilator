@@ -2640,7 +2640,11 @@ class ConstVisitor final : public VNVisitor {
                         srcp->fileline(), srcp,          nodep->dtypep(), false, 1,
                         dstElementBits,   srcElementBits};
                 } else {
-                    srcp = new AstCvtArrayToPacked{srcp->fileline(), srcp, nodep->dtypep()};
+                    AstCvtArrayToPacked* const cvtp
+                        = new AstCvtArrayToPacked{srcp->fileline(), srcp, nodep->dtypep()};
+                    // The stream is left aligned in the target (IEEE 1800-2023 11.4.14)
+                    cvtp->leftmost(true);
+                    srcp = cvtp;
                 }
             } else if (VN_IS(srcDTypep, UnpackArrayDType)) {
                 srcp = new AstCvtArrayToPacked{srcp->fileline(), srcp, srcDTypep};

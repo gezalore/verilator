@@ -2168,30 +2168,24 @@ inline QData VL_PACK_Q_UQ(int /*obits*/, int lbits, const VlUnpacked<QData, N_De
 inline WDataOutP VL_PACK_W_RI(int obits, int lbits, WDataOutP owp, const VlQueue<CData>& q) {
     VL_MEMSET_ZERO_W(owp, VL_WORDS_I(obits));
     if (VL_UNLIKELY(obits < q.size() * lbits)) return owp;  // Though is illegal for q to be larger
-    const int offset = obits - q.size() * lbits;
     for (size_t i = 0; i < q.size(); ++i)
-        _vl_insert_WI(owp, q.at(q.size() - i - 1), i * lbits + lbits - 1 + offset,
-                      i * lbits + offset);
+        _vl_insert_WI(owp, q.at(q.size() - i - 1), i * lbits + lbits - 1, i * lbits);
     return owp;
 }
 
 inline WDataOutP VL_PACK_W_RI(int obits, int lbits, WDataOutP owp, const VlQueue<SData>& q) {
     VL_MEMSET_ZERO_W(owp, VL_WORDS_I(obits));
     if (VL_UNLIKELY(obits < q.size() * lbits)) return owp;  // Though is illegal for q to be larger
-    const int offset = obits - q.size() * lbits;
     for (size_t i = 0; i < q.size(); ++i)
-        _vl_insert_WI(owp, q.at(q.size() - i - 1), i * lbits + lbits - 1 + offset,
-                      i * lbits + offset);
+        _vl_insert_WI(owp, q.at(q.size() - i - 1), i * lbits + lbits - 1, i * lbits);
     return owp;
 }
 
 inline WDataOutP VL_PACK_W_RI(int obits, int lbits, WDataOutP owp, const VlQueue<IData>& q) {
     VL_MEMSET_ZERO_W(owp, VL_WORDS_I(obits));
     if (VL_UNLIKELY(obits < q.size() * lbits)) return owp;  // Though is illegal for q to be larger
-    const int offset = obits - q.size() * lbits;
     for (size_t i = 0; i < q.size(); ++i)
-        _vl_insert_WI(owp, q.at(q.size() - 1 - i), i * lbits + lbits - 1 + offset,
-                      i * lbits + offset);
+        _vl_insert_WI(owp, q.at(q.size() - 1 - i), i * lbits + lbits - 1, i * lbits);
     return owp;
 }
 
@@ -2225,10 +2219,8 @@ inline WDataOutP VL_PACK_W_UI(int obits, int lbits, WDataOutP owp,
 inline WDataOutP VL_PACK_W_RQ(int obits, int lbits, WDataOutP owp, const VlQueue<QData>& q) {
     VL_MEMSET_ZERO_W(owp, VL_WORDS_I(obits));
     if (VL_UNLIKELY(obits < q.size() * lbits)) return owp;  // Though is illegal for q to be larger
-    const int offset = obits - q.size() * lbits;
     for (size_t i = 0; i < q.size(); ++i)
-        _vl_insert_WQ(owp, q.at(q.size() - 1 - i), i * lbits + lbits - 1 + offset,
-                      i * lbits + offset);
+        _vl_insert_WQ(owp, q.at(q.size() - 1 - i), i * lbits + lbits - 1, i * lbits);
     return owp;
 }
 
@@ -2246,10 +2238,8 @@ inline WDataOutP VL_PACK_W_RW(int obits, int lbits, WDataOutP owp,
                               const VlQueue<VlWide<N_Words>>& q) {
     VL_MEMSET_ZERO_W(owp, VL_WORDS_I(obits));
     if (VL_UNLIKELY(obits < q.size() * lbits)) return owp;  // Though is illegal for q to be larger
-    const int offset = obits - q.size() * lbits;
     for (size_t i = 0; i < q.size(); ++i)
-        _vl_insert_WW(owp, q.at(q.size() - 1 - i), i * lbits + lbits - 1 + offset,
-                      i * lbits + offset);
+        _vl_insert_WW(owp, q.at(q.size() - 1 - i), i * lbits + lbits - 1, i * lbits);
     return owp;
 }
 
@@ -2264,8 +2254,10 @@ inline WDataOutP VL_PACK_W_UW(int obits, int lbits, WDataOutP owp,
     return owp;
 }
 
-// Pack a queue for a streaming unpack. If the queue has more bits than the target, its
-// leftmost bits are used (IEEE 1800-2023 11.4.14.3).
+// Pack a queue as a stream occupying the leftmost bits of the target. A queue with more
+// bits than the target gives its leftmost bits, as consumed by a streaming unpack (IEEE
+// 1800-2023 11.4.14.3), and one with fewer is zero filled on the right (IEEE 1800-2023
+// 11.4.14).
 inline bool _vl_pack_elem_bit(QData elem, int bit) VL_PURE { return (elem >> bit) & 1; }
 template <std::size_t N_Words>
 inline bool _vl_pack_elem_bit(const VlWide<N_Words>& elem, int bit) VL_PURE {
@@ -2274,7 +2266,8 @@ inline bool _vl_pack_elem_bit(const VlWide<N_Words>& elem, int bit) VL_PURE {
 template <typename T>
 inline QData _vl_pack_leftmost_q(int obits, int lbits, const VlQueue<T>& q) VL_PURE {
     QData ret = 0;
-    for (int bit = 0; bit < obits; ++bit) {
+    const int qbits = static_cast<int>(q.size()) * lbits;
+    for (int bit = 0; bit < obits && bit < qbits; ++bit) {
         if (_vl_pack_elem_bit(q.at(bit / lbits), lbits - 1 - bit % lbits)) {
             ret |= 1ULL << (obits - 1 - bit);
         }
@@ -2285,7 +2278,8 @@ template <typename T>
 inline WDataOutP _vl_pack_leftmost_w(int obits, int lbits, WDataOutP owp,
                                      const VlQueue<T>& q) VL_PURE {
     VL_MEMSET_ZERO_W(owp, VL_WORDS_I(obits));
-    for (int bit = 0; bit < obits; ++bit) {
+    const int qbits = static_cast<int>(q.size()) * lbits;
+    for (int bit = 0; bit < obits && bit < qbits; ++bit) {
         if (_vl_pack_elem_bit(q.at(bit / lbits), lbits - 1 - bit % lbits)) {
             const int obit = obits - 1 - bit;
             owp[VL_BITWORD_E(obit)] |= VL_EUL(1) << VL_BITBIT_E(obit);
@@ -2295,7 +2289,7 @@ inline WDataOutP _vl_pack_leftmost_w(int obits, int lbits, WDataOutP owp,
 }
 template <typename T>
 inline bool _vl_pack_is_leftmost(int obits, int lbits, const VlQueue<T>& q) VL_PURE {
-    return q.size() * lbits > static_cast<size_t>(obits);
+    return q.size() * lbits != static_cast<size_t>(obits);
 }
 template <typename T>
 inline IData VL_PACK_LEFTMOST_I_RI(int obits, int lbits, const VlQueue<T>& q) {
@@ -2328,7 +2322,6 @@ inline QData VL_PACK_LEFTMOST_Q_RQ(int obits, int lbits, const VlQueue<QData>& q
 }
 template <std::size_t N_Words>
 inline QData VL_PACK_LEFTMOST_Q_RW(int obits, int lbits, const VlQueue<VlWide<N_Words>>& q) {
-    // Wide elements have more bits than the target, unless empty
     return _vl_pack_leftmost_q(obits, lbits, q);
 }
 template <typename T>

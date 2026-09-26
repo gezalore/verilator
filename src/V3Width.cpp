@@ -11049,8 +11049,7 @@ public:
                 AstNodeExpr* const rhsp = nodep->rhsp()->unlinkFrBack();
                 AstCvtArrayToPacked* const newp
                     = new AstCvtArrayToPacked{rhsp->fileline(), rhsp, streamp->dtypep()};
-                // Unpacking consumes the leftmost bits of a larger queue (IEEE 1800-2023
-                // 11.4.14.3)
+                // Unpacking consumes the leftmost bits of the queue (IEEE 1800-2023 11.4.14.3)
                 newp->leftmost(!VN_IS(rhsDTypep, UnpackArrayDType));
                 nodep->rhsp(newp);
             }
