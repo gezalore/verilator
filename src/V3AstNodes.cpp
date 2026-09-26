@@ -1181,6 +1181,14 @@ void AstCvtArrayToArray::dumpJson(std::ostream& str) const {
     dumpJsonNumFunc(str, srcElementBits);
     dumpJsonGen(str);
 }
+void AstCvtArrayToPacked::dump(std::ostream& str) const {
+    Super::dump(str);
+    if (leftmost()) str << " [LEFTMOST]";
+}
+void AstCvtArrayToPacked::dumpJson(std::ostream& str) const {
+    dumpJsonBoolFuncIf(str, leftmost);
+    dumpJsonGen(str);
+}
 void AstDelay::dump(std::ostream& str) const {
     Super::dump(str);
     if (isCycleDelay()) str << " [CYCLE]";

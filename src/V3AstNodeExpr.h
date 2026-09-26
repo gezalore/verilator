@@ -1319,6 +1319,7 @@ public:
 class AstCvtArrayToPacked final : public AstNodeExpr {
     // Cast from dynamic queue data type to packed array
     // @astgen op1 := fromp : AstNodeExpr
+    bool m_leftmost = false;  // Larger queue gives its leftmost bits, as for a streaming unpack
 public:
     // cppcheck-suppress constParameterPointer
     // cppcheck-suppress constParameterCallback
@@ -1328,9 +1329,16 @@ public:
         dtypeFrom(dtp);
     }
     ASTGEN_MEMBERS_AstCvtArrayToPacked;
+    void dump(std::ostream& str) const override;
+    void dumpJson(std::ostream& str) const override;
     string emitVerilog() override { V3ERROR_NA_RETURN(""); }
     string emitC() override { V3ERROR_NA_RETURN(""); }
     bool cleanOut() const override { return true; }
+    bool sameNode(const AstNode* samep) const override {
+        return m_leftmost == VN_DBG_AS(samep, CvtArrayToPacked)->m_leftmost;
+    }
+    bool leftmost() const { return m_leftmost; }
+    void leftmost(bool flag) { m_leftmost = flag; }
 };
 class AstCvtPackedToArray final : public AstNodeExpr {
     // Cast from packed array to dynamic/unpacked queue data type

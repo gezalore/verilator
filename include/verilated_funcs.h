@@ -1678,6 +1678,24 @@ inline void _vl_stream_to_queue(int lbits, int ebits, VlQueue<T>& q,
         q.push_back(value);
     }
 }
+template <std::size_t N_Words>
+inline void _vl_stream_to_queue(int lbits, int ebits, VlQueue<VlWide<N_Words>>& q,
+                                WDataInP const lwp) VL_MT_SAFE {
+    q.clear();
+    const int size = (lbits + ebits - 1) / ebits;
+    for (int elem = 0; elem < size; ++elem) {
+        VlWide<N_Words> value;
+        VL_ZERO_W(N_Words * VL_EDATASIZE, value);
+        for (int ebit = 0; ebit < ebits; ++ebit) {
+            const int sbit = lbits - 1 - (elem * ebits + ebit);
+            if (sbit >= 0 && VL_BITISSET_W(lwp, sbit)) {
+                const int obit = ebits - 1 - ebit;
+                value[VL_BITWORD_E(obit)] |= VL_EUL(1) << VL_BITBIT_E(obit);
+            }
+        }
+        q.push_back(value);
+    }
+}
 
 template <typename T>
 inline void VL_STREAML_FAST_RII(int lbits, int ebits, VlQueue<T>& q, IData ld,
@@ -1685,17 +1703,6 @@ inline void VL_STREAML_FAST_RII(int lbits, int ebits, VlQueue<T>& q, IData ld,
     VlWide<VL_WQ_WORDS_E> value;
     VL_SET_WI(value, VL_STREAML_FAST_III(lbits, ld, rd_log2));
     _vl_stream_to_queue(lbits, ebits, q, value);
-}
-
-template <std::size_t N_Words>
-inline void VL_STREAML_FAST_RII(int lbits, int /*ebits*/, VlQueue<VlWide<N_Words>>& q, IData ld,
-                                IData rd_log2) VL_PURE {
-    const IData ret = VL_STREAML_FAST_III(lbits, ld, rd_log2);
-    q.clear();
-    VlWide<N_Words> value;
-    VL_ZERO_W(N_Words * VL_EDATASIZE, value);
-    value[0] = ret;
-    q.push_back(value);
 }
 
 template <typename T>
@@ -1706,33 +1713,12 @@ inline void VL_STREAML_FAST_RQI(int lbits, int ebits, VlQueue<T>& q, QData ld,
     _vl_stream_to_queue(lbits, ebits, q, value);
 }
 
-template <std::size_t N_Words>
-inline void VL_STREAML_FAST_RQI(int lbits, int /*ebits*/, VlQueue<VlWide<N_Words>>& q, QData ld,
-                                IData rd_log2) VL_PURE {
-    const QData ret = VL_STREAML_FAST_QQI(lbits, ld, rd_log2);
-    q.clear();
-    VlWide<N_Words> value;
-    value[N_Words - 1] = static_cast<EData>(ret >> 32);
-    value[N_Words - 2] = static_cast<EData>(ret);
-    for (int i = N_Words - 3; i >= 0; i--) value[i] = 0;
-    q.push_back(value);
-}
-
 template <typename T>
 inline void VL_STREAMR_RII(int lbits, int ebits, VlQueue<T>& q, IData ld,
                            IData /*rd_log2*/) VL_MT_SAFE {
     VlWide<VL_WQ_WORDS_E> value;
     VL_SET_WI(value, ld);
     _vl_stream_to_queue(lbits, ebits, q, value);
-}
-
-template <std::size_t N_Words>
-inline void VL_STREAMR_RII(int lbits, int /*ebits*/, VlQueue<VlWide<N_Words>>& q, IData ld,
-                           IData rd_log2) VL_PURE {
-    q.clear();
-    VlWide<N_Words> value;
-    VL_SET_WI(value, ld);
-    q.push_back(value);
 }
 
 template <typename T>
@@ -1789,32 +1775,10 @@ inline IData VL_STREAMR_QRI(int lbits, VlQueue<T>& q, IData rd_log2) VL_PURE {
     return value;
 }
 
-template <std::size_t N_Words>
-inline void VL_STREAMR_RQI(int lbits, int /*ebits*/, VlQueue<VlWide<N_Words>>& q, QData ld,
-                           IData rd_log2) VL_PURE {
-    q.clear();  // Empty the queue first
-    VlWide<N_Words> value;
-    VL_SET_WQ(value, ld);
-    q.push_back(value);
-}
-
 template <typename T>
 inline void VL_STREAMR_RWI(int lbits, int ebits, VlQueue<T>& q, WDataInP const lwp,
                            IData /*rd_log2*/) VL_MT_SAFE {
     _vl_stream_to_queue(lbits, ebits, q, lwp);
-}
-
-template <std::size_t N_Words>
-inline void VL_STREAMR_RWI(int lbits, int /*ebits*/, VlQueue<VlWide<N_Words>>& q,
-                           WDataInP const lwp, IData rd_log2) VL_PURE {
-    q.clear();  // Empty the queue first
-    const int numWords = VL_BITWORD_E(lbits);
-    VlWide<N_Words> value;
-    for (int ii = 0; ii < N_Words; ii++) { value.at(ii) = 0; }
-    for (int word = numWords - 1; word >= 0; word--) {
-        value.at(word) = lwp[word];
-        if ((word % N_Words) == 0) { q.push_back(value); }
-    }
 }
 
 template <typename T>
@@ -2018,24 +1982,6 @@ inline void VL_STREAML_RII(int lbits, int queueBits, VlQueue<T>& q, IData ld,
     _vl_stream_to_queue(lbits, queueBits, q, value);
 }
 
-template <std::size_t N_Words>
-inline void VL_STREAML_RII(int lbits, int queueBits, VlQueue<VlWide<N_Words>>& q, IData ld,
-                           IData rd) VL_MT_SAFE {
-    if (lbits < queueBits) { lbits = queueBits; }
-    IData ret = 0;
-    // Slice size should never exceed the lhs width
-    const IData mask = VL_MASK_I(rd);
-    for (int istart = 0; istart < lbits; istart += rd) {
-        int ostart = lbits - rd - istart;
-        ostart = ostart > 0 ? ostart : 0;
-        ret |= ((ld >> istart) & mask) << ostart;
-    }
-    q.clear();
-    VlWide<N_Words> value;
-    value[0] = ret;
-    q.push_back(value);
-}
-
 inline QData VL_STREAML_QQI(int lbits, QData ld, IData rd) VL_PURE {
     QData ret = 0;
     // Slice size should never exceed the lhs width
@@ -2054,17 +2000,6 @@ inline void VL_STREAML_RQI(int lbits, int queueBits, VlQueue<T>& q, QData ld,
     VlWide<VL_WQ_WORDS_E> value;
     VL_SET_WQ(value, VL_STREAML_QQI(lbits, ld, rd));
     _vl_stream_to_queue(lbits, queueBits, q, value);
-}
-
-template <std::size_t N_Words>
-inline void VL_STREAML_RQI(int lbits, int /*queueBits*/, VlQueue<VlWide<N_Words>>& q, QData ld,
-                           IData rd) VL_MT_SAFE {
-    const QData ret = VL_STREAML_QQI(lbits, ld, rd);
-    q.clear();
-    VlWide<N_Words> value;
-    VL_ZERO_W(N_Words * VL_EDATASIZE, value);
-    VL_SET_WQ(value, ret);
-    q.push_back(value);
 }
 
 inline WDataOutP VL_STREAML_WWI(int lbits, WDataOutP owp, WDataInP const lwp,
@@ -2092,29 +2027,6 @@ inline void VL_STREAML_RWI(int lbits, int queueBits, VlQueue<T>& q, WDataInP con
     std::vector<EData> value(VL_WORDS_I(lbits));
     VL_STREAML_WWI(lbits, WDataOutP::external(value.data()), lwp, rd);
     _vl_stream_to_queue(lbits, queueBits, q, WDataInP::external(value.data()));
-}
-
-template <std::size_t N_Words>
-inline void VL_STREAML_RWI(int lbits, int queueBits, VlQueue<VlWide<N_Words>>& q,
-                           WDataInP const lwp, IData rd) VL_MT_SAFE {
-    VL_CONSTEXPR_CXX17 int numBitsInT = 4 * N_Words * 8;
-    if (lbits < queueBits) {  // this handles the case where the queue is larger than the rhs
-        lbits = queueBits;
-    }
-    const int leftOver = (lbits % numBitsInT) > 0;
-    q.renew(lbits / numBitsInT + leftOver);
-    const int ssize = (rd < static_cast<IData>(lbits)) ? rd : (static_cast<IData>(lbits));
-    for (int istart = 0; istart < lbits; istart += rd) {
-        int ostart = lbits - rd - istart;
-        ostart = ostart > 0 ? ostart : 0;
-        for (int sbit = 0; sbit < ssize && sbit < lbits - istart; ++sbit) {
-            const EData bit = (VL_BITRSHIFT_W(lwp, (istart + sbit)) & 1)
-                              << VL_BITBIT_E(ostart + sbit);
-            int qIndex = istart / numBitsInT;
-            int wordInWide = VL_BITWORD_E(ostart % numBitsInT);
-            q.atWrite(qIndex).at(wordInWide) |= (bit);
-        }
-    }
 }
 
 inline IData VL_PACK_I_RI(int /*obits*/, int lbits, const VlQueue<CData>& q) {
@@ -2350,6 +2262,90 @@ inline WDataOutP VL_PACK_W_UW(int obits, int lbits, WDataOutP owp,
     for (size_t i = 0; i < N_Depth; ++i)
         _vl_insert_WW(owp, q[N_Depth - 1 - i], i * lbits + lbits - 1 + offset, i * lbits + offset);
     return owp;
+}
+
+// Pack a queue for a streaming unpack. If the queue has more bits than the target, its
+// leftmost bits are used (IEEE 1800-2023 11.4.14.3).
+inline bool _vl_pack_elem_bit(QData elem, int bit) VL_PURE { return (elem >> bit) & 1; }
+template <std::size_t N_Words>
+inline bool _vl_pack_elem_bit(const VlWide<N_Words>& elem, int bit) VL_PURE {
+    return VL_BITISSET_W(elem, bit);
+}
+template <typename T>
+inline QData _vl_pack_leftmost_q(int obits, int lbits, const VlQueue<T>& q) VL_PURE {
+    QData ret = 0;
+    for (int bit = 0; bit < obits; ++bit) {
+        if (_vl_pack_elem_bit(q.at(bit / lbits), lbits - 1 - bit % lbits)) {
+            ret |= 1ULL << (obits - 1 - bit);
+        }
+    }
+    return ret;
+}
+template <typename T>
+inline WDataOutP _vl_pack_leftmost_w(int obits, int lbits, WDataOutP owp,
+                                     const VlQueue<T>& q) VL_PURE {
+    VL_MEMSET_ZERO_W(owp, VL_WORDS_I(obits));
+    for (int bit = 0; bit < obits; ++bit) {
+        if (_vl_pack_elem_bit(q.at(bit / lbits), lbits - 1 - bit % lbits)) {
+            const int obit = obits - 1 - bit;
+            owp[VL_BITWORD_E(obit)] |= VL_EUL(1) << VL_BITBIT_E(obit);
+        }
+    }
+    return owp;
+}
+template <typename T>
+inline bool _vl_pack_is_leftmost(int obits, int lbits, const VlQueue<T>& q) VL_PURE {
+    return q.size() * lbits > static_cast<size_t>(obits);
+}
+template <typename T>
+inline IData VL_PACK_LEFTMOST_I_RI(int obits, int lbits, const VlQueue<T>& q) {
+    if (_vl_pack_is_leftmost(obits, lbits, q)) {
+        return static_cast<IData>(_vl_pack_leftmost_q(obits, lbits, q));
+    }
+    return VL_PACK_I_RI(obits, lbits, q);
+}
+inline IData VL_PACK_LEFTMOST_I_RQ(int obits, int lbits, const VlQueue<QData>& q) {
+    if (_vl_pack_is_leftmost(obits, lbits, q)) {
+        return static_cast<IData>(_vl_pack_leftmost_q(obits, lbits, q));
+    }
+    return VL_PACK_I_RQ(obits, lbits, q);
+}
+template <std::size_t N_Words>
+inline IData VL_PACK_LEFTMOST_I_RW(int obits, int lbits, const VlQueue<VlWide<N_Words>>& q) {
+    if (_vl_pack_is_leftmost(obits, lbits, q)) {
+        return static_cast<IData>(_vl_pack_leftmost_q(obits, lbits, q));
+    }
+    return VL_PACK_I_RW(obits, lbits, q);
+}
+template <typename T>
+inline QData VL_PACK_LEFTMOST_Q_RI(int obits, int lbits, const VlQueue<T>& q) {
+    if (_vl_pack_is_leftmost(obits, lbits, q)) return _vl_pack_leftmost_q(obits, lbits, q);
+    return VL_PACK_Q_RI(obits, lbits, q);
+}
+inline QData VL_PACK_LEFTMOST_Q_RQ(int obits, int lbits, const VlQueue<QData>& q) {
+    if (_vl_pack_is_leftmost(obits, lbits, q)) return _vl_pack_leftmost_q(obits, lbits, q);
+    return VL_PACK_Q_RQ(obits, lbits, q);
+}
+template <std::size_t N_Words>
+inline QData VL_PACK_LEFTMOST_Q_RW(int obits, int lbits, const VlQueue<VlWide<N_Words>>& q) {
+    // Wide elements have more bits than the target, unless empty
+    return _vl_pack_leftmost_q(obits, lbits, q);
+}
+template <typename T>
+inline WDataOutP VL_PACK_LEFTMOST_W_RI(int obits, int lbits, WDataOutP owp, const VlQueue<T>& q) {
+    if (_vl_pack_is_leftmost(obits, lbits, q)) return _vl_pack_leftmost_w(obits, lbits, owp, q);
+    return VL_PACK_W_RI(obits, lbits, owp, q);
+}
+inline WDataOutP VL_PACK_LEFTMOST_W_RQ(int obits, int lbits, WDataOutP owp,
+                                       const VlQueue<QData>& q) {
+    if (_vl_pack_is_leftmost(obits, lbits, q)) return _vl_pack_leftmost_w(obits, lbits, owp, q);
+    return VL_PACK_W_RQ(obits, lbits, owp, q);
+}
+template <std::size_t N_Words>
+inline WDataOutP VL_PACK_LEFTMOST_W_RW(int obits, int lbits, WDataOutP owp,
+                                       const VlQueue<VlWide<N_Words>>& q) {
+    if (_vl_pack_is_leftmost(obits, lbits, q)) return _vl_pack_leftmost_w(obits, lbits, owp, q);
+    return VL_PACK_W_RW(obits, lbits, owp, q);
 }
 
 // Because concats are common and wide, it's valuable to always have a clean output.

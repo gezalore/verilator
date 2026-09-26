@@ -296,7 +296,8 @@ module t;
     vlwide_pkt_129 = {>>{i_header, i_len, i_crc, i_data}};
     {>>{o_header, o_len, o_crc, o_data}} = vlwide_pkt_129;
 
-    `checks_w(129, {>>{vlwide_pkt_129}}, {>>{1'b0, i_header, i_len, i_crc, i_data}});
+    // Partial last element is zero filled on the right (IEEE 1800-2023 11.4.14)
+    `checks_w(129, {>>{vlwide_pkt_129}}, {>>{i_header, i_len, i_crc, i_data, 1'b0}});
     `checks({o_header, o_len, o_crc, o_data}, {i_header, i_len, i_crc, i_data});
 
     //---------- into other queues ------

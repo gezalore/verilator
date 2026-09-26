@@ -11043,9 +11043,16 @@ public:
                 nodep->lhsp(dstp);
                 nodep->rhsp(new AstCvtPackedToArray{srcp->fileline(), srcp, lhsStreamDTypep});
                 nodep->dtypeFrom(dstp);
-            } else if (VN_IS(rhsDTypep, UnpackArrayDType)) {
+            } else if (VN_IS(rhsDTypep, UnpackArrayDType)
+                       || ((VN_IS(rhsDTypep, QueueDType) || VN_IS(rhsDTypep, DynArrayDType))
+                           && VN_IS(streamp->dtypep()->skipRefp(), BasicDType))) {
                 AstNodeExpr* const rhsp = nodep->rhsp()->unlinkFrBack();
-                nodep->rhsp(new AstCvtArrayToPacked{rhsp->fileline(), rhsp, streamp->dtypep()});
+                AstCvtArrayToPacked* const newp
+                    = new AstCvtArrayToPacked{rhsp->fileline(), rhsp, streamp->dtypep()};
+                // Unpacking consumes the leftmost bits of a larger queue (IEEE 1800-2023
+                // 11.4.14.3)
+                newp->leftmost(!VN_IS(rhsDTypep, UnpackArrayDType));
+                nodep->rhsp(newp);
             }
         }
     }

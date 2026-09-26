@@ -529,7 +529,7 @@ public:
                 return !unpackDtp->declRange().ascending();
             return false;
         }();
-        puts("VL_PACK_");
+        puts(nodep->leftmost() ? "VL_PACK_LEFTMOST_" : "VL_PACK_");
         emitIQW(nodep);
         puts("_");
         emitRU(fromDtp);
