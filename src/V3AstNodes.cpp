@@ -1184,9 +1184,11 @@ void AstCvtArrayToArray::dumpJson(std::ostream& str) const {
 void AstCvtArrayToPacked::dump(std::ostream& str) const {
     Super::dump(str);
     if (leftmost()) str << " [LEFTMOST]";
+    str << " streamWidth=" << streamWidth();
 }
 void AstCvtArrayToPacked::dumpJson(std::ostream& str) const {
     dumpJsonBoolFuncIf(str, leftmost);
+    dumpJsonNumFunc(str, streamWidth);
     dumpJsonGen(str);
 }
 void AstDelay::dump(std::ostream& str) const {

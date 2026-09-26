@@ -1320,11 +1320,13 @@ class AstCvtArrayToPacked final : public AstNodeExpr {
     // Cast from dynamic queue data type to packed array
     // @astgen op1 := fromp : AstNodeExpr
     bool m_leftmost = false;  // Stream in leftmost bits of target, as for streaming (un)pack
+    const int m_streamWidth;  // Target width, which later passes may narrow the dtype below
 public:
     // cppcheck-suppress constParameterPointer
     // cppcheck-suppress constParameterCallback
     AstCvtArrayToPacked(FileLine* fl, AstNodeExpr* fromp, AstNodeDType* dtp)
-        : ASTGEN_SUPER_CvtArrayToPacked(fl) {
+        : ASTGEN_SUPER_CvtArrayToPacked(fl)
+        , m_streamWidth{dtp->width()} {
         this->fromp(fromp);
         dtypeFrom(dtp);
     }
@@ -1335,10 +1337,12 @@ public:
     string emitC() override { V3ERROR_NA_RETURN(""); }
     bool cleanOut() const override { return true; }
     bool sameNode(const AstNode* samep) const override {
-        return m_leftmost == VN_DBG_AS(samep, CvtArrayToPacked)->m_leftmost;
+        const AstCvtArrayToPacked* const asamep = VN_DBG_AS(samep, CvtArrayToPacked);
+        return m_leftmost == asamep->m_leftmost && m_streamWidth == asamep->m_streamWidth;
     }
     bool leftmost() const { return m_leftmost; }
     void leftmost(bool flag) { m_leftmost = flag; }
+    int streamWidth() const { return m_streamWidth; }
 };
 class AstCvtPackedToArray final : public AstNodeExpr {
     // Cast from packed array to dynamic/unpacked queue data type

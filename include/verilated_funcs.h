@@ -2265,9 +2265,10 @@ inline bool _vl_pack_elem_bit(const VlWide<N_Words>& elem, int bit) VL_PURE {
 }
 template <typename T>
 inline QData _vl_pack_leftmost_q(int obits, int lbits, const VlQueue<T>& q) VL_PURE {
+    // Low 64 bits of the obits wide result
     QData ret = 0;
     const int qbits = static_cast<int>(q.size()) * lbits;
-    for (int bit = 0; bit < obits && bit < qbits; ++bit) {
+    for (int bit = std::max(0, obits - VL_QUADSIZE); bit < obits && bit < qbits; ++bit) {
         if (_vl_pack_elem_bit(q.at(bit / lbits), lbits - 1 - bit % lbits)) {
             ret |= 1ULL << (obits - 1 - bit);
         }
@@ -2293,32 +2294,21 @@ inline bool _vl_pack_is_leftmost(int obits, int lbits, const VlQueue<T>& q) VL_P
 }
 template <typename T>
 inline IData VL_PACK_LEFTMOST_I_RI(int obits, int lbits, const VlQueue<T>& q) {
-    if (_vl_pack_is_leftmost(obits, lbits, q)) {
-        return static_cast<IData>(_vl_pack_leftmost_q(obits, lbits, q));
-    }
-    return VL_PACK_I_RI(obits, lbits, q);
+    return static_cast<IData>(_vl_pack_leftmost_q(obits, lbits, q));
 }
 inline IData VL_PACK_LEFTMOST_I_RQ(int obits, int lbits, const VlQueue<QData>& q) {
-    if (_vl_pack_is_leftmost(obits, lbits, q)) {
-        return static_cast<IData>(_vl_pack_leftmost_q(obits, lbits, q));
-    }
-    return VL_PACK_I_RQ(obits, lbits, q);
+    return static_cast<IData>(_vl_pack_leftmost_q(obits, lbits, q));
 }
 template <std::size_t N_Words>
 inline IData VL_PACK_LEFTMOST_I_RW(int obits, int lbits, const VlQueue<VlWide<N_Words>>& q) {
-    if (_vl_pack_is_leftmost(obits, lbits, q)) {
-        return static_cast<IData>(_vl_pack_leftmost_q(obits, lbits, q));
-    }
-    return VL_PACK_I_RW(obits, lbits, q);
+    return static_cast<IData>(_vl_pack_leftmost_q(obits, lbits, q));
 }
 template <typename T>
 inline QData VL_PACK_LEFTMOST_Q_RI(int obits, int lbits, const VlQueue<T>& q) {
-    if (_vl_pack_is_leftmost(obits, lbits, q)) return _vl_pack_leftmost_q(obits, lbits, q);
-    return VL_PACK_Q_RI(obits, lbits, q);
+    return static_cast<QData>(_vl_pack_leftmost_q(obits, lbits, q));
 }
 inline QData VL_PACK_LEFTMOST_Q_RQ(int obits, int lbits, const VlQueue<QData>& q) {
-    if (_vl_pack_is_leftmost(obits, lbits, q)) return _vl_pack_leftmost_q(obits, lbits, q);
-    return VL_PACK_Q_RQ(obits, lbits, q);
+    return static_cast<QData>(_vl_pack_leftmost_q(obits, lbits, q));
 }
 template <std::size_t N_Words>
 inline QData VL_PACK_LEFTMOST_Q_RW(int obits, int lbits, const VlQueue<VlWide<N_Words>>& q) {

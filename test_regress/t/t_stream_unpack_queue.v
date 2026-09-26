@@ -21,6 +21,7 @@ module t;
   logic [63:0] q64;
   logic [79:0] w80;
   logic [31:0] b, c;
+  logic [7:0] b8, c8;
 
   initial begin
     bq = '{8'h01, 8'h02, 8'h03, 8'h04};
@@ -46,6 +47,18 @@ module t;
     bq = '{8'h01, 8'h02, 8'h03, 8'h04, 8'h05, 8'h06, 8'h07, 8'h08, 8'h09, 8'h0a, 8'h0b, 8'h0c};
     {>>{w80}} = bq;
     `checkh(w80, 80'h0102030405060708090a);
+
+    // Into several variables
+    bq = '{8'h01, 8'h02, 8'h03, 8'h04};
+    {>>{b8, c8}} = bq;
+    `checkh(b8, 8'h01);
+    `checkh(c8, 8'h02);
+    {>>{b8, c8}} = {>>8{bq}};
+    `checkh(b8, 8'h01);
+    `checkh(c8, 8'h02);
+    {>>{h, b8}} = bq;
+    `checkh(h, 16'h0102);
+    `checkh(b8, 8'h03);
 
     // Round trip through a queue of wide elements
     b = 32'hdeadbeef;

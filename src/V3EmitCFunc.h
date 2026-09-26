@@ -538,6 +538,10 @@ public:
             // Wrap source in VL_PACK_REVERSED so VL_PACK sees ascending order
             emitOpName(nodep, "(%nw, %rw, %P, VL_PACK_REVERSED(%li))", nodep->fromp(), elemDtp,
                        nullptr);
+        } else if (nodep->leftmost()) {
+            // Which bits are used depends on the stream width, not the possibly narrowed dtype
+            emitOpName(nodep, "(" + cvtToStr(nodep->streamWidth()) + ", %rw, %P, %li)",
+                       nodep->fromp(), elemDtp, nullptr);
         } else {
             emitOpName(nodep, "(%nw, %rw, %P, %li)", nodep->fromp(), elemDtp, nullptr);
         }
