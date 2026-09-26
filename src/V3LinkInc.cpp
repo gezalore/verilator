@@ -401,6 +401,22 @@ class LinkIncVisitor final : public VNVisitor {
             return;
         }
         const bool needGating = m_condEvalContext && m_incCondp;
+        AstSelBit* const selbitp = VN_CAST(nodep->lhsp(), SelBit);
+        if (!needGating && selbitp && !selbitp->bitp()->isPure()) {
+            // The index is referenced multiple times below, evaluate it once into a temporary
+            FileLine* const fl = selbitp->fileline();
+            AstNodeExpr* const bitp = selbitp->bitp()->unlinkFrBack();
+            AstVar* const idxVarp = new AstVar{
+                fl, VVarType::BLOCKTEMP, "__VtempIndex"s + cvtToStr(++m_modCompoundAssignmentsNum),
+                VFlagChildDType{},
+                new AstRefDType{fl, AstRefDType::FlagTypeOfExpr{}, bitp->cloneTree(true)}};
+            idxVarp->lifetime(VLifetime::AUTOMATIC_EXPLICIT);
+            if (m_ftaskp) idxVarp->funcLocal(true);
+            insertOnTop(idxVarp);
+            insertBeforeStmt(nodep,
+                             new AstAssign{fl, new AstVarRef{fl, idxVarp, VAccess::WRITE}, bitp});
+            selbitp->bitp(new AstVarRef{fl, idxVarp, VAccess::READ});
+        }
         AstNodeExpr* const readp = nodep->lhsp();
         AstNodeExpr* const writep = nodep->lhsp()->cloneTreePure(true);
         V3LinkLValue::linkLValueSet(readp, VAccess::READ);
