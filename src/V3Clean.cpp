@@ -222,6 +222,13 @@ class CleanVisitor final : public VNVisitor {
     void visit(AstNodeAssign* nodep) override {
         iterateChildren(nodep);
         computeCppWidth(nodep);
+        // A stream assigned to a queue or dynamic array is converted from its operands
+        // when emitted, so its own value need not be clean
+        const AstNodeDType* const lhsDtp = nodep->lhsp()->dtypep()->skipRefp();
+        if (VN_IS(nodep->rhsp(), NodeStream)
+            && (VN_IS(lhsDtp, QueueDType) || VN_IS(lhsDtp, DynArrayDType))) {
+            return;
+        }
         if (nodep->cleanRhs()) ensureClean(nodep->rhsp());
     }
     void visit(AstScopeName* nodep) override {  //

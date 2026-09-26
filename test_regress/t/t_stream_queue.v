@@ -367,12 +367,13 @@ module t;
     `checks_w(256, {>>{vlwide_pkt_128}},
               {>>{i_header, i_len, i_crc, i_data, i_header, i_len, i_crc, i_data}});
 
+    // Partial last element is zero filled on the right (IEEE 1800-2023 11.4.14)
     qdata_pkt = {>>{i_header, i_len, i_crc, i_data, i_header, i_len, i_crc}};
     vlwide_pkt_128 = {>>{qdata_pkt}};
-    `checks_w(256, {32'h0, i_header, i_len, i_crc, i_data, i_header, i_len, i_crc},
+    `checks_w(256, {i_header, i_len, i_crc, i_data, i_header, i_len, i_crc, 32'h0},
               {>>{vlwide_pkt_128}});
     `checks_w(256, {>>{vlwide_pkt_128}},
-              {>>{32'h0, i_header, i_len, i_crc, i_data, i_header, i_len, i_crc}});
+              {>>{i_header, i_len, i_crc, i_data, i_header, i_len, i_crc, 32'h0}});
 
     vlwide_pkt_128 = {>>{i_header, i_len, i_crc, i_data}};
     qdata_pkt = {>>{vlwide_pkt_128}};

@@ -1695,8 +1695,11 @@ public:
         bool backpIsParent = (nodep->backp()->op1p() == nodep || nodep->backp()->op2p() == nodep);
         UASSERT(backpIsParent, "can not find return type for streamR");
         if (isQueueOrDynArray(nodep->backp())) {
-            emitOpName(nodep, "VL_STREAMR_%nq%lq%rq(%lw, %P, %li, %ri)", nodep->lhsp(),
-                       nodep->rhsp(), nullptr);
+            const int elemWidth = nodep->backp()->dtypep()->skipRefp()->subDTypep()->width();
+            emitOpName(nodep,
+                       "VL_STREAMR_%nq%lq%rq(%lw, " + std::to_string(elemWidth)
+                           + ", %P, %li, %ri)",
+                       nodep->lhsp(), nodep->rhsp(), nullptr);
         } else if (VN_IS(nodep->lhsp()->dtypep()->skipRefp(), QueueDType)) {
             if (!((nodep->backp()->op1p() && nodep->backp()->op1p()->isWide())
                   || (nodep->backp()->op2p() && nodep->backp()->op2p()->isWide()))) {
@@ -1733,6 +1736,9 @@ public:
                 puts(cvtToStr(nodep->lhsp()->widthMin()));
                 puts(", ");
                 if (usesQueue) {
+                    const AstNodeDType* const queueDtp = nodep->backp()->op2p()->dtypep();
+                    puts(cvtToStr(queueDtp->skipRefp()->subDTypep()->width()));
+                    puts(", ");
                     iterateAndNextConstNull(nodep->backp()->op2p());
                     puts(", ");
                 }
