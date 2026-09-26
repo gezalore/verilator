@@ -2082,6 +2082,30 @@ inline QData VL_STREAML_QQI(int lbits, QData ld, IData rd) VL_PURE {
     return ret;
 }
 
+template <typename T>
+inline void VL_STREAML_RQI(int lbits, int queueBits, VlQueue<T>& q, QData ld,
+                           IData rd) VL_MT_SAFE {
+    if (lbits < queueBits) lbits = queueBits;
+    const QData ret = VL_STREAML_QQI(lbits, ld, rd);
+    q.clear();
+    VL_CONSTEXPR_CXX17 int numBitsPerQElem = sizeof(T) * 8;
+    VL_CONSTEXPR_CXX17 int qElementPerQuad = numBitsPerQElem < 64 ? 64 / numBitsPerQElem : 1;
+    for (int i = 0; i < qElementPerQuad; ++i) {
+        q.push_back(static_cast<T>(ret >> ((qElementPerQuad - i - 1) * numBitsPerQElem)));
+    }
+}
+
+template <std::size_t N_Words>
+inline void VL_STREAML_RQI(int lbits, int /*queueBits*/, VlQueue<VlWide<N_Words>>& q, QData ld,
+                           IData rd) VL_MT_SAFE {
+    const QData ret = VL_STREAML_QQI(lbits, ld, rd);
+    q.clear();
+    VlWide<N_Words> value;
+    VL_ZERO_W(N_Words * VL_EDATASIZE, value);
+    VL_SET_WQ(value, ret);
+    q.push_back(value);
+}
+
 inline WDataOutP VL_STREAML_WWI(int lbits, WDataOutP owp, WDataInP const lwp,
                                 IData rd) VL_MT_SAFE {
     VL_ZERO_W(lbits, owp);
