@@ -3200,6 +3200,14 @@ class ConstVisitor final : public VNVisitor {
         VL_DO_DANGLING(pushDeletep(nodep), nodep);
     }
 
+    bool operandSelConcatDropsPure(const AstSel* nodep) {
+        // SEL(CONCAT(a,b),...) may drop a or b, which must not have side effects
+        const AstConcat* const conp = VN_AS(nodep->fromp(), Concat);
+        const int rhsWidth = conp->rhsp()->width();
+        if (static_cast<int>(nodep->lsbConst()) >= rhsWidth) return conp->rhsp()->isPure();
+        if (static_cast<int>(nodep->msbConst()) < rhsWidth) return conp->lhsp()->isPure();
+        return true;
+    }
     void replaceSelConcat(AstSel* nodep) {
         // SEL(CONCAT(a,b),c,d) => SEL(a or b, . .)
         AstConcat* const conp = VN_AS(nodep->fromp(), Concat);
@@ -4613,7 +4621,7 @@ class ConstVisitor final : public VNVisitor {
     TREEOPV("AstSel{$fromp.castXor, operandSelBiLower(nodep)}", "DONE");
     TREEOPV("AstSel{$fromp.castShiftR, operandSelShiftLower(nodep)}",   "DONE");
     TREEOPA("AstSel{$fromp.castConst, $lsbp.castConst, }",   "replaceConst(nodep)");
-    TREEOPV("AstSel{$fromp.castConcat, $lsbp.castConst, }",  "replaceSelConcat(nodep)");
+    TREEOPV("AstSel{$fromp.castConcat, $lsbp.castConst, operandSelConcatDropsPure(nodep)}",  "replaceSelConcat(nodep)");
     TREEOPV("AstSel{$fromp.castReplicate, $lsbp.castConst, operandSelReplicate(nodep) }",    "DONE");
     // V3Tristate requires selects below BufIf1.
     // Also do additional operators that are bit-independent, but only definite
