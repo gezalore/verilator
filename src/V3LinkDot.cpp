@@ -4593,8 +4593,9 @@ class LinkDotResolveVisitor final : public VNVisitor {
                         if (m_ds.m_unresolvedCell && m_ds.m_unlinkedScopep) {
                             const string dotted = refp->dotted();
                             const size_t pos = dotted.find("__BRA__??__KET__");
-                            // Arrays of interfaces all have the same parameters
-                            if (pos != string::npos && varp->isParam()
+                            // Arrays of interfaces all have the same parameters,
+                            // but generate loop iterations may not
+                            if (pos != string::npos && varp->isParam() && !m_ds.m_genBlk
                                 && VN_IS(m_ds.m_unlinkedScopep, CellArrayRef)) {
                                 refp->dotted(dotted.substr(0, pos));
                                 newp = refp;
