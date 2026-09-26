@@ -1,0 +1,10 @@
+%Error-UNSUPPORTED: t/t_queue_bits_unsup.v:11:9: Unsupported: $bits for queue
+                                               : ... note: In instance 't'
+   11 |     x = $bits(q);
+      |         ^~~~~
+                    ... For error description see https://verilator.org/warn/UNSUPPORTED?v=latest
+%Error-UNSUPPORTED: t/t_queue_bits_unsup.v:12:21: Unsupported: $bits for queue
+                                                : ... note: In instance 't'
+   12 |     $display("%0d", $bits(q));
+      |                     ^~~~~
+%Error: Exiting due to

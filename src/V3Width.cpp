@@ -2508,6 +2508,9 @@ class WidthVisitor final : public VNVisitor {
                     } else {
                         nodep->v3warn(E_UNSUPPORTED, "Unsupported: $bits for queue");
                     }
+                    AstNode* const newp = new AstConst(nodep->fileline(), AstConst::Signed32{}, 0);
+                    nodep->replaceWith(newp);
+                    VL_DO_DANGLING(deleteTreeCaptured(nodep), nodep);
                     break;
                 }
                 default: nodep->v3fatalSrc("Unhandled attribute type");
