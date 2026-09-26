@@ -1,0 +1,34 @@
+%Error-UNSUPPORTED: t/t_stream_concat_dynamic_unsup.v:13:16: Unsupported: Streaming concatenation of dynamically sized array with other expressions
+                                                           : ... note: In instance 't'
+   13 |     x = {>>{a, bq}};
+      |                ^~
+                    ... For error description see https://verilator.org/warn/UNSUPPORTED?v=latest
+%Warning-WIDTHEXPAND: t/t_stream_concat_dynamic_unsup.v:13:7: Operator ASSIGN expects 64 bits on the Assign RHS, but Assign RHS's STREAMR generates 33 bits.
+                                                            : ... note: In instance 't'
+   13 |     x = {>>{a, bq}};
+      |       ^
+                      ... For warning description see https://verilator.org/warn/WIDTHEXPAND?v=latest
+                      ... Use "/* verilator lint_off WIDTHEXPAND */" and lint_on around source to disable this message.
+%Error-UNSUPPORTED: t/t_stream_concat_dynamic_unsup.v:14:14: Unsupported: Streaming concatenation of dynamically sized array with other expressions
+                                                           : ... note: In instance 't'
+   14 |     x = {<<8{bq, bd}};
+      |              ^~
+%Error-UNSUPPORTED: t/t_stream_concat_dynamic_unsup.v:14:18: Unsupported: Streaming concatenation of dynamically sized array with other expressions
+                                                           : ... note: In instance 't'
+   14 |     x = {<<8{bq, bd}};
+      |                  ^~
+%Warning-WIDTHEXPAND: t/t_stream_concat_dynamic_unsup.v:14:7: Operator ASSIGN expects 64 bits on the Assign RHS, but Assign RHS's STREAML generates 2 bits.
+                                                            : ... note: In instance 't'
+   14 |     x = {<<8{bq, bd}};
+      |       ^
+%Error-UNSUPPORTED: t/t_stream_concat_dynamic_unsup.v:15:12: Unsupported: Streaming concatenation of dynamically sized array with other expressions
+                                                           : ... note: In instance 't'
+   15 |     {>>{a, bd}} = x;
+      |            ^~
+%Warning-WIDTHTRUNC: t/t_stream_concat_dynamic_unsup.v:15:17: Operator ASSIGN expects 33 bits on the Assign RHS, but Assign RHS's VARREF 'x' generates 64 bits.
+                                                            : ... note: In instance 't'
+   15 |     {>>{a, bd}} = x;
+      |                 ^
+                     ... For warning description see https://verilator.org/warn/WIDTHTRUNC?v=latest
+                     ... Use "/* verilator lint_off WIDTHTRUNC */" and lint_on around source to disable this message.
+%Error: Exiting due to

@@ -9599,6 +9599,7 @@ class WidthVisitor final : public VNVisitor {
         if (stage & PRELIM) {
             underp = userIterateSubtreeReturnEdits(underp, WidthVP{SELF, PRELIM}.p());
         }
+        if (integralOnly && m_streamConcat) underp = checkStreamConcatOperand(underp);
         underp
             = VN_IS(underp, NodeExpr) ? checkCvtUS(VN_AS(underp, NodeExpr), integralOnly) : underp;
         AstNodeDType* const expDTypep = underp->dtypep();
@@ -9977,6 +9978,19 @@ class WidthVisitor final : public VNVisitor {
     //----------------------------------------------------------------------
     // SIGNED/DOUBLE METHODS
 
+    AstNode* checkStreamConcatOperand(AstNode* nodep) {
+        const AstNodeDType* const dtypep = nodep->dtypep() ? nodep->dtypep()->skipRefp() : nullptr;
+        if (!VN_IS(dtypep, QueueDType) && !VN_IS(dtypep, DynArrayDType)
+            && !VN_IS(dtypep, AssocArrayDType)) {
+            return nodep;
+        }
+        nodep->v3warn(E_UNSUPPORTED, "Unsupported: Streaming concatenation of dynamically sized "
+                                     "array with other expressions");
+        AstNode* const newp = new AstConst{nodep->fileline(), AstConst::BitFalse{}};
+        nodep->replaceWith(newp);
+        VL_DO_DANGLING(pushDeletep(nodep), nodep);
+        return newp;
+    }
     AstNodeExpr* checkCvtUS(AstNodeExpr* nodep, bool fatal) {
         if (nodep && nodep->dtypep()->skipRefp()->isDouble()) {
             if (fatal) {
