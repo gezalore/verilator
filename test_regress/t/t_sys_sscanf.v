@@ -61,6 +61,12 @@ module t;
     code = $sscanf("-2", "%d", token);
     `checkh(token, 64'hfffffffffffffffe);
 
+    // Decimal values with underscores (IEEE 1800-2023 21.3.4.3)
+    code = $sscanf("1_000 -2_5", "%d %d", idx, slong);
+    `checkh(code, 2);
+    `checkh(idx, 1000);
+    `checkh(slong, -25);
+
     $finish;
   end
 

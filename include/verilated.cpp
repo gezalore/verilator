@@ -1696,6 +1696,7 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                                       std::back_insert_iterator<std::string>{t_tmp},
                                       "0123456789+-xXzZ?_");
                     if (!t_tmp[0]) goto done;
+                    t_tmp.erase(std::remove(t_tmp.begin(), t_tmp.end(), '_'), t_tmp.end());
                     if (formatAttr == VL_VFORMATATTR_SIGNED
                         || formatAttr == VL_VFORMATATTR_UNSIGNED) {
                         // Unsigned conversion negates a '-' value modulo 2^64, so
