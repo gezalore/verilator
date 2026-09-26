@@ -1696,13 +1696,12 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                                       std::back_insert_iterator<std::string>{t_tmp},
                                       "0123456789+-xXzZ?_");
                     if (!t_tmp[0]) goto done;
-                    if (formatAttr == VL_VFORMATATTR_SIGNED) {
+                    if (formatAttr == VL_VFORMATATTR_SIGNED
+                        || formatAttr == VL_VFORMATATTR_UNSIGNED) {
+                        // Unsigned conversion negates a '-' value modulo 2^64, so
+                        // gives the two's complement of negative numbers
                         QData ld = 0;
                         std::sscanf(t_tmp.c_str(), "%30" PRIu64, &ld);
-                        VL_SET_WQ(owp, ld);
-                    } else if (formatAttr == VL_VFORMATATTR_UNSIGNED) {
-                        int64_t ld = 0;
-                        std::sscanf(t_tmp.c_str(), "%30" PRId64, &ld);
                         VL_SET_WQ(owp, ld);
                     }
                     break;

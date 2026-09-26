@@ -21,6 +21,7 @@ module t;
 
   reg [255:0] line;
   reg [63:0] token;
+  longint slong;
 
   initial begin
     // All digits after % is to get line coverage in verilated.cpp
@@ -48,6 +49,17 @@ module t;
     // Input ends before the first conversion: EOF
     code = $sscanf("", "%d", idx);
     `checkh(code, -1);
+
+    // Decimal values beyond the signed 64-bit range into an unsigned target
+    code = $sscanf("18446744073709551615", "%d", token);
+    `checkh(code, 1);
+    `checkh(token, 64'hffffffffffffffff);
+    code = $sscanf("9223372036854775808", "%d", token);
+    `checkh(token, 64'h8000000000000000);
+    code = $sscanf("-9223372036854775808", "%d", slong);
+    `checkh(slong, 64'sh8000000000000000);
+    code = $sscanf("-2", "%d", token);
+    `checkh(token, 64'hfffffffffffffffe);
 
     $finish;
   end
