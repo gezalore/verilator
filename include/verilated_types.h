@@ -1166,6 +1166,9 @@ public:
         indexr = it->first;
         return 1;
     }
+    // Return lowest/highest index, or default if empty. Verilog: $low/$high
+    T_Key firstIndex() const { return m_map.empty() ? T_Key{} : m_map.cbegin()->first; }
+    T_Key lastIndex() const { return m_map.empty() ? T_Key{} : m_map.crbegin()->first; }
     // Return next element. Verilog: function int next(ref index)
     int next(T_Key& indexr) const {
         auto it = m_map.find(indexr);

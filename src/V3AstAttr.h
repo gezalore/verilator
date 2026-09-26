@@ -867,6 +867,8 @@ inline std::ostream& operator<<(std::ostream& os, const VBranchPred& rhs) {
     macro(ASSOC_ERASE,                        "erase",                  false,  "r") \
     macro(ASSOC_EXISTS,                       "exists",                 PURE,   "r") \
     macro(ASSOC_FIRST,                        "first",                  false,  "m") \
+    macro(ASSOC_FIRST_INDEX,                  "firstIndex",             PURE,   "") \
+    macro(ASSOC_LAST_INDEX,                   "lastIndex",              PURE,   "") \
     macro(ASSOC_NEXT,                         "next",                   false,  "m") \
     macro(ASSOC_SIZE,                         "size",                   PURE,   "") \
     macro(CLASS_SET_RANDMODE,                 "set_randmode",           false,  "r") \

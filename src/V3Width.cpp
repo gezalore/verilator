@@ -323,6 +323,15 @@ class WidthVisitor final : public VNVisitor {
     }
     // When fromp() is a DType (e.g. unlinked RefDType), resolve through
     // the ref chain; when it's an expression, dtypep() is already resolved.
+    // Associative array with integral index, if an array query is on its dimension
+    static AstAssocArrayDType* integralAssocQuery(const AstAttrOf* nodep, AstNodeDType* dtypep) {
+        AstAssocArrayDType* const adtypep = VN_CAST(dtypep->skipRefp(), AssocArrayDType);
+        if (!adtypep || !adtypep->keyDTypep()->skipRefp()->isIntegralOrPacked()) return nullptr;
+        if (nodep->attrType() == VAttrType::DIM_BITS) return nullptr;
+        const AstConst* const dimp = VN_CAST(nodep->dimp(), Const);
+        if (nodep->dimp() && !(dimp && dimp->toSInt() == 1)) return nullptr;
+        return adtypep;
+    }
     static AstNodeDType* fromDTypep(AstNode* fromp) {
         if (AstNodeDType* const dtypep = VN_CAST(fromp, NodeDType))
             return dtypep->skipRefOrNullp();
@@ -2515,6 +2524,60 @@ class WidthVisitor final : public VNVisitor {
                 }
                 default: nodep->v3fatalSrc("Unhandled attribute type");
                 }
+            } else if (AstAssocArrayDType* const adtypep = integralAssocQuery(nodep, dtypep)) {
+                // Associative array with integral index (IEEE 1800-2023 20.7)
+                FileLine* const flp = nodep->fileline();
+                AstNodeDType* const keyDtp = adtypep->keyDTypep()->skipRefp();
+                const int keyWidth = keyDtp->width();
+                AstNodeExpr* newp = nullptr;
+                switch (nodep->attrType()) {
+                case VAttrType::DIM_SIZE: {
+                    AstNodeExpr* const fromp = VN_AS(nodep->fromp()->unlinkFrBack(), NodeExpr);
+                    newp = new AstCMethodHard{flp, fromp, VCMethod::ASSOC_SIZE};
+                    newp->dtypeSetInt();
+                    break;
+                }
+                case VAttrType::DIM_LEFT: newp = new AstConst{flp, AstConst::Signed32{}, 0}; break;
+                case VAttrType::DIM_RIGHT: {
+                    // Highest possible index value, as an integer
+                    uint32_t maxIndex = 0xffffffffU;
+                    if (keyWidth < 32 || (keyWidth == 32 && keyDtp->isSigned())) {
+                        maxIndex = static_cast<uint32_t>(
+                            (1ULL << (keyDtp->isSigned() ? keyWidth - 1 : keyWidth)) - 1);
+                    }
+                    newp = new AstConst{flp, AstConst::Signed32{}, static_cast<int32_t>(maxIndex)};
+                    break;
+                }
+                case VAttrType::DIM_LOW:
+                case VAttrType::DIM_HIGH: {
+                    // Lowest/highest allocated index, as an integer
+                    AstNodeExpr* const fromp = VN_AS(nodep->fromp()->unlinkFrBack(), NodeExpr);
+                    AstNodeExpr* const indexp = new AstCMethodHard{
+                        flp, fromp,
+                        nodep->attrType() == VAttrType::DIM_LOW ? VCMethod::ASSOC_FIRST_INDEX
+                                                                : VCMethod::ASSOC_LAST_INDEX};
+                    indexp->dtypeFrom(keyDtp);
+                    indexp->didWidth(true);
+                    if (keyWidth < 32) {
+                        newp = keyDtp->isSigned()
+                                   ? static_cast<AstNodeExpr*>(new AstExtendS{flp, indexp})
+                                   : new AstExtend{flp, indexp};
+                    } else if (keyWidth > 32) {
+                        newp = new AstSel{flp, indexp, 0, 32};
+                    } else {
+                        newp = indexp;
+                    }
+                    newp->dtypeSetInt();
+                    break;
+                }
+                case VAttrType::DIM_INCREMENT:
+                    newp = new AstConst{flp, AstConst::Signed32{}, -1};
+                    break;
+                default: nodep->v3fatalSrc("Unhandled attribute type");
+                }
+                newp->didWidth(true);
+                nodep->replaceWith(newp);
+                VL_DO_DANGLING(deleteTreeCaptured(nodep), nodep);
             } else {
                 const std::pair<uint32_t, uint32_t> dimpair = dtypep->skipRefp()->dimensions(true);
                 const uint32_t msbdim = dimpair.first + dimpair.second;
