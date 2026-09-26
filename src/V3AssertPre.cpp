@@ -498,12 +498,18 @@ private:
                 VL_DO_DANGLING(valuep->deleteTree(), valuep);
                 return;
             }
-            sensesp = m_senip;
+            sensesp = m_senip->cloneTree(false);
+        } else if (!m_pexprp && !m_inSynchDrive) {
+            // Procedural cycle delays wait for the clocking block event, which is triggered
+            // after its inputs are sampled (IEEE 1800-2023 14.13)
+            UASSERT_OBJ(m_defaultClkEvtVarp, nodep, "Default clocking event var not pre-created");
+            sensesp = new AstSenItem{flp, VEdgeType::ET_EVENT,
+                                     new AstVarRef{flp, m_defaultClkEvtVarp, VAccess::READ}};
         } else {
-            sensesp = m_defaultClockingp->sensesp();
+            sensesp = m_defaultClockingp->sensesp()->cloneTree(false);
         }
-        AstEventControl* const controlp = new AstEventControl{
-            nodep->fileline(), new AstSenTree{flp, sensesp->cloneTree(false)}, nullptr};
+        AstEventControl* const controlp
+            = new AstEventControl{nodep->fileline(), new AstSenTree{flp, sensesp}, nullptr};
         const std::string delayName = m_cycleDlyNames.get(nodep);
         AstNodeExpr* throughoutp
             = nodep->throughoutp() ? nodep->throughoutp()->unlinkFrBack() : nullptr;
