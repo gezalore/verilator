@@ -397,7 +397,8 @@ public:
 class ActiveVisitor final : public VNVisitor {
     // NODE STATE
     //  Each call to V3Const::constify
-    //   AstVarScope::user1()           bool: This VarScope is referenced in the sensitivity list
+    //   AstVarScope::user1()           int: This VarScope is referenced in the sensitivity list,
+    //                                  2 if also read in the current process
     //   AstVarScope::user2()           bool: This VarScope is written in the current process
     //   AstNode::user4()               Used by V3Const::constify, called below
 
@@ -407,6 +408,7 @@ class ActiveVisitor final : public VNVisitor {
     bool m_allChanged = false;  // Whether all SenItem in the SenTree are ET_CHANGED
     bool m_walkingBody = false;  // Walking body of a process
     bool m_canBeComb = false;  // Whether current clocked process can be turned into a comb process
+    std::vector<AstVarScope*> m_senVscps;  // Variables in sensitivity list of current process
 
     // METHODS
     template <typename T>
@@ -432,6 +434,7 @@ class ActiveVisitor final : public VNVisitor {
             // Walk sensitivity list
             m_clockedProcess = false;
             m_allChanged = true;
+            m_senVscps.clear();
             if (oldsentreep) {
                 oldsentreep->unlinkFrBack();
                 iterateChildrenConst(oldsentreep);
@@ -445,6 +448,10 @@ class ActiveVisitor final : public VNVisitor {
                 m_canBeComb = true;
                 iterateChildrenConst(nodep);
                 m_walkingBody = false;
+                // A combinational process is only triggered by variables it reads
+                for (const AstVarScope* const vscp : m_senVscps) {
+                    if (vscp->user1() != 2) m_canBeComb = false;
+                }
                 if (m_canBeComb) m_clockedProcess = false;
             }
         }
@@ -561,7 +568,10 @@ class ActiveVisitor final : public VNVisitor {
             }
         }
 
-        nodep->sensp()->foreach([](const AstVarRef* refp) { refp->varScopep()->user1(true); });
+        nodep->sensp()->foreach([this](const AstVarRef* refp) {
+            refp->varScopep()->user1(true);
+            m_senVscps.push_back(refp->varScopep());
+        });
     }
 
     void visit(AstVarRef* nodep) override {
@@ -569,6 +579,7 @@ class ActiveVisitor final : public VNVisitor {
         if (nodep->access().isWriteOnly()) {
             vscp->user2(true);
         } else {
+            if (vscp->user1()) vscp->user1(2);
             // If the variable is read before it is written (and is not a never-changing value),
             // and is not in the sensitivity list, then this cannot be optimized into a
             // combinational process
