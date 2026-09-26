@@ -59,6 +59,7 @@ class SliceVisitor final : public VNVisitor {
     // STATE - across all visitors
     VDouble0 m_statAssigns;  // Statistic tracking
     VDouble0 m_statSliceElementSkips;  // Statistic tracking
+    int m_tempNum = 0;  // Temporary variable numbering
 
     // STATE - for current visit position (use VL_RESTORER)
     AstNode* m_assignp = nullptr;  // Assignment we are under
@@ -240,6 +241,39 @@ class SliceVisitor final : public VNVisitor {
         return newp;
     }
 
+    // A blocking assignment reading a variable it writes, e.g. a = '{a[1], a[0]}, must read
+    // all elements before writing any, so first assign the right hand side to a temporary
+    bool assignViaTempIfOverlap(AstNodeAssign* nodep) {
+        // Return true if replaced the assignment
+        if (!VN_IS(nodep, Assign)) return false;
+        std::set<const AstVarScope*> writtenVscps;
+        nodep->lhsp()->foreach([&](const AstVarRef* refp) {
+            if (refp->access().isWriteOrRW() && refp->varScopep()) {
+                writtenVscps.insert(refp->varScopep());
+            }
+        });
+        if (writtenVscps.empty()) return false;
+        const bool overlap = nodep->rhsp()->exists(
+            [&](const AstVarRef* refp) { return writtenVscps.count(refp->varScopep()) != 0; });
+        if (!overlap) return false;
+        FileLine* const flp = nodep->fileline();
+        AstScope* const scopep = (*writtenVscps.begin())->scopep();
+        AstVar* const varp
+            = new AstVar{flp, VVarType::BLOCKTEMP, "__VsliceTemp" + cvtToStr(m_tempNum++),
+                         nodep->rhsp()->dtypep()};
+        scopep->modp()->addStmtsp(varp);
+        AstVarScope* const vscp = new AstVarScope{flp, scopep, varp};
+        scopep->addVarsp(vscp);
+        AstAssign* const tempAssignp = new AstAssign{flp, new AstVarRef{flp, vscp, VAccess::WRITE},
+                                                     nodep->rhsp()->unlinkFrBack()};
+        nodep->rhsp(new AstVarRef{flp, vscp, VAccess::READ});
+        // The iterator will visit both the new assignment and this one again
+        nodep->replaceWith(tempAssignp);
+        tempAssignp->addNextHere(nodep);
+        nodep->user1(false);
+        return true;
+    }
+
     bool assignOptimize(AstNodeAssign* nodep) {
         // Return true if did optimization
         AstNodeDType* const dtp = nodep->lhsp()->dtypep()->skipRefp();
@@ -275,6 +309,8 @@ class SliceVisitor final : public VNVisitor {
                 }
             }
         }
+
+        if (assignViaTempIfOverlap(nodep)) return true;
 
         UINFO(4, "Slice optimizing " << nodep);
         ++m_statAssigns;
