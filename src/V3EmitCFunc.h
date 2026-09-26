@@ -695,7 +695,7 @@ public:
             puts(cvtToStr(nodep->widthMin()) + ", ");
             iterateAndNextConstNull(nodep->lhsp());
             puts(", ");
-        } else if (VN_IS(nodep->lhsp()->dtypep()->skipRefp(), QueueDType)
+        } else if (isQueueOrDynArray(nodep->lhsp())
                    && (VN_IS(nodep->rhsp(), StreamL) || VN_IS(nodep->lhsp(), StreamL)
                        || VN_IS(nodep->rhsp(), StreamR) || VN_IS(nodep->lhsp(), StreamR)
                        || VN_IS(nodep->rhsp(), StreamR))) {
@@ -1679,6 +1679,11 @@ public:
             emitOpName(nodep, nodep->emitC(), nodep->srcp(), nodep->countp(), nullptr);
         }
     }
+    // Queues and dynamic arrays are both VlQueue
+    static bool isQueueOrDynArray(const AstNode* nodep) {
+        const AstNodeDType* const dtypep = nodep->dtypep()->skipRefp();
+        return VN_IS(dtypep, QueueDType) || VN_IS(dtypep, DynArrayDType);
+    }
     void emitStreamR(AstStreamR* nodep, AstNode* parent) {
         //TODO: This might need to handle more cases like the visit(AstStreamR) function
         emitOpName(nodep, nodep->emitC(), nodep->lhsp(), nodep->rhsp(), nullptr);
@@ -1689,7 +1694,7 @@ public:
         //an error
         bool backpIsParent = (nodep->backp()->op1p() == nodep || nodep->backp()->op2p() == nodep);
         UASSERT(backpIsParent, "can not find return type for streamR");
-        if ((VN_IS(nodep->backp()->dtypep()->skipRefp(), QueueDType))) {
+        if (isQueueOrDynArray(nodep->backp())) {
             emitOpName(nodep, "VL_STREAMR_%nq%lq%rq(%lw, %P, %li, %ri)", nodep->lhsp(),
                        nodep->rhsp(), nullptr);
         } else if (VN_IS(nodep->lhsp()->dtypep()->skipRefp(), QueueDType)) {
@@ -1714,12 +1719,10 @@ public:
             if (isPow2 && sliceSize <= (nodep->isQuad() ? sizeof(uint64_t) : sizeof(uint32_t))) {
                 putns(nodep, "VL_STREAML_FAST_");
                 bool usesQueue = false;
-                AstQueueDType* qtypep
-                    = nodep->backp()->op2p()
-                          ? VN_CAST(nodep->backp()->op2p()->dtypep()->skipRefp(), QueueDType)
-                          : nullptr;
+                const bool toQueue
+                    = nodep->backp()->op2p() && isQueueOrDynArray(nodep->backp()->op2p());
                 if (VN_IS(nodep->backp(), Assign)
-                    && qtypep) {  // If we are assigning to a queue then emit the correct symbol
+                    && toQueue) {  // If we are assigning to a queue then emit the correct symbol
                     puts("R");  // R for queue
                     usesQueue = true;
                 } else {
@@ -1740,8 +1743,7 @@ public:
                 return;
             }
         }
-        if (VN_IS(nodep->backp(), Assign)
-            && VN_IS(nodep->backp()->op2p()->dtypep()->skipRefp(), QueueDType)) {
+        if (VN_IS(nodep->backp(), Assign) && isQueueOrDynArray(nodep->backp()->op2p())) {
             int queueWidth
                 = nodep->backp()->op2p()->dtypep()->subDTypep()->width();  //We need to know the
                                                                            //width of both sides

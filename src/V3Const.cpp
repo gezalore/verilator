@@ -1753,6 +1753,14 @@ class ConstVisitor final : public VNVisitor {
         return true;
     }
 
+    // A stream of a packed value assigned to a dynamic array is converted to the array
+    // when emitted, as for queues
+    static bool packedStreamToDynArray(const AstNodeAssign* nodep) {
+        const AstNodeStream* const streamp = VN_CAST(nodep->rhsp(), NodeStream);
+        return streamp && VN_IS(nodep->lhsp()->dtypep()->skipRefp(), DynArrayDType)
+               && VN_IS(streamp->dtypep()->skipRefp(), BasicDType);
+    }
+
     // A stream assigned to a queue or dynamic array is converted to the array when
     // emitted, so must not be folded into a packed constant
     static bool streamAssignedToArray(const AstNodeStream* nodep) {
@@ -2607,7 +2615,8 @@ class ConstVisitor final : public VNVisitor {
             replaceAssignToFixedAggregate(nodep, nodep->lhsp()->unlinkFrBack(), srcp);
             return true;
         } else if (m_doV && VN_IS(nodep->rhsp(), StreamR)
-                   && !VN_IS(nodep->lhsp()->dtypep()->skipRefp(), QueueDType)) {
+                   && !VN_IS(nodep->lhsp()->dtypep()->skipRefp(), QueueDType)
+                   && !packedStreamToDynArray(nodep)) {
             // The right-streaming operator on rhs of assignment does not
             // change the order of bits. Eliminate stream but keep its lhsp.
             // Add a cast if needed.
