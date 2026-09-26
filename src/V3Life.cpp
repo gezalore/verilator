@@ -299,6 +299,8 @@ class LifeVisitor final : public VNVisitor {
         m_sideEffect = false;
         m_lifep->clearReplaced();
         rhsp = VN_AS(iterateSubtreeReturnEdits(rhsp), NodeExpr);
+        // Don't delete the assignment if the RHS has side effects, e.g. $fgetc
+        if (!rhsp->isPure()) m_sideEffect = true;
         if (m_lifep->replaced()) {
             // We changed something, try to constant propagate, but don't delete the
             // assignment as we still need nodep to remain.
