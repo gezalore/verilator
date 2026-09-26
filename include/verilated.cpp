@@ -1509,11 +1509,12 @@ static void _vl_vsss_skipspace(FILE* fp, int& floc, const WDataInP fromp,
     }
 }
 static void _vl_vsss_read_str(FILE* fp, int& floc, const WDataInP fromp, const std::string& fstr,
-                              std::back_insert_iterator<std::string> tmpp,
-                              const char* acceptp) VL_MT_SAFE {
+                              std::back_insert_iterator<std::string> tmpp, const char* acceptp,
+                              size_t maxChars) VL_MT_SAFE {
     // Read into tmp, consisting of characters from acceptp list
+    // At most maxChars characters are read, unless maxChars is zero
     auto cp = tmpp;
-    while (true) {
+    for (size_t n = 0; !maxChars || n < maxChars; ++n) {
         int c = _vl_vsss_peek(fp, floc, fromp, fstr);
         if (c == EOF || std::isspace(c)) break;
         if (acceptp && nullptr == std::strchr(acceptp, c)) break;  // String - allow anything
@@ -1583,6 +1584,7 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
     IData got = 0;
     bool inPct = false;
     bool inIgnore = false;
+    size_t width = 0;  // Maximum field width, or zero if none
     int argn = 0;
 
     char formatAttr = '\0';  // Fetched format for _next_ argument
@@ -1610,6 +1612,7 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
         if (!inPct && pos[0] == '%') {
             inPct = true;
             inIgnore = false;
+            width = 0;
         } else if (!inPct && std::isspace(pos[0])) {  // Format spaces
             while (std::isspace(pos[1])) ++pos;
             _vl_vsss_skipspace(fp, floc, fromp, fstr);
@@ -1640,6 +1643,8 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
             case '8':  // FALLTHRU
             case '9': {
                 inPct = true;
+                // Saturate, anything this large is unlimited in practice
+                width = std::min<size_t>(width * 10 + (fmt - '0'), 1 << 30);
                 break;
             }
             case '*':
@@ -1680,7 +1685,8 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                 case 's': {
                     _vl_vsss_skipspace(fp, floc, fromp, fstr);
                     _vl_vsss_read_str(fp, floc, fromp, fstr,
-                                      std::back_insert_iterator<std::string>{t_tmp}, nullptr);
+                                      std::back_insert_iterator<std::string>{t_tmp}, nullptr,
+                                      width);
                     if (!t_tmp[0]) goto done;
                     int lpos = (static_cast<int>(t_tmp.size())) - 1;
                     int lsb = 0;
@@ -1694,7 +1700,7 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                     _vl_vsss_skipspace(fp, floc, fromp, fstr);
                     _vl_vsss_read_str(fp, floc, fromp, fstr,
                                       std::back_insert_iterator<std::string>{t_tmp},
-                                      "0123456789+-xXzZ?_");
+                                      "0123456789+-xXzZ?_", width);
                     if (!t_tmp[0]) goto done;
                     t_tmp.erase(std::remove(t_tmp.begin(), t_tmp.end(), '_'), t_tmp.end());
                     if (formatAttr == VL_VFORMATATTR_SIGNED
@@ -1713,7 +1719,7 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                     _vl_vsss_skipspace(fp, floc, fromp, fstr);
                     _vl_vsss_read_str(fp, floc, fromp, fstr,
                                       std::back_insert_iterator<std::string>{t_tmp},
-                                      "+-.0123456789eE");
+                                      "+-.0123456789eE", width);
                     if (!t_tmp[0]) goto done;
                     union {
                         double r;
@@ -1728,7 +1734,7 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                     _vl_vsss_skipspace(fp, floc, fromp, fstr);
                     _vl_vsss_read_str(fp, floc, fromp, fstr,
                                       std::back_insert_iterator<std::string>{t_tmp},
-                                      "+-.0123456789eE");
+                                      "+-.0123456789eE", width);
                     if (!t_tmp[0]) goto done;
                     // Timeunit was read earlier from up-front arguments
                     const int userUnits = Verilated::threadContextp()->impp()->timeFormatUnits();
@@ -1741,7 +1747,8 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                 case 'b': {
                     _vl_vsss_skipspace(fp, floc, fromp, fstr);
                     _vl_vsss_read_str(fp, floc, fromp, fstr,
-                                      std::back_insert_iterator<std::string>{t_tmp}, "01xXzZ?_");
+                                      std::back_insert_iterator<std::string>{t_tmp}, "01xXzZ?_",
+                                      width);
                     if (!t_tmp[0]) goto done;
                     _vl_vsss_based(owp, obits, 1, t_tmp.c_str(), 0, t_tmp.size());
                     break;
@@ -1750,7 +1757,7 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                     _vl_vsss_skipspace(fp, floc, fromp, fstr);
                     _vl_vsss_read_str(fp, floc, fromp, fstr,
                                       std::back_insert_iterator<std::string>{t_tmp},
-                                      "01234567xXzZ?_");
+                                      "01234567xXzZ?_", width);
                     if (!t_tmp[0]) goto done;
                     _vl_vsss_based(owp, obits, 3, t_tmp.c_str(), 0, t_tmp.size());
                     break;
@@ -1760,7 +1767,7 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                     _vl_vsss_skipspace(fp, floc, fromp, fstr);
                     _vl_vsss_read_str(fp, floc, fromp, fstr,
                                       std::back_insert_iterator<std::string>{t_tmp},
-                                      "0123456789abcdefABCDEFxXzZ?_");
+                                      "0123456789abcdefABCDEFxXzZ?_", width);
                     if (!t_tmp[0]) goto done;
                     _vl_vsss_based(owp, obits, 4, t_tmp.c_str(), 0, t_tmp.size());
                     break;

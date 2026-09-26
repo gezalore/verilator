@@ -67,6 +67,28 @@ module t;
     `checkh(idx, 1000);
     `checkh(slong, -25);
 
+    // Maximum field width (IEEE 1800-2023 21.3.4.3)
+    code = $sscanf("1234", "%2d%2d", idx, val);
+    `checkh(code, 2);
+    `checkh(idx, 12);
+    `checkh(val, 34);
+    code = $sscanf("abcdef", "%2h%4x", idx, val);
+    `checkh(code, 2);
+    `checkh(idx, 'hab);
+    `checkh(val, 'hcdef);
+    code = $sscanf("1100 17", "%2b%b %1o", idx, val, slong);
+    `checkh(code, 3);
+    `checkh(idx, 'b11);
+    `checkh(val, 'b00);
+    `checkh(slong, 1);
+    code = $sscanf("Hello", "%3s%s", pkt, token);
+    `checkh(code, 2);
+    `checks(pkt, "Hel");
+    `checks(token, "\0\0\0\0\0\0lo");
+    code = $sscanf("12345", "%*2d%d", idx);
+    `checkh(code, 1);
+    `checkh(idx, 345);
+
     $finish;
   end
 
