@@ -3129,7 +3129,12 @@ class WidthVisitor final : public VNVisitor {
         }
         if (m_vup->final()) {
             // CastSize not needed once sizes determined
-            AstNode* const underp = nodep->lhsp()->unlinkFrBack();
+            AstNodeExpr* underp = nodep->lhsp()->unlinkFrBack();
+            // A stream may be iterated again, keep it in an explicit cast context
+            if (VN_IS(underp, NodeStream)) {
+                underp = new AstCastWrap{nodep->fileline(), underp};
+                underp->didWidth(true);
+            }
             nodep->replaceWithKeepDType(underp);
             VL_DO_DANGLING(pushDeletep(nodep), nodep);
         }
