@@ -1060,15 +1060,41 @@ template <typename T_Value, size_t N_MaxSize>
 struct VlContainsCustomStruct<VlQueue<T_Value, N_MaxSize>> : VlContainsCustomStruct<T_Value> {};
 
 //===================================================================
+// Key ordering for associative arrays with a signed integral index type,
+// which are ordered in signed numerical order (IEEE 1800-2023 7.8.4).
+// Keys are N_Width bits wide, with the unused high bits zero.
+// Flipping the sign bit maps signed order to unsigned order.
+template <typename T_Key, int N_Width>
+struct VlAssocSignedLess final {
+    bool operator()(T_Key lhs, T_Key rhs) const {
+        constexpr T_Key signBit = static_cast<T_Key>(1) << (N_Width - 1);
+        return (lhs ^ signBit) < (rhs ^ signBit);
+    }
+};
+template <std::size_t N_Words, int N_Width>
+struct VlAssocSignedLess<VlWide<N_Words>, N_Width> final {
+    bool operator()(const VlWide<N_Words>& lhs, const VlWide<N_Words>& rhs) const {
+        constexpr EData signBit = static_cast<EData>(1) << ((N_Width - 1) % VL_EDATASIZE);
+        const EData lMsw = lhs[N_Words - 1] ^ signBit;
+        const EData rMsw = rhs[N_Words - 1] ^ signBit;
+        if (lMsw != rMsw) return lMsw < rMsw;
+        for (int i = static_cast<int>(N_Words) - 2; i >= 0; --i) {
+            if (lhs[i] != rhs[i]) return lhs[i] < rhs[i];
+        }
+        return false;
+    }
+};
+
+//===================================================================
 // Verilog associative array container
 // There are no multithreaded locks on this; the base variable must
 // be protected by other means
 //
-template <typename T_Key, typename T_Value>
+template <typename T_Key, typename T_Value, typename T_KeyCompare = std::less<T_Key>>
 class VlAssocArray final {
 private:
     // TYPES
-    using Map = std::map<T_Key, T_Value>;
+    using Map = std::map<T_Key, T_Value, T_KeyCompare>;
 
 public:
     using const_iterator = typename Map::const_iterator;
@@ -1099,6 +1125,18 @@ public:
     VlAssocArray(VlAssocArray&&) = default;
     VlAssocArray& operator=(const VlAssocArray&) = default;
     VlAssocArray& operator=(VlAssocArray&&) = default;
+    // Conversion from an array with an equivalent key type that orders differently, e.g.
+    // from 'int' to 'bit [31:0]' keys (IEEE 1800-2023 6.22.2)
+    template <typename T_OtherCompare>
+    VlAssocArray(const VlAssocArray<T_Key, T_Value, T_OtherCompare>& rhs)  // NOLINT
+        : m_map{rhs.begin(), rhs.end()}
+        , m_defaultValue{rhs.atDefault()} {}
+    template <typename T_OtherCompare>
+    VlAssocArray& operator=(const VlAssocArray<T_Key, T_Value, T_OtherCompare>& rhs) {
+        m_map = Map(rhs.begin(), rhs.end());
+        m_defaultValue = rhs.atDefault();
+        return *this;
+    }
     bool operator==(const VlAssocArray& rhs) const { return m_map == rhs.m_map; }
     bool operator!=(const VlAssocArray& rhs) const { return m_map != rhs.m_map; }
     bool operator<(const VlAssocArray& rhs) const { return m_map < rhs.m_map; }
@@ -1403,17 +1441,19 @@ public:
     }
 };
 
-template <typename T_Key, typename T_Value>
-std::string VL_TO_STRING(const VlAssocArray<T_Key, T_Value>& obj) {
+template <typename T_Key, typename T_Value, typename T_KeyCompare>
+std::string VL_TO_STRING(const VlAssocArray<T_Key, T_Value, T_KeyCompare>& obj) {
     return obj.to_string();
 }
 
-template <typename T_Key, typename T_Value>
-struct VlContainsCustomStruct<VlAssocArray<T_Key, T_Value>> : VlContainsCustomStruct<T_Value> {};
+template <typename T_Key, typename T_Value, typename T_KeyCompare>
+struct VlContainsCustomStruct<VlAssocArray<T_Key, T_Value, T_KeyCompare>>
+    : VlContainsCustomStruct<T_Value> {};
 
-template <typename T_Key, typename T_Value>
+template <typename T_Key, typename T_Value, typename T_KeyCompare>
 void VL_READMEM_N(bool hex, int bits, const std::string& filename,
-                  VlAssocArray<T_Key, T_Value>& obj, QData start, QData end) VL_MT_SAFE {
+                  VlAssocArray<T_Key, T_Value, T_KeyCompare>& obj, QData start,
+                  QData end) VL_MT_SAFE {
     VlReadMem rmem{hex, bits, filename, start, end};
     if (VL_UNLIKELY(!rmem.isOpen())) return;
     while (true) {
@@ -1427,9 +1467,10 @@ void VL_READMEM_N(bool hex, int bits, const std::string& filename,
     }
 }
 
-template <typename T_Key, typename T_Value>
+template <typename T_Key, typename T_Value, typename T_KeyCompare>
 void VL_WRITEMEM_N(bool hex, int bits, const std::string& filename,
-                   const VlAssocArray<T_Key, T_Value>& obj, QData start, QData end) VL_MT_SAFE {
+                   const VlAssocArray<T_Key, T_Value, T_KeyCompare>& obj, QData start,
+                   QData end) VL_MT_SAFE {
     VlWriteMem wmem{hex, bits, filename, start, end};
     if (VL_UNLIKELY(!wmem.isOpen())) return;
     for (const auto& i : obj) {

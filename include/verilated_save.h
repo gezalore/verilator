@@ -304,8 +304,9 @@ inline VerilatedDeserialize& operator>>(VerilatedDeserialize& os, std::string& r
 VerilatedSerialize& operator<<(VerilatedSerialize& os, VerilatedContext* rhsp);
 VerilatedDeserialize& operator>>(VerilatedDeserialize& os, VerilatedContext* rhsp);
 
-template <typename T_Key, typename T_Value>
-VerilatedSerialize& operator<<(VerilatedSerialize& os, VlAssocArray<T_Key, T_Value>& rhs) {
+template <typename T_Key, typename T_Value, typename T_KeyCompare>
+VerilatedSerialize& operator<<(VerilatedSerialize& os,
+                               VlAssocArray<T_Key, T_Value, T_KeyCompare>& rhs) {
     os << rhs.atDefault();
     const uint32_t len = rhs.size();
     os << len;
@@ -316,8 +317,9 @@ VerilatedSerialize& operator<<(VerilatedSerialize& os, VlAssocArray<T_Key, T_Val
     }
     return os;
 }
-template <typename T_Key, typename T_Value>
-VerilatedDeserialize& operator>>(VerilatedDeserialize& os, VlAssocArray<T_Key, T_Value>& rhs) {
+template <typename T_Key, typename T_Value, typename T_KeyCompare>
+VerilatedDeserialize& operator>>(VerilatedDeserialize& os,
+                                 VlAssocArray<T_Key, T_Value, T_KeyCompare>& rhs) {
     os >> rhs.atDefault();
     uint32_t len = 0;
     os >> len;

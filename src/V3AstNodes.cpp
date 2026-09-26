@@ -2030,7 +2030,14 @@ AstNodeDType::CTypeRecursed AstNodeDType::cTypeRecurse(bool compound, bool packe
         UASSERT_OBJ(!packed, this, "Unsupported type for packed struct or union");
         const CTypeRecursed key = adtypep->keyDTypep()->cTypeRecurse(true, false);
         const CTypeRecursed val = adtypep->subDTypep()->cTypeRecurse(true, false);
-        info.m_type = "VlAssocArray<" + key.m_type + ", " + val.m_type + ">";
+        info.m_type = "VlAssocArray<" + key.m_type + ", " + val.m_type;
+        // Signed integral keys are ordered as signed (IEEE 1800-2023 7.8.4)
+        const AstNodeDType* const keyDtp = adtypep->keyDTypep()->skipRefp();
+        if (keyDtp->isSigned() && keyDtp->isIntegralOrPacked() && !keyDtp->isDouble()) {
+            info.m_type
+                += ", VlAssocSignedLess<" + key.m_type + ", " + cvtToStr(keyDtp->width()) + ">";
+        }
+        info.m_type += ">";
     } else if (const auto* const adtypep = VN_CAST(dtypep, CDType)) {
         UASSERT_OBJ(!packed, this, "Unsupported type for packed struct or union");
         info.m_type = adtypep->name();
