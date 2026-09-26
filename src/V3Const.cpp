@@ -1753,6 +1753,15 @@ class ConstVisitor final : public VNVisitor {
         return true;
     }
 
+    // A stream assigned to a queue or dynamic array is converted to the array when
+    // emitted, so must not be folded into a packed constant
+    static bool streamAssignedToArray(const AstNodeStream* nodep) {
+        const AstNodeAssign* const assp = VN_CAST(nodep->backp(), NodeAssign);
+        if (!assp || assp->rhsp() != nodep) return false;
+        const AstNodeDType* const dtypep = assp->lhsp()->dtypep()->skipRefp();
+        return VN_IS(dtypep, QueueDType) || VN_IS(dtypep, DynArrayDType);
+    }
+
     // Extraction checks
     bool warnSelect(AstSel* nodep) {
         if (m_doGenerate) {
@@ -4313,6 +4322,7 @@ class ConstVisitor final : public VNVisitor {
     //    v--- *S* This op specifies a type should use (S)hort-circuiting of its lhs op
 
     TREEOP1("AstSel{warnSelect(nodep)}",        "NEVER");
+    TREEOP1A("AstNodeStream{streamAssignedToArray(nodep)}", "DONE");
     // Generic constants on both side.  Do this first to avoid other replacements
     TREEOPA("AstNodeBiop {$lhsp.castConst, $rhsp.castConst, nodep->isPredictOptimizable()}",  "replaceConst(nodep)");
     TREEOPA("AstNodeUniop{$lhsp.castConst, !nodep->isOpaque(), nodep->isPredictOptimizable()}",  "replaceConst(nodep)");
