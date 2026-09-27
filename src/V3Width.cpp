@@ -4901,14 +4901,14 @@ class WidthVisitor final : public VNVisitor {
             newp->dtypeFrom(withp ? withp->dtypep() : adtypep->subDTypep());
         } else if (nodep->name() == "min" || nodep->name() == "max" || nodep->name() == "unique"
                    || nodep->name() == "unique_index") {
-            AstWith* withp = methodWithClause(nodep, false, true, nullptr,
-                                              nodep->findUInt32DType(), adtypep->subDTypep());
+            AstWith* withp = methodWithClause(nodep, false, true, nullptr, adtypep->keyDTypep(),
+                                              adtypep->subDTypep());
             methodOkArguments(nodep, 0, 0);
             methodCallLValueRecurse(nodep, nodep->fromp(), VAccess::READ);
             newp = new AstCMethodHard{nodep->fileline(), nodep->fromp()->unlinkFrBack(),
                                       VCMethod::arrayMethod(nodep->name())};
             if (nodep->name() == "min" || nodep->name() == "max") {
-                withp = methodSignedKeyWith(nodep, withp, nodep->findUInt32DType(),
+                withp = methodSignedKeyWith(nodep, withp, adtypep->keyDTypep(),
                                             adtypep->subDTypep());
             }
             newp->withp(withp);
