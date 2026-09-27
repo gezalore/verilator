@@ -2739,10 +2739,10 @@ inline IData VL_SEL_IRII(int lbits, const VlQueue<VlWide<N_Words>>& lhs, IData l
 }
 
 inline IData VL_SEL_IWII(int lbits, WDataInP const lwp, IData lsb, IData width) VL_MT_SAFE {
-    const int msb = lsb + width - 1;
-    if (VL_UNLIKELY(msb >= lbits)) {
-        return ~0;  // Spec says you can go outside the range of a array.  Don't coredump if so.
-    }
+    // Spec says you can go outside the range of a array.  Don't coredump if so.
+    if (VL_UNLIKELY(lsb >= static_cast<IData>(lbits))) return ~0;
+    // Bits beyond the top of a partially out of range select are zero, as for narrow values
+    const int msb = std::min(static_cast<int>(lsb + width - 1), lbits - 1);
     if (VL_BITWORD_E(msb) == VL_BITWORD_E(static_cast<int>(lsb))) {
         return VL_BITRSHIFT_W(lwp, lsb);
     }
@@ -2752,10 +2752,10 @@ inline IData VL_SEL_IWII(int lbits, WDataInP const lwp, IData lsb, IData width) 
 }
 
 inline QData VL_SEL_QWII(int lbits, WDataInP const lwp, IData lsb, IData width) VL_MT_SAFE {
-    const int msb = lsb + width - 1;
-    if (VL_UNLIKELY(msb > lbits)) {
-        return ~0;  // Spec says you can go outside the range of a array.  Don't coredump if so.
-    }
+    // Spec says you can go outside the range of a array.  Don't coredump if so.
+    if (VL_UNLIKELY(lsb >= static_cast<IData>(lbits))) return ~0;
+    // Bits beyond the top of a partially out of range select are zero, as for narrow values
+    const int msb = std::min(static_cast<int>(lsb + width - 1), lbits - 1);
     if (VL_BITWORD_E(msb) == VL_BITWORD_E(static_cast<int>(lsb))) {
         return VL_BITRSHIFT_W(lwp, lsb);
     }
@@ -2775,14 +2775,19 @@ inline QData VL_SEL_QWII(int lbits, WDataInP const lwp, IData lsb, IData width) 
 
 inline WDataOutP VL_SEL_WWII(int obits, int lbits, WDataOutP owp, WDataInP const lwp, IData lsb,
                              IData width) VL_MT_SAFE {
-    const int msb = lsb + width - 1;
-    const int word_shift = VL_BITWORD_E(lsb);
-    if (VL_UNLIKELY(msb > lbits)) {  // Outside bounds,
+    if (VL_UNLIKELY(lsb >= static_cast<IData>(lbits))) {  // Outside bounds,
         for (int i = 0; i < VL_WORDS_I(obits) - 1; ++i) owp[i] = ~0;
         owp[VL_WORDS_I(obits) - 1] = VL_MASK_E(obits);
-    } else if (VL_BITBIT_E(lsb) == 0) {
+        return owp;
+    }
+    // Bits beyond the top of a partially out of range select are zero, as for narrow values
+    const int msb = std::min(static_cast<int>(lsb + width - 1), lbits - 1);
+    const int word_shift = VL_BITWORD_E(lsb);
+    if (VL_BITBIT_E(lsb) == 0) {
         // Just a word extract
-        for (int i = 0; i < VL_WORDS_I(obits); ++i) owp[i] = lwp[i + word_shift];
+        const int words = VL_WORDS_I(msb - lsb + 1);
+        for (int i = 0; i < words; ++i) owp[i] = lwp[i + word_shift];
+        for (int i = words; i < VL_WORDS_I(obits); ++i) owp[i] = 0;
     } else {
         // Not a _vl_insert because the bits come from any bit number and goto bit 0
         const int loffset = lsb & VL_SIZEBITS_E;
