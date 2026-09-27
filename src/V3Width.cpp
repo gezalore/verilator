@@ -5523,6 +5523,55 @@ class WidthVisitor final : public VNVisitor {
         }
         v3Global.useRandomizeMethods(true);
     }
+    // Methods on fixed size arrays see the storage position as the element index. For arrays
+    // with a non-zero low index, adjust item.index and the returned indices to the declared
+    // index. Returns the possibly new method call.
+    AstCMethodHard* methodUnpackDeclaredIndex(AstCMethodHard* newp,
+                                              const AstUnpackArrayDType* adtypep) {
+        const int lo = adtypep->lo();
+        if (!lo) return newp;
+        FileLine* const flp = newp->fileline();
+        const auto addLo = [&](AstNodeExpr* exprp) -> AstNodeExpr* {
+            AstNodeExpr* const addp
+                = new AstAdd{flp, exprp,
+                             new AstConst{flp, AstConst::WidthedValue{}, exprp->width(),
+                                          static_cast<uint32_t>(lo)}};
+            addp->dtypeFrom(exprp);
+            return addp;
+        };
+        if (AstWith* const withp = newp->withp()) {
+            std::vector<AstLambdaArgRef*> refps;
+            withp->exprp()->foreach([&](AstLambdaArgRef* refp) {
+                if (refp->index()) refps.push_back(refp);
+            });
+            for (AstLambdaArgRef* const refp : refps) {
+                VNRelinker relinker;
+                refp->unlinkFrBack(&relinker);
+                relinker.relink(addLo(refp));
+            }
+        }
+        const VCMethod method = newp->method();
+        if (method == VCMethod::ARRAY_FIND_INDEX || method == VCMethod::ARRAY_FIND_FIRST_INDEX
+            || method == VCMethod::ARRAY_FIND_LAST_INDEX
+            || method == VCMethod::ARRAY_UNIQUE_INDEX) {
+            // Map the returned positions to indices
+            AstNodeDType* const idxDtp = newp->findUInt32DType();
+            AstLambdaArgRef* const indexArgRefp
+                = new AstLambdaArgRef{flp, "__Vidx__DOT__index", true};
+            indexArgRefp->dtypep(idxDtp);
+            AstLambdaArgRef* const valueArgRefp = new AstLambdaArgRef{flp, "__Vidx", false};
+            valueArgRefp->dtypep(idxDtp);
+            AstLambdaArgRef* const refp = new AstLambdaArgRef{flp, "__Vidx", false};
+            refp->dtypep(idxDtp);
+            AstWith* const withp = new AstWith{flp, indexArgRefp, valueArgRefp, addLo(refp)};
+            withp->dtypep(idxDtp);
+            AstCMethodHard* const mapp = new AstCMethodHard{flp, newp, VCMethod::ARRAY_MAP};
+            mapp->withp(withp);
+            mapp->dtypeFrom(newp);
+            return mapp;
+        }
+        return newp;
+    }
     void methodCallUnpack(AstMethodCall* nodep, AstUnpackArrayDType* adtypep) {
         enum : uint8_t {
             UNKNOWN = 0,
@@ -5553,12 +5602,13 @@ class WidthVisitor final : public VNVisitor {
             methodOkArguments(nodep, 0, 0);
             if (withp) {
                 methodCallLValueRecurse(nodep, nodep->fromp(), VAccess::READ);
-                AstCMethodHard* const newp
+                AstCMethodHard* newp
                     = new AstCMethodHard{nodep->fileline(), nodep->fromp()->unlinkFrBack(),
                                          VCMethod::arrayMethod("r_" + nodep->name())};
                 newp->withp(withp);
                 newp->dtypeFrom(withp ? withp->dtypep() : adtypep->subDTypep());
-                    newp->protect(false);
+                newp = methodUnpackDeclaredIndex(newp, adtypep);
+                newp->protect(false);
                 newp->didWidth(true);
                 nodep->replaceWith(newp);
                 VL_DO_DANGLING(nodep->deleteTree(), nodep);
@@ -5588,6 +5638,7 @@ class WidthVisitor final : public VNVisitor {
                 VL_DO_DANGLING(nodep->deleteTree(), nodep);
             }
         } else if (AstCMethodHard* newp = methodCallArray(nodep, adtypep)) {
+            newp = methodUnpackDeclaredIndex(newp, adtypep);
             newp->protect(false);
             newp->didWidth(true);
             nodep->replaceWith(newp);
