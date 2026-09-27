@@ -3163,6 +3163,25 @@ class ConstVisitor final : public VNVisitor {
         VL_DO_DANGLING(pushDeletep(nodep), nodep);
     }
 
+    bool operandSelSelInRange(AstSel* nodep) {
+        // SEL(SEL(x,a,b),c,d) => SEL(x,a+c,d) requires c+d <= b, otherwise the result
+        // would include bits of x outside the lower select. Lvalues are always folded,
+        // as a select of a select cannot be emitted as an lvalue.
+        if (const AstNodeVarRef* const refp = VN_CAST(nodep->baseFromp(true), NodeVarRef)) {
+            if (refp->access().isWriteOrRW()) return true;
+        }
+        const AstSel* const belowp = VN_AS(nodep->fromp(), Sel);
+        const AstNodeExpr* const lsbp = nodep->lsbp();
+        uint64_t maxLsb;
+        if (const AstConst* const constp = VN_CAST(lsbp, Const)) {
+            if (constp->num().isFourState() || constp->width() > 64) return false;
+            maxLsb = constp->toUQuad();
+        } else {
+            if (lsbp->width() >= 32) return false;
+            maxLsb = (1ULL << lsbp->width()) - 1;
+        }
+        return maxLsb + nodep->widthConst() <= static_cast<uint64_t>(belowp->widthConst());
+    }
     void replaceSelSel(AstSel* nodep) {
         // SEL(SEL({x},a,b),c,d) => SEL({x},a+c,d)
         // cppcheck-suppress constVariablePointer // children unlinked below
@@ -4613,7 +4632,7 @@ class ConstVisitor final : public VNVisitor {
     TREEOPV("AstSel{matchSelRand(nodep)}",      "DONE");
     TREEOPV("AstSel{operandSelExtend(nodep)}",  "DONE");
     TREEOPV("AstSel{operandSelFull(nodep)}",    "replaceWChild(nodep, nodep->fromp())");
-    TREEOPV("AstSel{$fromp.castSel}",           "replaceSelSel(nodep)");
+    TREEOPV("AstSel{$fromp.castSel, operandSelSelInRange(nodep)}",  "replaceSelSel(nodep)");
     TREEOPV("AstSel{$fromp.castAdd, operandSelBiLower(nodep)}", "DONE");
     TREEOPV("AstSel{$fromp.castAnd, operandSelBiLower(nodep)}", "DONE");
     TREEOPV("AstSel{$fromp.castOr,  operandSelBiLower(nodep)}", "DONE");
