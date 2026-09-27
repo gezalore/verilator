@@ -3331,13 +3331,28 @@ inline void VL_ASSIGNSEL_QQ(int rbits, int obits, int lsb, QData& lhsr, QData rh
 // inline void VL_ASSIGNSEL_IIIW(int obits, int lsb, IData& lhsr, WDataInP const rwp)
 // VL_MT_SAFE { Illegal, as lhs width >= rhs width
 inline void VL_ASSIGNSEL_WI(int rbits, int obits, int lsb, WDataOutP iowp, IData rhs) VL_MT_SAFE {
+    // Only the bits in range are written (IEEE 1800-2023 11.5.1)
+    if (VL_UNLIKELY(lsb + obits > rbits)) {
+        if (lsb >= rbits) return;
+        obits = rbits - lsb;
+    }
     _vl_insert_WI(iowp, rhs, lsb + obits - 1, lsb, rbits);
 }
 inline void VL_ASSIGNSEL_WQ(int rbits, int obits, int lsb, WDataOutP iowp, QData rhs) VL_MT_SAFE {
+    // Only the bits in range are written (IEEE 1800-2023 11.5.1)
+    if (VL_UNLIKELY(lsb + obits > rbits)) {
+        if (lsb >= rbits) return;
+        obits = rbits - lsb;
+    }
     _vl_insert_WQ(iowp, rhs, lsb + obits - 1, lsb, rbits);
 }
 inline void VL_ASSIGNSEL_WW(int rbits, int obits, int lsb, WDataOutP iowp,
                             WDataInP const rwp) VL_MT_SAFE {
+    // Only the bits in range are written (IEEE 1800-2023 11.5.1)
+    if (VL_UNLIKELY(lsb + obits > rbits)) {
+        if (lsb >= rbits) return;
+        obits = rbits - lsb;
+    }
     _vl_insert_WW(iowp, rwp, lsb + obits - 1, lsb, rbits);
 }
 
