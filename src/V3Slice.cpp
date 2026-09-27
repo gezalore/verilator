@@ -286,7 +286,9 @@ class SliceVisitor final : public VNVisitor {
         // Any isSc variables must be expanded regardless of --fno-slice
         const bool hasSc
             = nodep->exists([&](const AstVarRef* refp) -> bool { return refp->varp()->isSc(); });
-        if (!hasSc && !v3Global.opt.fSlice()) {
+        // An assignment to a slice cannot be done without expanding it
+        const bool lhsSlice = VN_IS(nodep->lhsp(), SliceSel);
+        if (!hasSc && !lhsSlice && !v3Global.opt.fSlice()) {
             m_okInitArray = true;  // VL_RESTORER in visit(AstNodeAssign)
             return false;
         }
@@ -294,7 +296,7 @@ class SliceVisitor final : public VNVisitor {
         // Skip optimization if array is too large
         const int elements = arrayp->rangep()->elementsConst();
         const int elementLimit = v3Global.opt.fSliceElementLimit();
-        if (elements > elementLimit && elementLimit > 0) {
+        if (elements > elementLimit && elementLimit > 0 && !lhsSlice) {
             ++m_statSliceElementSkips;
             m_okInitArray = true;  // VL_RESTORER in visit(AstNodeAssign)
             return false;
