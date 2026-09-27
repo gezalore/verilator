@@ -1138,6 +1138,8 @@ class ConstVisitor final : public VNVisitor {
         // BIASV(l,BIASV(CONSTrl,rr)) -> BIASV(CONSTrl,BIASV(l,rr)) ?
         const AstNodeBiComAsv* const bnodep = VN_CAST(nodep, NodeBiComAsv);
         if (!bnodep) return false;
+        // Would swap the constants back and forth forever
+        if (VN_IS(bnodep->lhsp(), Const)) return false;
         const AstNodeBiComAsv* const rnodep = VN_CAST(bnodep->rhsp(), NodeBiComAsv);
         if (!rnodep) return false;
         if (rnodep->type() != bnodep->type()) return false;
