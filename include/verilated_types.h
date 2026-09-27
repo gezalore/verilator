@@ -163,6 +163,10 @@ public:
     template <std::size_t N_Words>
     // cppcheck-suppress noExplicitConstructor
     /* implicit */ WDataOutP(VlWide<N_Words>& vlWide) VL_PURE : m_datap{vlWide.data()} {}
+    // Implicit conversion from a word array, as used by public function arguments
+    template <std::size_t N_Words>
+    // cppcheck-suppress noExplicitConstructor
+    /* implicit */ WDataOutP(EData (&words)[N_Words]) VL_PURE : m_datap{words} {}
     WDataOutP(const WDataOutP& other) VL_PURE = default;
     WDataOutP(WDataOutP&& other) VL_PURE = default;
     WDataOutP& operator=(const WDataOutP& other) VL_PURE = default;
@@ -197,6 +201,10 @@ public:
     template <std::size_t N_Words>
     // cppcheck-suppress noExplicitConstructor
     /* implicit */ WDataInP(const VlWide<N_Words>& vlWide) VL_PURE : m_datap{vlWide.data()} {}
+    // Implicit conversion from a word array, as used by public function arguments
+    template <std::size_t N_Words>
+    // cppcheck-suppress noExplicitConstructor
+    /* implicit */ WDataInP(const EData (&words)[N_Words]) VL_PURE : m_datap{words} {}
     // Implicit conversion from 'WDataOutP'
     // cppcheck-suppress noExplicitConstructor
     /* implicit */ WDataInP(const WDataOutP& owp) VL_PURE : m_datap{owp.datap()} {}
