@@ -1388,7 +1388,9 @@ class DelayedVisitor final : public VNVisitor {
         vscpInfo.m_inSuspOrFork |= m_inSuspendableOrFork;
         // Sensitivity might be non-clocked, in a suspendable process, which are handled elsewhere
         if (m_activep->sentreep()->hasClocked()) {
-            if (vscpInfo.m_fistActivep != m_activep) {
+            // Different processes, e.g. in different scopes, can have the same clocking
+            if (vscpInfo.m_fistActivep != m_activep
+                && !vscpInfo.m_fistActivep->sentreep()->sameTree(m_activep->sentreep())) {
                 AstVar* const varp = vscp->varp();
                 if (!varp->user1SetOnce()
                     && !varp->fileline()->warnIsOff(V3ErrorCode::MULTIDRIVEN)) {
