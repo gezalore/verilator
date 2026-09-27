@@ -834,10 +834,14 @@ void AstClocking::dumpJson(std::ostream& str) const {
 }
 AstVar* AstClocking::ensureEventp(bool childDType) {
     if (!eventp()) {
+        // Only a default or global clocking can be unnamed, and there is at most one of each
+        const std::string name = !m_name.empty() ? m_name
+                                 : isGlobal()    ? "__Vglobal_clocking"
+                                                 : "__Vdefault_clocking";
         AstVar* const evp
-            = childDType ? new AstVar{fileline(), VVarType::MODULETEMP, m_name, VFlagChildDType{},
+            = childDType ? new AstVar{fileline(), VVarType::MODULETEMP, name, VFlagChildDType{},
                                       new AstBasicDType{fileline(), VBasicDTypeKwd::EVENT}}
-                         : new AstVar{fileline(), VVarType::MODULETEMP, m_name,
+                         : new AstVar{fileline(), VVarType::MODULETEMP, name,
                                       findBasicDType(VBasicDTypeKwd::EVENT)};
         evp->lifetime(VLifetime::STATIC_EXPLICIT);
         eventp(evp);
