@@ -337,6 +337,49 @@ class PremitVisitor final : public VNVisitor {
         iterateChildren(nodep);
         checkNode(nodep);
     }
+    // Whether there are wide operations under the expression, which might need temporaries
+    static bool hasWideOps(const AstNodeExpr* nodep) {
+        return nodep->exists(
+            [](const AstNodeExpr* exprp) { return exprp->isWide() && !VN_IS(exprp, NodeVarRef); });
+    }
+    // The RHS of '&&', '||' and '->' is only conditionally evaluated, so any temporaries it
+    // needs cannot be computed before the statement. Convert to an AstIf, like AstCond below.
+    void visitShortCircuit(AstNodeBiop* nodep) {
+        if (!m_stmtp || m_assignLhs || !hasWideOps(nodep->rhsp())) {
+            iterateChildren(nodep);
+            checkNode(nodep);
+            return;
+        }
+        FileLine* const flp = nodep->fileline();
+        const auto toBool = [flp](AstNodeExpr* exprp) -> AstNodeExpr* {
+            return exprp->width() == 1 ? exprp : new AstRedOr{flp, exprp};
+        };
+        AstVar* const varp = newTmpFor(nodep);
+        // Can't substitute across basic blocks
+        varp->noSubst(true);
+        // 'a -> b' is '!a || b'
+        AstNodeExpr* lhsp = nodep->lhsp()->unlinkFrBack();
+        lhsp = VN_IS(nodep, LogIf) ? new AstLogNot{flp, lhsp} : toBool(lhsp);
+        AstNode* const newp = new AstAssign{flp, new AstVarRef{flp, varp, VAccess::WRITE}, lhsp};
+        AstNodeExpr* condp = new AstVarRef{flp, varp, VAccess::READ};
+        if (!VN_IS(nodep, LogAnd)) condp = new AstLogNot{flp, condp};
+        newp->addNext(new AstIf{flp, condp,
+                                new AstAssign{flp, new AstVarRef{flp, varp, VAccess::WRITE},
+                                              toBool(nodep->rhsp()->unlinkFrBack())}});
+        m_stmtp->addHereThisAsNext(newp);
+        nodep->replaceWith(new AstVarRef{flp, varp, VAccess::READ});
+        VL_DO_DANGLING(pushDeletep(nodep), nodep);
+        // Splitting to multiple statements can change purity
+        VIsCached::clearCacheTree();
+        // Iterate the resulting statements
+        for (AstNode *stmtp = newp, *nextp; stmtp; stmtp = nextp) {
+            nextp = stmtp->nextp();
+            iterate(stmtp);
+        }
+    }
+    void visit(AstLogAnd* nodep) override { visitShortCircuit(nodep); }
+    void visit(AstLogOr* nodep) override { visitShortCircuit(nodep); }
+    void visit(AstLogIf* nodep) override { visitShortCircuit(nodep); }
     void visit(AstRand* nodep) override {
         iterateChildren(nodep);
         checkNode(nodep);
@@ -404,8 +447,11 @@ class PremitVisitor final : public VNVisitor {
     }
     void visit(AstCond* nodep) override {
         // Convert AstCond to AstIf in order to avoid evaluating
-        // sub-expressions in both branches unconditionally.
-        if (needsTemp(nodep)) {
+        // sub-expressions in both branches unconditionally. Also needed if the branches
+        // need temporaries, as those would be computed before the statement.
+        const bool branchTemps = m_stmtp && !m_assignLhs
+                                 && (hasWideOps(nodep->thenp()) || hasWideOps(nodep->elsep()));
+        if (needsTemp(nodep) || branchTemps) {
             // Check if LHS variable could be used directly
             AstVarRef* const lRefp = isRhsOfAssignToVar(nodep);
             // If not, create a new temporary variable
@@ -414,15 +460,25 @@ class PremitVisitor final : public VNVisitor {
             varp->noSubst(true);
 
             FileLine* const flp = nodep->fileline();
+            // A narrow AstCond might be dirty (cleaned above by V3Clean), but the
+            // temporary must hold a clean value
+            const auto cleanp = [&](AstNodeExpr* exprp) -> AstNodeExpr* {
+                if (lRefp || exprp->isWide() || exprp->widthMin() == exprp->width()) return exprp;
+                V3Number mask{exprp, exprp->width()};
+                mask.setMask(exprp->widthMin());
+                AstNodeExpr* const andp = new AstAnd{flp, new AstConst{flp, mask}, exprp};
+                andp->dtypeFrom(exprp);
+                return andp;
+            };
             // Create 'then' assignment
             AstVarRef* const thenRefp = new AstVarRef{flp, varp, VAccess::WRITE};
             if (lRefp) thenRefp->selfPointer(lRefp->selfPointer());
-            AstNodeExpr* const thenExprp = nodep->thenp()->unlinkFrBack();
+            AstNodeExpr* const thenExprp = cleanp(nodep->thenp()->unlinkFrBack());
             AstAssign* const thenAsspp = new AstAssign{flp, thenRefp, thenExprp};
             // Create 'else' assignment
             AstVarRef* const elseRefp = new AstVarRef{flp, varp, VAccess::WRITE};
             if (lRefp) elseRefp->selfPointer(lRefp->selfPointer());
-            AstNodeExpr* const elseExprp = nodep->elsep()->unlinkFrBack();
+            AstNodeExpr* const elseExprp = cleanp(nodep->elsep()->unlinkFrBack());
             AstAssign* const elseAsspp = new AstAssign{flp, elseRefp, elseExprp};
             // Creae 'if' and insert it before the statement
             AstNodeExpr* const condp = nodep->condp()->unlinkFrBack();
