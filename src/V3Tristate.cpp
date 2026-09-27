@@ -1903,7 +1903,12 @@ class TristateVisitor final : public TristateBaseVisitor {
         }
     }
     void visitEqNeqWild(AstNodeBiop* nodep) {
-        if (!VN_IS(nodep->rhsp(), Const) && nodep->rhsp()->dtypep()->isFourstate()) {
+        // An extension of a two state value is also two state
+        const AstNodeExpr* rhsBasep = nodep->rhsp();
+        while (VN_IS(rhsBasep, Extend) || VN_IS(rhsBasep, ExtendS)) {
+            rhsBasep = VN_AS(rhsBasep, NodeUniop)->lhsp();
+        }
+        if (!VN_IS(nodep->rhsp(), Const) && rhsBasep->dtypep()->isFourstate()) {
             nodep->v3warn(E_UNSUPPORTED,
                           "Unsupported: RHS of ==? or !=? is fourstate but not a constant");
             // rhs we want to keep X/Z intact, so otherwise ignore

@@ -255,7 +255,12 @@ class UnknownVisitor final : public VNVisitor {
             AstNodeExpr* const rhsp = nodep->rhsp()->unlinkFrBack();
             AstNodeExpr* newp;
             if (!VN_IS(rhsp, Const)) {
-                if (rhsp->dtypep()->isFourstate()) {
+                // An extension of a two state value is also two state
+                const AstNodeExpr* basep = rhsp;
+                while (VN_IS(basep, Extend) || VN_IS(basep, ExtendS)) {
+                    basep = VN_AS(basep, NodeUniop)->lhsp();
+                }
+                if (basep->dtypep()->isFourstate()) {
                     nodep->v3warn(
                         E_UNSUPPORTED,
                         "Unsupported: RHS of ==? or !=? is fourstate but not a constant");
