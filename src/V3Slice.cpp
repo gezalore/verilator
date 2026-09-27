@@ -286,9 +286,14 @@ class SliceVisitor final : public VNVisitor {
         // Any isSc variables must be expanded regardless of --fno-slice
         const bool hasSc
             = nodep->exists([&](const AstVarRef* refp) -> bool { return refp->varp()->isSc(); });
-        // An assignment to a slice cannot be done without expanding it
-        const bool lhsSlice = VN_IS(nodep->lhsp(), SliceSel);
-        if (!hasSc && !lhsSlice && !v3Global.opt.fSlice()) {
+        // An assignment to a slice cannot be done without expanding it, neither can an
+        // assignment from an array with the opposite range direction, which reverses elements
+        const AstUnpackArrayDType* const rArrayp
+            = VN_CAST(nodep->rhsp()->dtypep()->skipRefp(), UnpackArrayDType);
+        const bool mustExpand
+            = VN_IS(nodep->lhsp(), SliceSel)
+              || (rArrayp && rArrayp->declRange().ascending() != arrayp->declRange().ascending());
+        if (!hasSc && !mustExpand && !v3Global.opt.fSlice()) {
             m_okInitArray = true;  // VL_RESTORER in visit(AstNodeAssign)
             return false;
         }
@@ -296,7 +301,7 @@ class SliceVisitor final : public VNVisitor {
         // Skip optimization if array is too large
         const int elements = arrayp->rangep()->elementsConst();
         const int elementLimit = v3Global.opt.fSliceElementLimit();
-        if (elements > elementLimit && elementLimit > 0 && !lhsSlice) {
+        if (elements > elementLimit && elementLimit > 0 && !mustExpand) {
             ++m_statSliceElementSkips;
             m_okInitArray = true;  // VL_RESTORER in visit(AstNodeAssign)
             return false;
