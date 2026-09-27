@@ -7016,9 +7016,10 @@ class WidthVisitor final : public VNVisitor {
             // may change an argument's data type. Plus need them for runtime formats
             VFormatAttr formatAttr = VFormatAttr::UNSIGNED;
             AstNodeDType* const dtypep = argp->dtypep()->skipRefp();
-            if (dtypep->isDouble()) {
+            // Note isDouble/isString are also true for containers of reals/strings
+            if (VN_IS(dtypep, BasicDType) && dtypep->isDouble()) {
                 formatAttr = VFormatAttr::DOUBLE;
-            } else if (dtypep->isString()) {
+            } else if (VN_IS(dtypep, BasicDType) && dtypep->isString()) {
                 formatAttr = VFormatAttr::STRING;
             } else if (isFormatNonNumericArg(dtypep)) {
                 if (AstClassRefDType* const classRefp = VN_CAST(dtypep, ClassRefDType)) {
