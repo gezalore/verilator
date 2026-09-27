@@ -5133,7 +5133,7 @@ class WidthVisitor final : public VNVisitor {
             newp = new AstCMethodHard{nodep->fileline(), nodep->fromp()->unlinkFrBack(),
                                       VCMethod::arrayMethod("r_" + nodep->name())};
             newp->withp(withp);
-            newp->dtypeFrom(adtypep->subDTypep());
+            newp->dtypeFrom(withp ? withp->dtypep() : adtypep->subDTypep());
         } else if ((newp = methodCallArray(nodep, adtypep))) {
         } else {
             nodep->v3warn(E_UNSUPPORTED, "Unsupported/unknown built-in dynamic array method "
