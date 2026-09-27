@@ -1218,15 +1218,18 @@ class AssertVisitor final : public VNVisitor {
 
             AstSenTree* const monSenTree = new AstSenTree{fl, monSenItemsp};
             const auto monNum = ++m_monitorNum;
-            // Where $monitor was we do "__VmonitorNum = N;"
-            AstAssign* const newsetp = new AstAssign{
-                fl, newMonitorNumVarRefp(nodep, VAccess::WRITE), new AstConst{fl, monNum}};
-            nodep->replaceWith(newsetp);
-            // Add "always @(...) __VmonitorChangedN = '1;"
             AstVar* const changedVarp
                 = new AstVar{fl, VVarType::MODULETEMP, "__VmonitorChanged" + cvtToStr(monNum),
                              nodep->findBitDType()};
             m_modp->addStmtsp(changedVarp);
+            // Where $monitor was we do "__VmonitorNum = N; __VmonitorChangedN = '1;", as it
+            // displays at the end of the time step it was invoked in (IEEE 1800-2023 21.2.3)
+            AstAssign* const newsetp = new AstAssign{
+                fl, newMonitorNumVarRefp(nodep, VAccess::WRITE), new AstConst{fl, monNum}};
+            newsetp->addNext(new AstAssign{fl, new AstVarRef{fl, changedVarp, VAccess::WRITE},
+                                           new AstConst{fl, AstConst::BitTrue{}}});
+            nodep->replaceWith(newsetp);
+            // Add "always @(...) __VmonitorChangedN = '1;"
             m_modp->addStmtsp(
                 new AstAlways{fl, VAlwaysKwd::ALWAYS, monSenTree,
                               new AstAssign{fl, new AstVarRef{fl, changedVarp, VAccess::WRITE},
