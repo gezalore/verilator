@@ -384,6 +384,45 @@ class LifeVisitor final : public VNVisitor {
         VL_DO_DANGLING(delete elseLifep, elseLifep);
         UINFO(4, "   if-done " << nodep);
     }
+    // Short-circuiting operators, whose operands might contain statements (e.g. an
+    // AstExprStmt from an inlined function), which are then conditionally executed
+    void visitShortCircuit(AstNodeExpr* nodep, AstNodeExpr* condp, AstNodeExpr* ap,
+                           AstNodeExpr* bp) {
+        if (!nodep->exists([](const AstExprStmt*) { return true; })) {
+            iterateChildren(nodep);
+            return;
+        }
+        iterateAndNextNull(condp);
+        LifeBlock* const aLifep = new LifeBlock{m_lifep, m_statep};
+        LifeBlock* const bLifep = new LifeBlock{m_lifep, m_statep};
+        {
+            VL_RESTORER(m_lifep);
+            m_lifep = aLifep;
+            iterateAndNextNull(ap);
+        }
+        {
+            VL_RESTORER(m_lifep);
+            m_lifep = bLifep;
+            iterateAndNextNull(bp);
+        }
+        m_lifep->dualBranch(aLifep, bLifep);
+        aLifep->lifeToAbove();
+        bLifep->lifeToAbove();
+        VL_DO_DANGLING(delete aLifep, aLifep);
+        VL_DO_DANGLING(delete bLifep, bLifep);
+    }
+    void visit(AstLogAnd* nodep) override {
+        visitShortCircuit(nodep, nodep->lhsp(), nodep->rhsp(), nullptr);
+    }
+    void visit(AstLogOr* nodep) override {
+        visitShortCircuit(nodep, nodep->lhsp(), nodep->rhsp(), nullptr);
+    }
+    void visit(AstLogIf* nodep) override {
+        visitShortCircuit(nodep, nodep->lhsp(), nodep->rhsp(), nullptr);
+    }
+    void visit(AstCond* nodep) override {
+        visitShortCircuit(nodep, nodep->condp(), nodep->thenp(), nodep->elsep());
+    }
     void visit(AstLoop* nodep) override {
         // Similar problem to AstJumpBlock, don't optimize loop bodies - most are unrolled
         UASSERT_OBJ(!nodep->contsp(), nodep, "'contsp' only used before LinkJump");
