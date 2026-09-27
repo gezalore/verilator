@@ -1182,18 +1182,16 @@ public:
     T_Key firstIndex() const { return m_map.empty() ? T_Key{} : m_map.cbegin()->first; }
     T_Key lastIndex() const { return m_map.empty() ? T_Key{} : m_map.crbegin()->first; }
     // Return next element. Verilog: function int next(ref index)
+    // The given index need not exist (IEEE 1800-2023 7.9.6/7.9.7)
     int next(T_Key& indexr) const {
-        auto it = m_map.find(indexr);
-        if (VL_UNLIKELY(it == m_map.end())) return 0;
-        ++it;
+        const auto it = m_map.upper_bound(indexr);
         if (VL_UNLIKELY(it == m_map.end())) return 0;
         indexr = it->first;
         return 1;
     }
     // Return prev element. Verilog: function int prev(ref index)
     int prev(T_Key& indexr) const {
-        auto it = m_map.find(indexr);
-        if (VL_UNLIKELY(it == m_map.end())) return 0;
+        auto it = m_map.lower_bound(indexr);
         if (VL_UNLIKELY(it == m_map.begin())) return 0;
         --it;
         indexr = it->first;
