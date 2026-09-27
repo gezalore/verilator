@@ -1874,46 +1874,36 @@ class TaskVisitor final : public VNVisitor {
             VL_DO_DANGLING(pushDeletep(nodep), nodep);
         }
     }
-    void visit(AstAssignForce* nodep) override {
+    void visit(AstAssignForce* nodep) override { visitContinuous(nodep); }
+    // Procedural continuous 'assign' is converted to 'force' by V3Force
+    void visit(AstAssignCont* nodep) override { visitContinuous(nodep); }
+    void visitContinuous(AstNodeAssign* nodep) {
         // Force statements cannot be converted to always blocks outside of a logic block
         // This causes function calls on RHS of force assignments to be improperly inlined and
-        // called just once. To prevent this, we create a temporary variable for each function
-        // reference on RHS. This variable is declared in the nearest scope and gets a continuous
-        // assignment of the function, so it can be converted to always and properly inlined This
-        // temporary variable becomes the RHS of the force assignment
-        std::vector<AstNodeFTaskRef*> refs;
-        nodep->rhsp()->foreach([&refs](AstNodeFTaskRef* refp) { refs.push_back(refp); });
-        for (AstNodeFTaskRef* const refp : refs) {
-
-            // Create the temporary variable and its scope
-            // Replicate the logic from V3Task, every function call gets
-            // a unique temp variable
-            AstVar* const interVarp = new AstVar{
-                nodep->fileline(), VVarType::VAR,
-                refp->name() + "__Vforcefuncout" + m_forceTmpNames.get(nodep), refp->dtypep()};
-            UASSERT_OBJ(m_modp->stmtsp(), m_modp, "Module should have statements in it");
-            m_modp->stmtsp()->addHereThisAsNext(interVarp);
-            AstVarScope* const interVscp = new AstVarScope{refp->fileline(), m_scopep, interVarp};
-            m_scopep->addVarsp(interVscp);
-
-            // Recompute the helper in a combo block so any inlined function body stays
-            // inside schedulable logic rather than spilling statements at module scope.
-            AstAssign* const assignp = new AstAssign{
-                nodep->fileline(), new AstVarRef{nodep->fileline(), interVscp, VAccess::WRITE},
-                nodep->rhsp()->cloneTreePure(false)};
-            AstSenTree* const senTreep = new AstSenTree{
-                nodep->fileline(), new AstSenItem{nodep->fileline(), AstSenItem::Combo{}}};
-            AstActive* const activep
-                = new AstActive{nodep->fileline(), "force-func-update", senTreep};
-            activep->senTreeStorep(activep->sentreep());
-            activep->addStmtsp(
-                new AstAlways{nodep->fileline(), VAlwaysKwd::ALWAYS, nullptr, assignp});
-            m_scopep->addBlocksp(activep);
-
-            // Replace RHS of force assignment with the temporary variable
-            refp->replaceWith(new AstVarRef{nodep->fileline(), interVscp, VAccess::READ});
-            VL_DO_DANGLING(refp->deleteTree(), refp);
-        }
+        // called just once. To prevent this, if the RHS contains function calls, we create a
+        // temporary variable declared in the nearest scope, which gets a continuous assignment
+        // of the RHS, so it can be converted to always and properly inlined. This temporary
+        // variable becomes the RHS of the force assignment.
+        if (!nodep->rhsp()->exists([](const AstNodeFTaskRef*) { return true; })) return;
+        FileLine* const flp = nodep->fileline();
+        AstNodeExpr* const rhsp = nodep->rhsp()->unlinkFrBack();
+        AstVar* const interVarp = new AstVar{
+            flp, VVarType::VAR, "__Vforcefuncout" + m_forceTmpNames.get(nodep), rhsp->dtypep()};
+        UASSERT_OBJ(m_modp->stmtsp(), m_modp, "Module should have statements in it");
+        m_modp->stmtsp()->addHereThisAsNext(interVarp);
+        AstVarScope* const interVscp = new AstVarScope{flp, m_scopep, interVarp};
+        m_scopep->addVarsp(interVscp);
+        // Recompute the helper in a combo block so any inlined function body stays
+        // inside schedulable logic rather than spilling statements at module scope.
+        AstAssign* const assignp
+            = new AstAssign{flp, new AstVarRef{flp, interVscp, VAccess::WRITE}, rhsp};
+        AstSenTree* const senTreep = new AstSenTree{flp, new AstSenItem{flp, AstSenItem::Combo{}}};
+        AstActive* const activep = new AstActive{flp, "force-func-update", senTreep};
+        activep->senTreeStorep(activep->sentreep());
+        activep->addStmtsp(new AstAlways{flp, VAlwaysKwd::ALWAYS, nullptr, assignp});
+        m_scopep->addBlocksp(activep);
+        // Replace RHS of force assignment with the temporary variable
+        nodep->rhsp(new AstVarRef{flp, interVscp, VAccess::READ});
     }
     void visit(AstNodeForeach* nodep) override {  // LCOV_EXCL_LINE
         nodep->v3fatalSrc(

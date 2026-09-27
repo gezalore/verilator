@@ -251,7 +251,9 @@ class LiftExprVisitor final : public VNVisitor {
         VL_RESTORER(m_doNotLiftp);
         // Do not lift the RHS if this is already a simple assignment to a variable
         m_doNotLiftp = VN_IS(nodep->lhsp(), NodeVarRef) ? nodep->rhsp() : nullptr;
-        if (AstNode* const newStmtps = lift(nodep->rhsp())) {
+        // The RHS of 'force' and procedural 'assign' is continuously evaluated, so cannot lift
+        const bool continuous = VN_IS(nodep, AssignForce) || VN_IS(nodep, AssignCont);
+        if (AstNode* const newStmtps = continuous ? nullptr : lift(nodep->rhsp())) {
             nodep->addHereThisAsNext(newStmtps);
         }
 
