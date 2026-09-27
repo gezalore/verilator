@@ -101,6 +101,10 @@ class DepthVisitor final : public VNVisitor {
             && !VN_IS(nodep->backp(), NodeStmt)  // Not much point if we're about to use it
         ) {
             m_maxdepth = m_depth;
+            // Cannot move the target of an assignment, e.g. 'a[0][1] = ...'
+            if (nodep->exists(
+                    [](const AstNodeVarRef* refp) { return refp->access().isWriteOrRW(); }))
+                return;
             createDeepTemp(nodep);
         }
     }
