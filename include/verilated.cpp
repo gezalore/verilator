@@ -876,16 +876,22 @@ double VL_ITOR_D_W(int lbits, const WDataInP lwp) VL_PURE {
     for (; !lwp[ms_word] && ms_word > 0;) --ms_word;
     if (ms_word == 0) return static_cast<double>(lwp[0]);
     if (ms_word == 1) return static_cast<double>(VL_SET_QW(lwp));
-    // We need 53 bits of mantissa, which might mean looking at 3 words
-    // namely ms_word, ms_word-1 and ms_word-2
-    const EData ihi = lwp[ms_word];
-    const EData imid = lwp[ms_word - 1];
+    // Convert the top 64 significant bits, which come from words ms_word, ms_word-1 and
+    // ms_word-2, with the OR of all lower bits folded into the bottom bit, so the result
+    // is rounded correctly, as the C conversion is
+    const int lz = VL_EDATASIZE - VL_MOSTSETBITP1_I(lwp[ms_word]);
     const EData ilo = lwp[ms_word - 2];
-    const double hi = static_cast<double>(ihi) * std::exp2(2 * VL_EDATASIZE);
-    const double mid = static_cast<double>(imid) * std::exp2(VL_EDATASIZE);
-    const double lo = static_cast<double>(ilo);
-    const double d = (hi + mid + lo) * std::exp2(VL_EDATASIZE * (ms_word - 2));
-    return d;
+    uint64_t q = (static_cast<uint64_t>(lwp[ms_word]) << VL_EDATASIZE) | lwp[ms_word - 1];
+    bool sticky;
+    if (lz) {
+        q = (q << lz) | (ilo >> (VL_EDATASIZE - lz));
+        sticky = static_cast<EData>(ilo << lz) != 0;
+    } else {
+        sticky = ilo != 0;
+    }
+    for (int i = ms_word - 3; i >= 0 && !sticky; --i) sticky = lwp[i] != 0;
+    if (sticky) q |= 1;
+    return std::ldexp(static_cast<double>(q), VL_EDATASIZE * (ms_word - 1) - lz);
 }
 double VL_ISTOR_D_W(int lbits, const WDataInP lwp) VL_MT_SAFE {
     if (!VL_SIGN_W(lbits, lwp)) return VL_ITOR_D_W(lbits, lwp);
