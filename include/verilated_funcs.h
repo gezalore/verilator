@@ -2651,7 +2651,8 @@ inline IData VL_SHIFTRS_IIW(int obits, int lbits, int rbits, IData lhs,
                             WDataInP const rwp) VL_PURE {
     EData overshift = 0;  // Huge shift 1>>32 or more
     for (int i = 1; i < VL_WORDS_I(rbits); ++i) overshift |= rwp[i];
-    if (VL_UNLIKELY(overshift || rwp[0] >= static_cast<IData>(obits))) {
+    // Shifting past the end of lhs (obits might be narrower)
+    if (VL_UNLIKELY(overshift || rwp[0] >= static_cast<IData>(lbits))) {
         const IData sign = -(lhs >> (lbits - 1));  // ffff_ffff if negative
         return VL_CLEAN_II(obits, obits, sign);
     }
@@ -2661,7 +2662,8 @@ inline QData VL_SHIFTRS_QQW(int obits, int lbits, int rbits, QData lhs,
                             WDataInP const rwp) VL_PURE {
     EData overshift = 0;  // Huge shift 1>>32 or more
     for (int i = 1; i < VL_WORDS_I(rbits); ++i) overshift |= rwp[i];
-    if (VL_UNLIKELY(overshift || rwp[0] >= static_cast<IData>(obits))) {
+    // Shifting past the end of lhs (obits might be narrower)
+    if (VL_UNLIKELY(overshift || rwp[0] >= static_cast<IData>(lbits))) {
         const QData sign = -(lhs >> (lbits - 1));  // ffff_ffff if negative
         return VL_CLEAN_QQ(obits, obits, sign);
     }
