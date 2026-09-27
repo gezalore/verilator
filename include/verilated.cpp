@@ -825,17 +825,20 @@ WDataOutP VL_POWSS_WWW(int obits, int, int rbits, WDataOutP owp, const WDataInP 
     if (rsign && VL_SIGN_W(rbits, rwp)) {
         const int words = VL_WORDS_I(obits);
         VL_ZERO_W(obits, owp);
-        EData lor = 0;  // 0=all zeros, ~0=all ones, else mix
-        for (int i = 1; i < (words - 1); ++i) lor |= lwp[i];
-        lor |= ((lwp[words - 1] == VL_MASK_E(rbits)) ? ~VL_EUL(0) : 0);
-        if (lor == 0 && lwp[0] == 0) {  // "X" so return 0
+        bool upperZero = true;  // All bits above the bottom word are zero
+        bool allOnes = lwp[0] == ~VL_EUL(0);  // All bits are one
+        for (int i = 1; i < words; ++i) {
+            upperZero &= lwp[i] == 0;
+            allOnes &= lwp[i] == (i == words - 1 ? VL_MASK_E(obits) : ~VL_EUL(0));
+        }
+        if (upperZero && lwp[0] == 0) {  // "X" so return 0
             return owp;
         }
-        if (lor == 0 && lwp[0] == 1) {  // 1
+        if (upperZero && lwp[0] == 1) {  // 1
             owp[0] = 1;
             return owp;
         }
-        if (lsign && lor == ~VL_EUL(0) && lwp[0] == ~VL_EUL(0)) {  // -1
+        if (lsign && allOnes) {  // -1
             if (rwp[0] & 1) {  // -1^odd=-1
                 return VL_ALLONES_W(obits, owp);
             }
