@@ -1771,7 +1771,8 @@ public:
     WithFuncReturnType<T_Func> r_sum(T_Func with_func) const {
         WithFuncReturnType<T_Func> out
             = WithFuncReturnType<T_Func>(0);  // Type must have assignment operator
-        for (const auto& i : m_storage) out += with_func(0, i);
+        IData index = 0;
+        for (const auto& i : m_storage) out += with_func(index++, i);
         return out;
     }
     T_Value r_product() const {
@@ -1782,7 +1783,8 @@ public:
     template <typename T_Func>
     WithFuncReturnType<T_Func> r_product(T_Func with_func) const {
         WithFuncReturnType<T_Func> out = WithFuncReturnType<T_Func>(1);
-        for (const auto& i : m_storage) out *= with_func(0, i);
+        IData index = 0;
+        for (const auto& i : m_storage) out *= with_func(index++, i);
         return out;
     }
     T_Value r_and() const {
@@ -1794,7 +1796,8 @@ public:
     template <typename T_Func>
     WithFuncReturnType<T_Func> r_and(T_Func with_func) const {
         WithFuncReturnType<T_Func> out = ~WithFuncReturnType<T_Func>(0);
-        for (const auto& i : m_storage) out &= with_func(0, i);
+        IData index = 0;
+        for (const auto& i : m_storage) out &= with_func(index++, i);
         return out;
     }
     T_Value r_or() const {
@@ -1805,7 +1808,8 @@ public:
     template <typename T_Func>
     WithFuncReturnType<T_Func> r_or(T_Func with_func) const {
         WithFuncReturnType<T_Func> out = WithFuncReturnType<T_Func>(0);
-        for (const auto& i : m_storage) out |= with_func(0, i);
+        IData index = 0;
+        for (const auto& i : m_storage) out |= with_func(index++, i);
         return out;
     }
     T_Value r_xor() const {
@@ -1816,7 +1820,8 @@ public:
     template <typename T_Func>
     WithFuncReturnType<T_Func> r_xor(T_Func with_func) const {
         WithFuncReturnType<T_Func> out = WithFuncReturnType<T_Func>(0);
-        for (const auto& i : m_storage) out ^= with_func(0, i);
+        IData index = 0;
+        for (const auto& i : m_storage) out ^= with_func(index++, i);
         return out;
     }
 
