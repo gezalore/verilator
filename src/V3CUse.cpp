@@ -77,7 +77,15 @@ class CUseVisitor final : public VNVisitorConst {
         } else if (const AstClassRefDType* const classp
                    = VN_CAST(nodep->skipRefp(), ClassRefDType)) {
             addNewUse(nodep, VUseType::INT_FWD_CLASS, classp->name());
+        } else if (const AstIfaceRefDType* const ifacep
+                   = VN_CAST(nodep->skipRefp(), IfaceRefDType)) {
+            // A virtual interface is a pointer to the interface
+            if (ifacep->ifacep()) {
+                addNewUse(nodep, VUseType::INT_FWD_CLASS, ifacep->ifacep()->name());
+            }
         }
+        // Element type of arrays
+        if (AstNodeDType* const subp = nodep->skipRefp()->subDTypep()) iterateConst(subp);
     }
     void visit(AstNode* nodep) override {
         if (nodep->user1SetOnce()) return;  // Process once
