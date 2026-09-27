@@ -300,6 +300,8 @@ class DelayedVisitor final : public VNVisitor {
     bool m_ignoreBlkAndNBlk = false;  // Suppress delayed assignment BLKANDNBLK
     bool m_inNonCombLogic = false;  // We are in non-combinational logic
     bool m_needsInitialTrigger = false;  // Whether a NodeProcedure needs a initial trigger
+    // Actives of '->>' in the current suspendable process, need its timing domains
+    std::vector<AstActive*> m_eventActivesp;
     AstVarRef* m_currNbaLhsRefp = nullptr;  // Current NBA LHS variable reference
 
     // STATE - during NBA conversion (after visit)
@@ -1190,6 +1192,7 @@ class DelayedVisitor final : public VNVisitor {
     }
     void visit(AstNodeProcedure* nodep) override {
         VL_RESTORER(m_needsInitialTrigger);
+        VL_RESTORER_CLEAR(m_eventActivesp);
         const size_t firstNBAAddedIndex = m_nbas.size();
         {
             VL_RESTORER(m_inSuspendableOrFork);
@@ -1241,6 +1244,11 @@ class DelayedVisitor final : public VNVisitor {
         for (size_t i = firstNBAAddedIndex; i < m_nbas.size(); ++i) {
             m_vscpInfo(m_nbas[i].vscp).addSensitivity(senItemp);
         }
+        // And to the nonblocking event triggers
+        for (AstActive* const activep : m_eventActivesp) {
+            activep->sentreep()->addSensesp(senItemp->cloneTree(true));
+            V3Const::constifyExpensiveEdit(activep->sentreep());
+        }
         // Done with these
         VL_DO_DANGLING(senItemp->deleteTree(), senItemp);
     }
@@ -1276,21 +1284,37 @@ class DelayedVisitor final : public VNVisitor {
                 return new AstVarRef{flp, dlyvscp, access};
             };
 
-            AstAlwaysPre* const prep = new AstAlwaysPre{flp};
-            prep->addStmtsp(new AstAssign{flp, dlyRef(VAccess::WRITE),
-                                          new AstConst{flp, AstConst::BitFalse{}}});
             AstAlwaysPost* const postp = new AstAlwaysPost{flp};
-            {
-                AstIf* const ifp = new AstIf{flp, dlyRef(VAccess::READ)};
-                postp->addStmtsp(ifp);
-                ifp->addThensp(newp);
-            }
+            AstIf* const ifp = new AstIf{flp, dlyRef(VAccess::READ)};
+            postp->addStmtsp(ifp);
+            ifp->addThensp(newp);
 
             UASSERT_OBJ(m_activep, nodep, "No active to handle FireEvent");
-            AstActive* const activep = new AstActive{flp, "nba-event", m_activep->sentreep()};
-            m_activep->addNextHere(activep);
-            activep->addStmtsp(prep);
-            activep->addStmtsp(postp);
+            if (m_inSuspendableOrFork && !vrefp->varp()->isClassMember()) {
+                // The trigger is committed when the process resumes from its timing domains,
+                // which are added to the sensitivities in visit(AstNodeProcedure)
+                m_needsInitialTrigger |= m_timingDomains.empty();
+                dlyvscp->varp()->setIgnorePostWrite();
+                AstSenTree* const senTreep = m_activep->sentreep()->hasClocked()
+                                                 ? m_activep->sentreep()->cloneTree(false)
+                                                 : new AstSenTree{flp, nullptr};
+                AstActive* const activep = new AstActive{flp, "nba-event", senTreep};
+                activep->senTreeStorep(senTreep);
+                m_activep->addNextHere(activep);
+                // Clear the flag once committed, it may be set in any eval
+                ifp->addThensp(new AstAssign{flp, dlyRef(VAccess::WRITE),
+                                             new AstConst{flp, AstConst::BitFalse{}}});
+                activep->addStmtsp(postp);
+                m_eventActivesp.push_back(activep);
+            } else {
+                AstAlwaysPre* const prep = new AstAlwaysPre{flp};
+                prep->addStmtsp(new AstAssign{flp, dlyRef(VAccess::WRITE),
+                                              new AstConst{flp, AstConst::BitFalse{}}});
+                AstActive* const activep = new AstActive{flp, "nba-event", m_activep->sentreep()};
+                m_activep->addNextHere(activep);
+                activep->addStmtsp(prep);
+                activep->addStmtsp(postp);
+            }
 
             newp = new AstAssign{flp, dlyRef(VAccess::WRITE),
                                  new AstConst{flp, AstConst::BitTrue{}}};
