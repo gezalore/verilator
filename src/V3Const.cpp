@@ -1741,13 +1741,15 @@ class ConstVisitor final : public VNVisitor {
         VL_DO_DANGLING(pushDeletep(constp), constp);
         return false;  // input node is still valid, keep going
     }
-    bool operandBiExtendConstOver(const AstNodeBiop* nodep) {
+    bool operandBiExtendConstOver(AstNodeBiop* nodep) {
         // EQ(const{width32}, EXTEND(xx{width3})) -> constant
         // When the constant has non-zero bits above the extend it's a constant.
         // Avoids compiler warning
-        const AstExtend* const extendp = VN_CAST(nodep->rhsp(), Extend);
+        AstExtend* const extendp = VN_CAST(nodep->rhsp(), Extend);
         if (!extendp) return false;
-        const AstNode* const smallerp = extendp->lhsp();
+        AstNodeExpr* const smallerp = extendp->lhsp();
+        // Would drop the side effects
+        if (!smallerp->isPure()) return false;
         const int subsize = smallerp->width();
         const AstConst* const constp = VN_CAST(nodep->lhsp(), Const);
         if (!constp) return false;
@@ -4384,10 +4386,10 @@ class ConstVisitor final : public VNVisitor {
     TREEOP ("AstDivS  {$lhsp.isZero, $rhsp}",   "replaceZeroChkPure(nodep,$rhsp)");
     TREEOP ("AstMul   {$lhsp.isZero, $rhsp}",   "replaceZeroChkPure(nodep,$rhsp)");
     TREEOP ("AstMulS  {$lhsp.isZero, $rhsp}",   "replaceZeroChkPure(nodep,$rhsp)");
-    TREEOP ("AstPow   {$rhsp.isZero}",          "replaceNum(nodep, 1)");  // Overrides lhs zero rule
-    TREEOP ("AstPowSS {$rhsp.isZero}",          "replaceNum(nodep, 1)");  // Overrides lhs zero rule
-    TREEOP ("AstPowSU {$rhsp.isZero}",          "replaceNum(nodep, 1)");  // Overrides lhs zero rule
-    TREEOP ("AstPowUS {$rhsp.isZero}",          "replaceNum(nodep, 1)");  // Overrides lhs zero rule
+    TREEOP ("AstPow   {$lhsp.isPure, $rhsp.isZero}",          "replaceNum(nodep, 1)");  // Overrides lhs zero rule
+    TREEOP ("AstPowSS {$lhsp.isPure, $rhsp.isZero}",          "replaceNum(nodep, 1)");  // Overrides lhs zero rule
+    TREEOP ("AstPowSU {$lhsp.isPure, $rhsp.isZero}",          "replaceNum(nodep, 1)");  // Overrides lhs zero rule
+    TREEOP ("AstPowUS {$lhsp.isPure, $rhsp.isZero}",          "replaceNum(nodep, 1)");  // Overrides lhs zero rule
     TREEOP ("AstOr    {$lhsp.isZero, $rhsp}",   "replaceWRhs(nodep)");
     TREEOP ("AstShiftL    {$lhsp.isZero, $rhsp}",  "replaceZeroChkPure(nodep,$rhsp)");
     TREEOP ("AstShiftLOvr {$lhsp.isZero, $rhsp}",  "replaceZeroChkPure(nodep,$rhsp)");
@@ -4466,14 +4468,14 @@ class ConstVisitor final : public VNVisitor {
     TREEOP ("AstGte  {!$lhsp.castConst,$rhsp.castConst}",       "AstLte {$rhsp,$lhsp}");
     TREEOP ("AstGteS {!$lhsp.castConst,$rhsp.castConst}",       "AstLteS{$rhsp,$lhsp}");
     //    v--- *1* as These ops are always first, as we warn before replacing
-    TREEOP1("AstLt   {$lhsp, $rhsp.isZero}",            "replaceNumSigned(nodep,0)");
-    TREEOP1("AstGte  {$lhsp, $rhsp.isZero}",            "replaceNumSigned(nodep,1)");
-    TREEOP1("AstGt   {$lhsp.isZero, $rhsp}",            "replaceNumSigned(nodep,0)");
-    TREEOP1("AstLte  {$lhsp.isZero, $rhsp}",            "replaceNumSigned(nodep,1)");
-    TREEOP1("AstGt   {$lhsp, $rhsp.isAllOnes, $lhsp->width()==$rhsp->width()}",  "replaceNumLimited(nodep,0)");
-    TREEOP1("AstLte  {$lhsp, $rhsp.isAllOnes, $lhsp->width()==$rhsp->width()}",  "replaceNumLimited(nodep,1)");
-    TREEOP1("AstLt   {$lhsp.isAllOnes, $rhsp, $lhsp->width()==$rhsp->width()}",  "replaceNumLimited(nodep,0)");
-    TREEOP1("AstGte  {$lhsp.isAllOnes, $rhsp, $lhsp->width()==$rhsp->width()}",  "replaceNumLimited(nodep,1)");
+    TREEOP1("AstLt   {$lhsp.isPure, $rhsp.isZero}",            "replaceNumSigned(nodep,0)");
+    TREEOP1("AstGte  {$lhsp.isPure, $rhsp.isZero}",            "replaceNumSigned(nodep,1)");
+    TREEOP1("AstGt   {$lhsp.isZero, $rhsp.isPure}",            "replaceNumSigned(nodep,0)");
+    TREEOP1("AstLte  {$lhsp.isZero, $rhsp.isPure}",            "replaceNumSigned(nodep,1)");
+    TREEOP1("AstGt   {$lhsp.isPure, $rhsp.isAllOnes, $lhsp->width()==$rhsp->width()}",  "replaceNumLimited(nodep,0)");
+    TREEOP1("AstLte  {$lhsp.isPure, $rhsp.isAllOnes, $lhsp->width()==$rhsp->width()}",  "replaceNumLimited(nodep,1)");
+    TREEOP1("AstLt   {$lhsp.isAllOnes, $rhsp.isPure, $lhsp->width()==$rhsp->width()}",  "replaceNumLimited(nodep,0)");
+    TREEOP1("AstGte  {$lhsp.isAllOnes, $rhsp.isPure, $lhsp->width()==$rhsp->width()}",  "replaceNumLimited(nodep,1)");
     // Two level bubble pushing
     TREEOP ("AstNot   {$lhsp.castNot,  $lhsp->width()==VN_AS($lhsp,,Not)->lhsp()->width()}", "replaceWChild(nodep, $lhsp->castNot()->lhsp())");  // NOT(NOT(x))->x
     TREEOP ("AstLogNot{$lhsp.castLogNot}",              "replaceWChild(nodep, $lhsp->castLogNot()->lhsp())");  // LOGNOT(LOGNOT(x))->x
@@ -4579,7 +4581,7 @@ class ConstVisitor final : public VNVisitor {
     TREEOPV("AstLt    {$rhsp.width1, $lhsp.isZero,    $rhsp}",  "replaceWRhs(nodep)");  // Because not signed #s
     TREEOPV("AstGt    {$lhsp.width1, $lhsp, $rhsp.isZero}",     "replaceWLhs(nodep)");  // Because not signed #s
     // Useful for CONDs added around ARRAYSEL's in V3Case step
-    TREEOPV("AstLte   {$lhsp->width()==$rhsp->width(), $rhsp.isAllOnes}", "replaceNum(nodep,1)");
+    TREEOPV("AstLte   {$lhsp->width()==$rhsp->width(), $lhsp.isPure, $rhsp.isAllOnes}", "replaceNum(nodep,1)");
     // Simplify reduction operators
     // This also gets &{...,0,....} => const 0  (Common for unused_ok signals)
     TREEOPV("AstRedAnd{$lhsp, $lhsp.width1}",   "replaceWLhs(nodep)");
@@ -4588,13 +4590,13 @@ class ConstVisitor final : public VNVisitor {
     TREEOPV("AstRedAnd{$lhsp.castConcat}",      "AstAnd{AstRedAnd{$lhsp->castConcat()->lhsp()}, AstRedAnd{$lhsp->castConcat()->rhsp()}}");  // &{a,b} => {&a}&{&b}
     TREEOPV("AstRedOr {$lhsp.castConcat}",      "AstOr {AstRedOr {$lhsp->castConcat()->lhsp()}, AstRedOr {$lhsp->castConcat()->rhsp()}}");  // |{a,b} => {|a}|{|b}
     TREEOPV("AstRedXor{$lhsp.castConcat}",      "AstXor{AstRedXor{$lhsp->castConcat()->lhsp()}, AstRedXor{$lhsp->castConcat()->rhsp()}}");  // ^{a,b} => {^a}^{^b}
-    TREEOPV("AstRedAnd{$lhsp.castExtend, $lhsp->width() > VN_AS($lhsp,,Extend)->lhsp()->width()}", "replaceZero(nodep)");  // &{0,...} => 0  Prevents compiler limited range error
+    TREEOPV("AstRedAnd{$lhsp.castExtend, $lhsp.isPure, $lhsp->width() > VN_AS($lhsp,,Extend)->lhsp()->width()}", "replaceZero(nodep)");  // &{0,...} => 0  Prevents compiler limited range error
     TREEOPV("AstRedOr {$lhsp.castExtend}",      "AstRedOr {$lhsp->castExtend()->lhsp()}");
     TREEOPV("AstRedXor{$lhsp.castExtend}",      "AstRedXor{$lhsp->castExtend()->lhsp()}");
     TREEOP ("AstRedXor{$lhsp.castXor, VN_IS(VN_AS($lhsp,,Xor)->lhsp(),,Const)}", "AstXor{AstRedXor{$lhsp->castXor()->lhsp()}, AstRedXor{$lhsp->castXor()->rhsp()}}");  // ^(const ^ a) => (^const)^(^a)
     TREEOPC("AstAnd {$lhsp.castConst, $rhsp.castRedXor, matchBitOpTree(nodep)}", "DONE");
     TREEOPV("AstOneHot{$lhsp.width1}",          "replaceWLhs(nodep)");
-    TREEOPV("AstOneHot0{$lhsp.width1}",         "replaceNum(nodep,1)");
+    TREEOPV("AstOneHot0{$lhsp.width1, $lhsp.isPure}",         "replaceNum(nodep,1)");
     // Binary AND/OR is faster than logical and/or (usually)
     TREEOPV("AstLogAnd{matchBiopToBitwise(nodep)}", "AstAnd{$lhsp,$rhsp}");
     TREEOPV("AstLogOr {matchBiopToBitwise(nodep)}", "AstOr{$lhsp,$rhsp}");
