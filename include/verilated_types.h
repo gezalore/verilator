@@ -539,10 +539,13 @@ class VlReadMem final {
     const int m_bits;  // Bit width of values
     const std::string& m_filename;  // Filename
     const QData m_end;  // End address (as specified by user)
+    const bool m_decrement;  // Load from higher to lower addresses
     FILE* m_fp = nullptr;  // File handle for filename
     QData m_addr = 0;  // Next address to read
     int m_linenum = 0;  // Line number last read from file
     bool m_anyAddr = false;  // Had address directive in the file
+    bool m_pastEnd = false;  // Loaded the end address, no further addresses to load
+    bool nextAddr(QData& addrr);
 public:
     VlReadMem(bool hex, int bits, const std::string& filename, QData start, QData end);
     ~VlReadMem();

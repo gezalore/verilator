@@ -2674,6 +2674,7 @@ VlReadMem::VlReadMem(bool hex, int bits, const std::string& filename, QData star
     , m_bits{bits}
     , m_filename(filename)  // Need () or GCC 4.8 false warning
     , m_end{end}
+    , m_decrement{end != ~0ULL && start > end}
     , m_addr{start} {
     m_fp = std::fopen(filename.c_str(), "r");
     if (VL_UNLIKELY(!m_fp)) {
@@ -2687,6 +2688,27 @@ VlReadMem::~VlReadMem() {
         std::fclose(m_fp);
         m_fp = nullptr;
     }
+}
+bool VlReadMem::nextAddr(QData& addrr) {
+    // Loading proceeds from the start address toward the end address, also after
+    // an address specification in the file (IEEE 1800-2023 21.4)
+    if (VL_UNLIKELY(m_pastEnd)) {
+        if (!m_anyAddr) {
+            VL_WARN_MT(m_filename.c_str(), m_linenum, "",
+                       "$readmem file contains data beyond the specified final address"
+                       " (IEEE 1800-2023 21.4)");
+        }
+        return false;
+    }
+    addrr = m_addr;
+    if (m_addr == m_end) {
+        m_pastEnd = true;
+    } else if (m_decrement) {
+        --m_addr;
+    } else {
+        ++m_addr;
+    }
+    return true;
 }
 bool VlReadMem::get(QData& addrr, std::string& valuer) {
     if (VL_UNLIKELY(!m_fp)) return false;
@@ -2714,9 +2736,12 @@ bool VlReadMem::get(QData& addrr, std::string& valuer) {
         if (inData && !chIs4StateHex) {
             // printf("Got data @%lx = %s\n", m_addr, valuer.c_str());
             ungetc(c, m_fp);
-            addrr = m_addr;
-            ++m_addr;
-            return true;
+            if (nextAddr(addrr)) return true;
+            if (!m_anyAddr) return false;
+            // Skip data beyond the end address until the next address specification
+            inData = false;
+            valuer = "";
+            continue;
         }
         // Parse line
         if (c == '\n') {
@@ -2741,6 +2766,7 @@ bool VlReadMem::get(QData& addrr, std::string& valuer) {
             } else if (c == '@') {
                 readingAddress = true;
                 m_anyAddr = true;
+                m_pastEnd = false;
                 m_addr = 0;
             } else if (readingAddress && chIs2StateHex) {
                 c = std::tolower(c);
@@ -2763,13 +2789,14 @@ bool VlReadMem::get(QData& addrr, std::string& valuer) {
         lastCh = c;
     }
 
-    if (VL_UNLIKELY(m_end != ~0ULL && m_addr <= m_end && !m_anyAddr)) {
+    // Last data at end of file
+    const bool gotData = inData && nextAddr(addrr);
+
+    if (VL_UNLIKELY(m_end != ~0ULL && !m_pastEnd && !m_anyAddr)) {
         VL_WARN_MT(m_filename.c_str(), m_linenum, "",
                    "$readmem file ended before specified final address (IEEE 1800-2023 21.4)");
     }
-
-    addrr = m_addr;
-    return inData;  // EOF
+    return gotData;  // EOF
 }
 void VlReadMem::setData(void* valuep, const std::string& rhs) {
     const QData shift = m_hex ? 4ULL : 1ULL;
