@@ -272,6 +272,33 @@ class PremitVisitor final : public VNVisitor {
             iterateAndNextNull(nodep->rhsp());
         }
 
+        // A wide assignment is expanded into an assignment for each word, which evaluates
+        // the LHS array indices for each word. If an index reads the assigned variable, it
+        // might change after assigning the first word, so compute it first.
+        if (nodep->lhsp()->isWide()) {
+            const VNUser3InUse user3InUse;
+            nodep->lhsp()->foreach([](const AstVarRef* refp) {
+                if (refp->access().isWriteOrRW()) refp->varp()->user3(true);
+            });
+            for (AstNodeExpr* lhsp = nodep->lhsp(); lhsp;) {
+                if (AstArraySel* const aselp = VN_CAST(lhsp, ArraySel)) {
+                    AstNodeExpr* const bitp = aselp->bitp();
+                    if (bitp->exists(
+                            [](const AstVarRef* refp) { return refp->varp()->user3(); })) {
+                        createTemp(bitp);
+                    }
+                    lhsp = aselp->fromp();
+                } else if (AstNodeSel* const selp = VN_CAST(lhsp, NodeSel)) {
+                    lhsp = selp->fromp();
+                } else if (AstSel* const selp = VN_CAST(lhsp, Sel)) {
+                    lhsp = selp->fromp();
+                } else if (AstStructSel* const selp = VN_CAST(lhsp, StructSel)) {
+                    lhsp = selp->fromp();
+                } else {
+                    lhsp = nullptr;
+                }
+            }
+        }
         m_assignLhs = true;  // Restored by VL_RESTORER in START_STATEMENT_OR_RETURN
         iterateAndNextNull(nodep->lhsp());
 
