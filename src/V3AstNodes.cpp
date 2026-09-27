@@ -1512,6 +1512,19 @@ AstNodeExpr* AstInsideRange::newAndFromInside(AstNodeExpr* exprp, AstNodeExpr* l
                                               AstNodeExpr* rhsp) {
     const bool lhsUnbounded = VN_IS(lhsp, Unbounded);
     const bool rhsUnbounded = VN_IS(rhsp, Unbounded);
+    // When called after V3Width (e.g. from V3Case), the operands are typed already, and
+    // the comparisons must be signed if both operands are signed
+    const auto isSignedCmp = [](const AstNodeExpr* ap, const AstNodeExpr* bp) {
+        return ap->dtypep() && bp->dtypep() && ap->isSigned() && bp->isSigned();
+    };
+    const auto newGte = [&](AstNodeExpr* ap, AstNodeExpr* bp) -> AstNodeExpr* {
+        if (isSignedCmp(ap, bp)) return new AstGteS{fileline(), ap, bp};
+        return new AstGte{fileline(), ap, bp};
+    };
+    const auto newLte = [&](AstNodeExpr* ap, AstNodeExpr* bp) -> AstNodeExpr* {
+        if (isSignedCmp(ap, bp)) return new AstLteS{fileline(), ap, bp};
+        return new AstLte{fileline(), ap, bp};
+    };
 
     if (lhsUnbounded && rhsUnbounded) {
         fileline()->v3warn(INSIDETRUE,
@@ -1526,26 +1539,26 @@ AstNodeExpr* AstInsideRange::newAndFromInside(AstNodeExpr* exprp, AstNodeExpr* l
         // [$:N] - only check expr <= rhs
         // Use exprp directly (not cloned) so ExprStmt side effects are preserved
         VL_DO_DANGLING(lhsp->deleteTree(), lhsp);
-        AstNodeExpr* const bp = new AstLte{fileline(), exprp, rhsp};
+        AstNodeExpr* const bp = newLte(exprp, rhsp);
         bp->fileline()->modifyWarnOff(V3ErrorCode::CMPCONST, true);
         return bp;
     } else if (rhsUnbounded) {
         // [N:$] - only check expr >= lhs
         VL_DO_DANGLING(rhsp->deleteTree(), rhsp);
-        AstNodeExpr* const ap = new AstGte{fileline(), exprp, lhsp};
+        AstNodeExpr* const ap = newGte(exprp, lhsp);
         ap->fileline()->modifyWarnOff(V3ErrorCode::UNSIGNED, true);
         return ap;
     }
 
     // Normal case: [N:M] - check expr >= lhs && expr <= rhs
-    AstNodeExpr* const ap = new AstGte{fileline(), exprp, lhsp};
+    AstNodeExpr* const ap = newGte(exprp, lhsp);
     AstNodeExpr* lteLhsp;
     if (const AstExprStmt* const exprStmt = VN_CAST(exprp, ExprStmt)) {
         lteLhsp = exprStmt->resultp()->cloneTreePure(true);
     } else {
         lteLhsp = exprp->cloneTreePure(true);
     }
-    AstNodeExpr* const bp = new AstLte{fileline(), lteLhsp, rhsp};
+    AstNodeExpr* const bp = newLte(lteLhsp, rhsp);
     ap->fileline()->modifyWarnOff(V3ErrorCode::UNSIGNED, true);
     bp->fileline()->modifyWarnOff(V3ErrorCode::CMPCONST, true);
     return new AstLogAnd{fileline(), ap, bp};
