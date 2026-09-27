@@ -4710,9 +4710,10 @@ class WidthVisitor final : public VNVisitor {
                         new AstMethodCall{nodep->fileline(), nodep->fromp()->unlinkFrBack(),
                                           "next"},
                         "prev"};
-                    // No dtype assigned, we will recurse the new method and replace
                     nodep->replaceWith(newp);
                     VL_DO_DANGLING(nodep->deleteTree(), nodep);
+                    // Width the new method now, it might be the target of another method
+                    userIterate(newp, m_vup);
                     return;
                 } else if (stepWidth != 1) {
                     // Unroll of enumVar.next(k) to enumVar.next(1).next(k - 1)
@@ -4723,9 +4724,10 @@ class WidthVisitor final : public VNVisitor {
                     AstArg* const argp = new AstArg{nodep->fileline(), "", constp};
                     AstMethodCall* const newp
                         = new AstMethodCall{nodep->fileline(), clonep, nodep->name(), argp};
-                    // No dtype assigned, we will recurse the new method and replace
                     nodep->replaceWith(newp);
                     VL_DO_DANGLING(nodep->deleteTree(), nodep);
+                    // Width the new method now, it might be the target of another method
+                    userIterate(newp, m_vup);
                     return;
                 }
             }
