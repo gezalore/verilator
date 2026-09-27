@@ -822,7 +822,7 @@ inline IData VL_COUNTBITS_W(int lbits, int words, WDataInP const lwp, IData ctrl
     EData r = 0;
     IData wordLbits = 32;
     for (int i = 0; i < words; ++i) {
-        if (i == words - 1) wordLbits = VL_BITBIT_I(lbits);
+        if (i == words - 1) wordLbits = lbits - i * VL_EDATASIZE;
         r += VL_COUNTBITS_E(wordLbits, lwp[i], ctrl0, ctrl1, ctrl2);
     }
     return r;
