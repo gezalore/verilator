@@ -831,8 +831,9 @@ public:
     VlQueue unique(T_Func with_func) const {
         VlQueue out;
         std::set<decltype(with_func(0, m_deque[0]))> saw;
+        IData index = 0;
         for (const auto& i : m_deque) {
-            const auto i_mapped = with_func(0, i);
+            const auto i_mapped = with_func(index++, i);
             const auto it = saw.find(i_mapped);
             if (it == saw.end()) {
                 saw.insert(it, i_mapped);
@@ -949,11 +950,16 @@ public:
     template <typename T_Func>
     VlQueue min(T_Func with_func) const {
         if (m_deque.empty()) return VlQueue{};
-        const auto it = std::min_element(m_deque.cbegin(), m_deque.cend(),
-                                         [&with_func](const T_Value& a, const T_Value& b) {
-                                             return with_func(0, a) < with_func(0, b);
-                                         });
-        return VlQueue::consV(*it);
+        IData best = 0;
+        auto bestKey = with_func(0, m_deque[0]);
+        for (IData index = 1; index < m_deque.size(); ++index) {
+            const auto key = with_func(index, m_deque[index]);
+            if (key < bestKey) {
+                bestKey = key;
+                best = index;
+            }
+        }
+        return VlQueue::consV(m_deque[best]);
     }
     VlQueue max() const {
         if (m_deque.empty()) return VlQueue{};
@@ -963,11 +969,16 @@ public:
     template <typename T_Func>
     VlQueue max(T_Func with_func) const {
         if (m_deque.empty()) return VlQueue{};
-        const auto it = std::max_element(m_deque.cbegin(), m_deque.cend(),
-                                         [&with_func](const T_Value& a, const T_Value& b) {
-                                             return with_func(0, a) < with_func(0, b);
-                                         });
-        return VlQueue::consV(*it);
+        IData best = 0;
+        auto bestKey = with_func(0, m_deque[0]);
+        for (IData index = 1; index < m_deque.size(); ++index) {
+            const auto key = with_func(index, m_deque[index]);
+            if (bestKey < key) {
+                bestKey = key;
+                best = index;
+            }
+        }
+        return VlQueue::consV(m_deque[best]);
     }
 
     T_Value r_sum() const {
@@ -1232,11 +1243,10 @@ public:
     template <typename T_Func>
     VlQueue<T_Value> unique(T_Func with_func) const {
         VlQueue<T_Value> out;
-        T_Key default_key;
         using WithType = decltype(with_func(m_map.begin()->first, m_map.begin()->second));
         std::set<WithType> saw;
         for (const auto& i : m_map) {
-            const auto i_mapped = with_func(default_key, i.second);
+            const auto i_mapped = with_func(i.first, i.second);
             const auto it = saw.find(i_mapped);
             if (it == saw.end()) {
                 saw.insert(it, i_mapped);
@@ -1634,9 +1644,10 @@ public:
     template <typename T_Func>
     VlQueue<T_Value> unique(T_Func with_func) const {
         VlQueue<T_Value> out;
-        std::set<T_Value> saw;
+        std::set<decltype(with_func(0, m_storage[0]))> saw;
+        IData index = 0;
         for (const auto& i : m_storage) {
-            const auto i_mapped = with_func(0, i);
+            const auto i_mapped = with_func(index++, i);
             const auto it = saw.find(i_mapped);
             if (it == saw.end()) {
                 saw.insert(it, i_mapped);
@@ -1743,11 +1754,16 @@ public:
     }
     template <typename T_Func>
     VlQueue<T_Value> min(T_Func with_func) const {
-        const auto it = std::min_element(std::begin(m_storage), std::end(m_storage),
-                                         [&with_func](const IData& a, const IData& b) {
-                                             return with_func(0, a) < with_func(0, b);
-                                         });
-        return VlQueue<T_Value>::consV(*it);
+        IData best = 0;
+        auto bestKey = with_func(0, m_storage[0]);
+        for (IData index = 1; index < N_Depth; ++index) {
+            const auto key = with_func(index, m_storage[index]);
+            if (key < bestKey) {
+                bestKey = key;
+                best = index;
+            }
+        }
+        return VlQueue<T_Value>::consV(m_storage[best]);
     }
     VlQueue<T_Value> max() const {
         const auto it = std::max_element(std::begin(m_storage), std::end(m_storage));
@@ -1755,11 +1771,16 @@ public:
     }
     template <typename T_Func>
     VlQueue<T_Value> max(T_Func with_func) const {
-        const auto it = std::max_element(std::begin(m_storage), std::end(m_storage),
-                                         [&with_func](const IData& a, const IData& b) {
-                                             return with_func(0, a) < with_func(0, b);
-                                         });
-        return VlQueue<T_Value>::consV(*it);
+        IData best = 0;
+        auto bestKey = with_func(0, m_storage[0]);
+        for (IData index = 1; index < N_Depth; ++index) {
+            const auto key = with_func(index, m_storage[index]);
+            if (bestKey < key) {
+                bestKey = key;
+                best = index;
+            }
+        }
+        return VlQueue<T_Value>::consV(m_storage[best]);
     }
 
     T_Value r_sum() const {
