@@ -4572,6 +4572,34 @@ class WidthVisitor final : public VNVisitor {
         }
         return nullptr;
     }
+    // The run time compares the keys of sort, rsort, min and max with operator<, which is an
+    // unsigned comparison for integral types. For signed keys flip the sign bit, so the
+    // unsigned order is the signed order. Adds an implicit 'with (item)' if needed.
+    AstWith* methodSignedKeyWith(AstNodeFTaskRef* nodep, AstWith* withp, AstNodeDType* indexDtp,
+                                 AstNodeDType* valueDtp) {
+        const AstNodeDType* const keyDtp = (withp ? withp->dtypep() : valueDtp)->skipRefp();
+        if (!keyDtp->isSigned() || keyDtp->isDouble() || keyDtp->isString()) return withp;
+        FileLine* const flp = nodep->fileline();
+        if (!withp) {
+            AstLambdaArgRef* const indexArgRefp
+                = new AstLambdaArgRef{flp, "__Vkey__DOT__index", true};
+            indexArgRefp->dtypep(indexDtp);
+            AstLambdaArgRef* const valueArgRefp = new AstLambdaArgRef{flp, "__Vkey", false};
+            valueArgRefp->dtypep(valueDtp);
+            AstLambdaArgRef* const refp = new AstLambdaArgRef{flp, "__Vkey", false};
+            refp->dtypep(valueDtp);
+            withp = new AstWith{flp, indexArgRefp, valueArgRefp, refp};
+        }
+        AstNodeExpr* const exprp = VN_AS(withp->exprp(), NodeExpr)->unlinkFrBack();
+        const int width = exprp->width();
+        V3Number signBit{flp, width, 0};
+        signBit.setBit(width - 1, 1);
+        AstNodeExpr* const newp = new AstXor{flp, exprp, new AstConst{flp, signBit}};
+        newp->dtypeSetLogicSized(width, VSigning::UNSIGNED);
+        withp->addExprp(newp);
+        withp->dtypeFrom(newp);
+        return withp;
+    }
     void methodOkArguments(AstNodeFTaskRef* nodep, int minArg, int maxArg) {
         int narg = 0;
         if (AstWith* const withp = nodep->withp()) {
@@ -4769,6 +4797,10 @@ class WidthVisitor final : public VNVisitor {
             methodCallLValueRecurse(nodep, nodep->fromp(), VAccess::READ);
             newp = new AstCMethodHard{nodep->fileline(), nodep->fromp()->unlinkFrBack(),
                                       VCMethod::arrayMethod(nodep->name())};
+            if (nodep->name() != "unique") {
+                newp->withp(methodSignedKeyWith(nodep, nullptr, adtypep->findStringDType(),
+                                                adtypep->subDTypep()));
+            }
             newp->dtypep(queueDTypeIndexedBy(adtypep->subDTypep()));
         } else if (nodep->name() == "find" || nodep->name() == "find_first"
                    || nodep->name() == "find_last") {
@@ -4869,12 +4901,16 @@ class WidthVisitor final : public VNVisitor {
             newp->dtypeFrom(withp ? withp->dtypep() : adtypep->subDTypep());
         } else if (nodep->name() == "min" || nodep->name() == "max" || nodep->name() == "unique"
                    || nodep->name() == "unique_index") {
-            AstWith* const withp = methodWithClause(
-                nodep, false, true, nullptr, nodep->findUInt32DType(), adtypep->subDTypep());
+            AstWith* withp = methodWithClause(nodep, false, true, nullptr,
+                                              nodep->findUInt32DType(), adtypep->subDTypep());
             methodOkArguments(nodep, 0, 0);
             methodCallLValueRecurse(nodep, nodep->fromp(), VAccess::READ);
             newp = new AstCMethodHard{nodep->fileline(), nodep->fromp()->unlinkFrBack(),
                                       VCMethod::arrayMethod(nodep->name())};
+            if (nodep->name() == "min" || nodep->name() == "max") {
+                withp = methodSignedKeyWith(nodep, withp, nodep->findUInt32DType(),
+                                            adtypep->subDTypep());
+            }
             newp->withp(withp);
             if (nodep->name() == "unique_index") {
                 newp->dtypep(queueDTypeIndexedBy(adtypep->keyDTypep()));
@@ -4994,6 +5030,8 @@ class WidthVisitor final : public VNVisitor {
             if (nodep->name() == "sort" || nodep->name() == "rsort") {
                 withp = methodWithClause(nodep, false, true, nullptr, nodep->findUInt32DType(),
                                          adtypep->subDTypep());
+                withp = methodSignedKeyWith(nodep, withp, nodep->findUInt32DType(),
+                                            adtypep->subDTypep());
             }
             methodOkArguments(nodep, 0, 0);
             methodCallLValueRecurse(nodep, nodep->fromp(), VAccess::WRITE);
@@ -5003,12 +5041,16 @@ class WidthVisitor final : public VNVisitor {
             newp->dtypeSetVoid();
         } else if (nodep->name() == "min" || nodep->name() == "max" || nodep->name() == "unique"
                    || nodep->name() == "unique_index") {
-            AstWith* const withp = methodWithClause(
-                nodep, false, true, nullptr, nodep->findUInt32DType(), adtypep->subDTypep());
+            AstWith* withp = methodWithClause(nodep, false, true, nullptr,
+                                              nodep->findUInt32DType(), adtypep->subDTypep());
             methodOkArguments(nodep, 0, 0);
             methodCallLValueRecurse(nodep, nodep->fromp(), VAccess::READ);
             newp = new AstCMethodHard{nodep->fileline(), nodep->fromp()->unlinkFrBack(),
                                       VCMethod::arrayMethod(nodep->name())};
+            if (nodep->name() == "min" || nodep->name() == "max") {
+                withp = methodSignedKeyWith(nodep, withp, nodep->findUInt32DType(),
+                                            adtypep->subDTypep());
+            }
             newp->withp(withp);
             if (nodep->name() == "unique_index") {
                 newp->dtypep(newp->findQueueIndexDType());
