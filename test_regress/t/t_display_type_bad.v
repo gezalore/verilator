@@ -12,6 +12,7 @@ module t;
     $display("%D %X %F %T", s, s, s, s);
     $display("%d %x %f %t", vec, vec, vec, vec);
     $display("%D %X %F %T", vec, vec, vec, vec);
+    $display("%h %H", s, vec);
     $write("*-* All Finished *-*\n");
     $finish;
   end

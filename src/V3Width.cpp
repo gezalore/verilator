@@ -9205,6 +9205,7 @@ class WidthVisitor final : public VNVisitor {
                     }
                     break;
                 case 'b':  // FALLTHRU
+                case 'h':  // FALLTHRU
                 case 'o':  // FALLTHRU
                 case 'x':
                     if (subargp) {

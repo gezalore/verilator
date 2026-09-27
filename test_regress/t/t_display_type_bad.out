@@ -59,4 +59,14 @@
                                     : ... Suggest use '%s'
    14 |     $display("%D %X %F %T", vec, vec, vec, vec);
       |                                            ^~~
+%Error: t/t_display_type_bad.v:15:23: $display-like format of '%h' illegal with non-numeric argument
+                                    : ... note: In instance 't'
+                                    : ... Suggest use '%s'
+   15 |     $display("%h %H", s, vec);
+      |                       ^
+%Error: t/t_display_type_bad.v:15:26: $display-like format of '%h' illegal with non-numeric argument
+                                    : ... note: In instance 't'
+                                    : ... Suggest use '%s'
+   15 |     $display("%h %H", s, vec);
+      |                          ^~~
 %Error: Exiting due to
