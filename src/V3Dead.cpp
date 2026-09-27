@@ -466,6 +466,10 @@ class DeadVisitor final : public VNVisitor {
         iterateChildren(nodep);
         checkDType(nodep);
         checkAll(nodep);
+        // The module a struct is declared in (see V3Class) must be kept for the declaration
+        if (const AstNodeUOrStructDType* const sdtypep = VN_CAST(nodep, NodeUOrStructDType)) {
+            if (sdtypep->classOrPackagep()) sdtypep->classOrPackagep()->user1Inc();
+        }
     }
     void visit(AstEnumItemRef* nodep) override {
         iterateChildren(nodep);
