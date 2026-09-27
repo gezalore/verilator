@@ -439,6 +439,9 @@ class TaskVisitor final : public VNVisitor {
     AstNode* m_insStmtp = nullptr;  // Where to insert statement
     bool m_inSensesp = false;  // Are we under a senitem?
     bool m_inNew = false;  // Are we under a constructor?
+    bool m_inFork = false;  // Are we under a fork, which might run concurrently with itself?
+    // Temporaries of inlined calls that are module members
+    std::unordered_set<const AstVarScope*> m_memberTemps;
     int m_modNCalls = 0;  // Incrementing func # for making symbols
     int m_unconVarNum = 0;  // Unique bad connection variable
 
@@ -485,12 +488,21 @@ class TaskVisitor final : public VNVisitor {
             // in more cache locality.
             AstVar* const newvarp
                 = new AstVar{invarp->fileline(), VVarType::BLOCKTEMP, name, invarp};
-            newvarp->funcLocal(false);
             newvarp->propagateAttrFrom(invarp);
             newvarp->isInternal(true);
-            m_modp->addStmtsp(newvarp);
+            if (m_inFork) {
+                UASSERT_OBJ(m_insStmtp, invarp, "Call under fork not underneath a statement");
+                // A forked process might be suspended while another instance of it is using
+                // the same temporaries, so they must be local to the process
+                newvarp->funcLocal(true);
+                m_insStmtp->addHereThisAsNext(newvarp);
+            } else {
+                newvarp->funcLocal(false);
+                m_modp->addStmtsp(newvarp);
+            }
             AstVarScope* const newvscp = new AstVarScope{newvarp->fileline(), m_scopep, newvarp};
             m_scopep->addVarsp(newvscp);
+            if (!m_inFork) m_memberTemps.emplace(newvscp);
             return newvscp;
         }
     }
@@ -711,6 +723,20 @@ class TaskVisitor final : public VNVisitor {
             = new AstComment{refp->fileline(), "Function: "s + refp->name(), true};
         if (newbodysp) beginp->addNext(newbodysp);
         if (debug() >= 9) beginp->dumpTreeAndNext(cout, "-  newbegi: ");
+        // Temporaries of calls inlined into the body are local to each forked process
+        if (m_inFork && newbodysp) {
+            std::unordered_map<const AstVarScope*, AstVarScope*> localps;
+            newbodysp->foreachAndNext([&](AstVarRef* refp) {
+                if (!m_memberTemps.count(refp->varScopep())) return;
+                AstVarScope*& localp = localps[refp->varScopep()];
+                if (!localp) {
+                    AstVar* const varp = refp->varp();
+                    localp = createVarScope(varp, namePrefix + "__" + varp->name());
+                }
+                refp->varScopep(localp);
+                refp->varp(localp->varp());
+            });
+        }
         //
         // Create input variables
         AstNode::user2ClearTree();
@@ -755,6 +781,13 @@ class TaskVisitor final : public VNVisitor {
             // UINFO(0, "setflag on " << funcp->fvarp() << " to " << outvscp);
             refp->taskp()->fvarp()->user2p(outvscp);
         }
+        // Remaining variables are process local temporaries under a fork in the body
+        beginp->foreachAndNext([&](AstVar* varp) {
+            varp->name(namePrefix + "__" + varp->name());
+            AstVarScope* const vscp = new AstVarScope{varp->fileline(), m_scopep, varp};
+            m_scopep->addVarsp(vscp);
+            varp->user2p(vscp);
+        });
         // Replace variable refs
         relink(beginp);
         //
@@ -1552,8 +1585,10 @@ class TaskVisitor final : public VNVisitor {
         VL_RESTORER(m_scopep);
         VL_RESTORER(m_modp);
         VL_RESTORER(m_insStmtp);
+        VL_RESTORER(m_inFork);
         m_scopep = m_statep->getScope(nodep);
         m_modp = m_scopep->modp();
+        m_inFork = false;
         iterate(nodep);
     }
     void insertBeforeStmt(AstNode* nodep, AstNode* newp) {
@@ -1883,6 +1918,15 @@ class TaskVisitor final : public VNVisitor {
     void visit(AstNodeForeach* nodep) override {  // LCOV_EXCL_LINE
         nodep->v3fatalSrc(
             "Foreach statements should have been converted to while statements in V3Begin.cpp");
+    }
+    void visit(AstFork* nodep) override {
+        VL_RESTORER(m_insStmtp);
+        VL_RESTORER(m_inFork);
+        m_insStmtp = nodep;
+        iterateAndNextNull(nodep->declsp());
+        iterateAndNextNull(nodep->stmtsp());
+        m_inFork = true;
+        iterateAndNextNull(nodep->forksp());
     }
     void visit(AstNodeStmt* nodep) override {
         VL_RESTORER(m_insStmtp);
