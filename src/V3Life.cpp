@@ -333,8 +333,8 @@ class LifeVisitor final : public VNVisitor {
         }
     }
     void visit(AstNodeAssign* nodep) override {
-        if (nodep->isTimingControl() || VN_IS(nodep, AssignForce)) {
-            // V3Life doesn't understand time sense nor force assigns - don't optimize
+        if (nodep->isTimingControl() || VN_IS(nodep, AssignForce) || VN_IS(nodep, AssignCont)) {
+            // V3Life doesn't understand time sense nor force/procedural continuous assigns
             setNoopt("timing|force");
             if (nodep->isTimingControl()) m_containsTiming = true;
             iterateChildren(nodep);
