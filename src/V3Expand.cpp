@@ -660,6 +660,24 @@ class ExpandVisitor final : public VNVisitor {
                 if (!clonep->backp()) VL_DO_DANGLING(clonep->deleteTree(), clonep);
                 return wordp;
             };
+            // A select partially out of range (e.g.: 'logic [95:0] v; v[i +: 20]' with i == 80)
+            // reads words beyond the end of the source with the words holding the higher bits,
+            // which read as zero instead
+            const bool mayOverrun = [&]() {
+                const int lsbWidth = nodep->lsbp()->width();
+                if (lsbWidth >= 32) return true;
+                const uint64_t maxLsb = (1ULL << lsbWidth) - 1;
+                return maxLsb + width > static_cast<uint64_t>(fromp->width());
+            }();
+            const auto wordSelHigh = [&](AstNodeExpr* idxp) -> AstNodeExpr* {
+                AstNodeExpr* const wordp = wordSel(idxp);
+                if (!mayOverrun || VN_IS(idxp, Const)) return wordp;
+                AstNodeExpr* const maxp
+                    = new AstConst{nfl, static_cast<uint32_t>(fromp->widthWords())};
+                AstNodeExpr* const condp = new AstGte{nfl, idxp->cloneTreePure(false), maxp};
+                AstNodeExpr* const zerop = new AstConst{nfl, AstConst::SizedEData{}, 0};
+                return new AstCond{nfl, condp, zerop, wordp};
+            };
 
             // Construct term containing the bits of the low word - always needed
             AstNodeExpr* const lTermp = [&]() -> AstNodeExpr* {
@@ -672,7 +690,7 @@ class ExpandVisitor final : public VNVisitor {
             AstNodeExpr* const mTermp = [&]() -> AstNodeExpr* {
                 if (!mNeeded) return nullptr;
 
-                AstNodeExpr* mWordp = wordSel(mIdxp);
+                AstNodeExpr* mWordp = wordSelHigh(mIdxp);
                 if (nodep->isQuad()) mWordp = new AstCCast{nfl, mWordp, nodep};
                 AstNodeExpr* const mShiftp = new AstSub{lfl, new AstConst{lfl, VL_EDATASIZE},
                                                         lBitp->cloneTreePure(false)};
@@ -693,7 +711,7 @@ class ExpandVisitor final : public VNVisitor {
             AstNodeExpr* const hTermp = [&]() -> AstNodeExpr* {
                 if (!hNeeded) return nullptr;
 
-                AstNodeExpr* hWordp = wordSel(hIdxp);
+                AstNodeExpr* hWordp = wordSelHigh(hIdxp);
                 hWordp = new AstCCast{nfl, hWordp, nodep};
                 AstNodeExpr* const hShiftp = new AstCond{
                     nfl,
@@ -812,21 +830,37 @@ class ExpandVisitor final : public VNVisitor {
         // Create each word of the selected result
         AstNodeExpr* const fromp = rhsp->fromp();
         const int selWords = nodep->widthWords();
+        const int fromWords = fromp->widthWords();
+        // A select partially out of range (e.g.: 'logic [95:0] v; v[i +: 70]' with i == 80)
+        // reads words beyond the end of the source, which read as zero instead. If the select
+        // is known to be in range, only the high part of the last word can do so.
+        const bool mayOverrun = [&]() {
+            const int lsbWidth = rhsp->lsbp()->width();
+            if (lsbWidth >= 32) return true;
+            const uint64_t maxLsb = (1ULL << lsbWidth) - 1;
+            return maxLsb + rhsp->widthConst() > static_cast<uint64_t>(fromp->width());
+        }();
+        // Guard 'wordp', which is word 'wordIdx + offset' of the source
+        const auto guardWord = [&](AstNodeExpr* wordp, int offset) -> AstNodeExpr* {
+            if (VN_IS(wordIdxp, Const)) return wordp;  // Already handled by newWordSelWord
+            AstNodeExpr* const zerop = new AstConst{flp, AstConst::SizedEData{}, 0};
+            if (offset >= fromWords) {
+                VL_DO_DANGLING(wordp->deleteTree(), wordp);
+                return zerop;
+            }
+            AstNodeExpr* const maxp = new AstConst{flp, static_cast<uint32_t>(fromWords - offset)};
+            AstNodeExpr* const condp = new AstGte{flp, wordIdxp->cloneTreePure(false), maxp};
+            return new AstCond{flp, condp, zerop, wordp};
+        };
         for (int w = 0; w < selWords; ++w) {
             // Grab bits from word 'VL_BITWORD_E(lsb) + w'
-            AstNodeExpr* const loWordp = newWordSelWord(fromp->fileline(), fromp, wordIdxp, w);
+            AstNodeExpr* loWordp = newWordSelWord(fromp->fileline(), fromp, wordIdxp, w);
+            if (mayOverrun && w > 0) loWordp = guardWord(loWordp, w);
             AstNodeExpr* const loShftClonep = loShftp->cloneTreePure(false);
             AstNodeExpr* const lop = new AstShiftR{flp, loWordp, loShftClonep, VL_EDATASIZE};
             // Grab bits from word 'VL_BITWORD_E(lsb) + w + 1'
             AstNodeExpr* hiWordp = newWordSelWord(fromp->fileline(), fromp, wordIdxp, w + 1);
-            // For the last word of the result, avoid an OOB access when the Sel is not OOB
-            if (w == selWords - 1) {
-                const uint32_t max = fromp->widthWords() - w - 1;
-                AstNodeExpr* const maxp = new AstConst{flp, max};
-                AstNodeExpr* const condp = new AstGte{flp, wordIdxp->cloneTreePure(false), maxp};
-                AstNodeExpr* const zerop = new AstConst{flp, AstConst::SizedEData{}, 0};
-                hiWordp = new AstCond{flp, condp, zerop, hiWordp};
-            }
+            if (mayOverrun || w == selWords - 1) hiWordp = guardWord(hiWordp, w + 1);
             AstNodeExpr* const hiShftClonep = hiShftp->cloneTreePure(false);
             AstNodeExpr* const hiPartp = new AstShiftL{flp, hiWordp, hiShftClonep, VL_EDATASIZE};
             AstNodeExpr* const hip
