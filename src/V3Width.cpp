@@ -2896,7 +2896,13 @@ class WidthVisitor final : public VNVisitor {
                 // Type comes from expression's type, e.g. "type(variable)"
                 userIterateAndNext(nodep->typeofp(), WidthVP{SELF, BOTH}.p());
                 AstNode* const typeofp = nodep->typeofp();
-                nodep->refDTypep(typeofp->dtypep());
+                AstNodeDType* dtypep = typeofp->dtypep();
+                // An unsized expression, e.g. from a literal, is sized (IEEE 1800-2023 5.7.1)
+                if (!dtypep->widthSized()) {
+                    dtypep = nodep->findLogicDType(dtypep->width(), dtypep->width(),
+                                                   dtypep->numeric());
+                }
+                nodep->refDTypep(dtypep);
                 VL_DO_DANGLING(typeofp->unlinkFrBack()->deleteTree(), typeofp);
             }
             // We had to use AstRefDType for this construct as pointers to this type
