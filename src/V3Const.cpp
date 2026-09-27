@@ -3784,6 +3784,7 @@ class ConstVisitor final : public VNVisitor {
         const AstBasicDType* const bdtypep = VN_CAST(nodep->dtypep()->skipRefp(), BasicDType);
         if (!bdtypep) return;
         if (!bdtypep->isZeroInit()) return;
+        if (bdtypep->isEvent()) return;  // Not a value
         AstConst* const newp = new AstConst{nodep->fileline(), V3Number{nodep, bdtypep}};
         UINFO(9, "CRESET(0) => CONST(0) " << nodep);
         nodep->replaceWith(newp);
