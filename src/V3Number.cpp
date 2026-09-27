@@ -2629,9 +2629,20 @@ V3Number& V3Number::opIToRD(const V3Number& lhs, bool isSigned) {
         const V3Number noxz_signed = noxz;
         noxz.opNegate(noxz_signed);
     }
-    for (int bit = noxz.width() - 1; bit >= 0; bit--) {
-        // Some precision might be lost in this add, that's what we want
-        if (noxz.bitIs1(bit)) d += exp2(bit);
+    // Convert the top 64 significant bits, with the OR of all lower bits folded into the
+    // bottom bit, so the result is rounded correctly, as the C conversion is
+    const int msb = noxz.mostSetBitP1() - 1;
+    if (msb >= 0) {
+        const int lsb = std::max(0, msb - 63);
+        uint64_t q = 0;
+        for (int bit = msb; bit >= lsb; --bit) q = (q << 1) | noxz.bitIs1(bit);
+        for (int bit = lsb - 1; bit >= 0; --bit) {
+            if (noxz.bitIs1(bit)) {
+                q |= 1;
+                break;
+            }
+        }
+        d = std::ldexp(static_cast<double>(q), lsb);
     }
     if (negate) d = -d;
     return setDouble(d);
