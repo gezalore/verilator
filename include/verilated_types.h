@@ -758,10 +758,12 @@ public:
 
     // Return slice q[lsb:msb]
     VlQueue slice(int32_t lsb, int32_t msb) const {
+        // IEEE 1800-2023 7.10.1: q[a:b] with a < 0 is q[0:b], with b > $ is q[a:$],
+        // and is empty if a > b
         VlQueue out;
+        const int32_t sz = static_cast<int32_t>(m_deque.size());
         if (VL_UNLIKELY(lsb < 0)) lsb = 0;
-        if (VL_UNLIKELY(lsb >= m_deque.size())) lsb = m_deque.size() - 1;
-        if (VL_UNLIKELY(msb >= m_deque.size())) msb = m_deque.size() - 1;
+        if (VL_UNLIKELY(msb >= sz)) msb = sz - 1;
         for (int32_t i = lsb; i <= msb; ++i) out.push_back(m_deque[i]);
         return out;
     }
@@ -777,7 +779,6 @@ public:
         const int32_t srcSz = static_cast<int32_t>(src.m_deque.size());
         if (VL_UNLIKELY(sz <= 0 || srcSz <= 0)) return;
         if (VL_UNLIKELY(lsb < 0)) lsb = 0;
-        if (VL_UNLIKELY(lsb >= sz)) lsb = sz - 1;
         if (VL_UNLIKELY(msb >= sz)) msb = sz - 1;
         const int32_t count = std::min(msb - lsb + 1, srcSz);
         if (VL_UNLIKELY(count <= 0)) return;
