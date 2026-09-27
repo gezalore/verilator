@@ -10633,9 +10633,37 @@ class WidthVisitor final : public VNVisitor {
         FileLine* const fl_novalue = new FileLine{valp->fileline()};
         fl_novalue->warnOff(V3ErrorCode::ENUMVALUE, true);
         fl_novalue->warnOff(V3ErrorCode::CMPCONST, true);
+        // The value matches an enum value as the equality operator would compare them
+        // (IEEE 1800-2023 11.8.2): the narrower is extended, signed only if both are signed.
+        // Compute the value in the width of the enum, and if the value is wider, check its
+        // top bits are the extension of the bits in the width of the enum.
+        const int vwidth = valp->width();
+        const int ewidth = enumDtp->width();
+        const bool isSigned = valp->isSigned() && enumDtp->isSigned();
+        AstNodeExpr* valEp = valp->cloneTreePure(false);
+        AstNodeExpr* fitsp = nullptr;
+        if (vwidth > ewidth) {
+            AstNodeExpr* const upperp
+                = new AstSel{fl_novalue, valp->cloneTreePure(false), ewidth, vwidth - ewidth};
+            AstNodeExpr* const extp
+                = isSigned
+                      ? static_cast<AstNodeExpr*>(new AstReplicate{
+                            fl_novalue,
+                            new AstSel{fl_novalue, valp->cloneTreePure(false), ewidth - 1, 1},
+                            static_cast<uint32_t>(vwidth - ewidth)})
+                      : new AstConst{fl_novalue, AstConst::WidthedValue{}, vwidth - ewidth, 0};
+            fitsp = new AstEq{fl_novalue, upperp, extp};
+            valEp = new AstSel{fl_novalue, valEp, 0, ewidth};
+        } else if (vwidth < ewidth) {
+            if (isSigned) {
+                valEp = new AstExtendS{fl_novalue, valEp, ewidth};
+            } else {
+                valEp = new AstExtend{fl_novalue, valEp, ewidth};
+            }
+        }
         if (assoc) {
             AstVarRef* const tabRefp = enumVarRefp(enumDtp, VAttrType::ENUM_VALID, true, 0);
-            testp = new AstAssocSel{fl_novalue, tabRefp, valp->cloneTreePure(false)};
+            testp = new AstAssocSel{fl_novalue, tabRefp, valEp};
         } else {
             const int selwidth = V3Number::log2b(maxval) + 1;  // Width to address a bit
             AstVarRef* const tabRefp
@@ -10644,12 +10672,13 @@ class WidthVisitor final : public VNVisitor {
             fl_nowidth->warnOff(V3ErrorCode::WIDTH, true);
             testp = new AstCond{
                 fl_novalue,
-                new AstGt{fl_nowidth, valp->cloneTreePure(false),
+                new AstGt{fl_nowidth, valEp,
                           new AstConst{fl_nowidth, AstConst::Unsized64{}, maxval}},
                 new AstConst{fl_novalue, AstConst::BitFalse{}},
                 new AstArraySel{fl_novalue, tabRefp,
-                                new AstSel{fl_novalue, valp->cloneTreePure(false), 0, selwidth}}};
+                                new AstSel{fl_novalue, valEp->cloneTreePure(false), 0, selwidth}}};
         }
+        if (fitsp) testp = new AstLogAnd{fl_novalue, fitsp, testp};
         return testp;
     }
 
