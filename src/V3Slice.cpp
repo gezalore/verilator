@@ -287,11 +287,21 @@ class SliceVisitor final : public VNVisitor {
         const bool hasSc
             = nodep->exists([&](const AstVarRef* refp) -> bool { return refp->varp()->isSc(); });
         // An assignment to a slice cannot be done without expanding it, neither can an
-        // assignment from an array with the opposite range direction, which reverses elements
+        // assignment from an array with the opposite range direction, which reverses elements,
+        // nor from an unpacked array concatenation with array items, e.g. '{b, b}'
         const AstUnpackArrayDType* const rArrayp
             = VN_CAST(nodep->rhsp()->dtypep()->skipRefp(), UnpackArrayDType);
+        bool arrayItems = false;
+        if (const AstInitArray* const rInitp = VN_CAST(nodep->rhsp(), InitArray)) {
+            for (const AstInitItem* itemp = rInitp->initsp(); itemp;
+                 itemp = VN_AS(itemp->nextp(), InitItem)) {
+                if (VN_IS(itemp->valuep()->dtypep()->skipRefp(), UnpackArrayDType)) {
+                    arrayItems = true;
+                }
+            }
+        }
         const bool mustExpand
-            = VN_IS(nodep->lhsp(), SliceSel)
+            = arrayItems || VN_IS(nodep->lhsp(), SliceSel)
               || (rArrayp && rArrayp->declRange().ascending() != arrayp->declRange().ascending());
         if (!hasSc && !mustExpand && !v3Global.opt.fSlice()) {
             m_okInitArray = true;  // VL_RESTORER in visit(AstNodeAssign)
