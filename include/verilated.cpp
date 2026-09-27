@@ -819,17 +819,17 @@ QData VL_POW_QQW(int, int, int rbits, QData lhs, const WDataInP rwp) VL_MT_SAFE 
     return result;
 }
 
-WDataOutP VL_POWSS_WWW(int obits, int, int rbits, WDataOutP owp, const WDataInP lwp,
+WDataOutP VL_POWSS_WWW(int obits, int lbits, int rbits, WDataOutP owp, const WDataInP lwp,
                        const WDataInP rwp, bool lsign, bool rsign) VL_MT_SAFE {
-    // obits==lbits, rbits can be different
+    // obits<=lbits, rbits can be different
     if (rsign && VL_SIGN_W(rbits, rwp)) {
-        const int words = VL_WORDS_I(obits);
+        const int words = VL_WORDS_I(lbits);
         VL_ZERO_W(obits, owp);
         bool upperZero = true;  // All bits above the bottom word are zero
         bool allOnes = lwp[0] == ~VL_EUL(0);  // All bits are one
         for (int i = 1; i < words; ++i) {
             upperZero &= lwp[i] == 0;
-            allOnes &= lwp[i] == (i == words - 1 ? VL_MASK_E(obits) : ~VL_EUL(0));
+            allOnes &= lwp[i] == (i == words - 1 ? VL_MASK_E(lbits) : ~VL_EUL(0));
         }
         if (upperZero && lwp[0] == 0) {  // "X" so return 0
             return owp;
@@ -856,13 +856,13 @@ WDataOutP VL_POWSS_WWQ(int obits, int lbits, int rbits, WDataOutP owp, const WDa
     VL_SET_WQ(rhsw, rhs);
     return VL_POWSS_WWW(obits, lbits, rbits, owp, lwp, rhsw, lsign, rsign);
 }
-QData VL_POWSS_QQW(int obits, int, int rbits, QData lhs, const WDataInP rwp, bool lsign,
+QData VL_POWSS_QQW(int obits, int lbits, int rbits, QData lhs, const WDataInP rwp, bool lsign,
                    bool rsign) VL_MT_SAFE {
     // Skip check for rhs == 0, as short-circuit doesn't save time
     if (rsign && VL_SIGN_W(rbits, rwp)) {
         if (lhs == 0) return 0;  // "X"
         if (lhs == 1) return 1;
-        if (lsign && lhs == VL_MASK_Q(obits)) {  // -1
+        if (lsign && lhs == VL_MASK_Q(lbits)) {  // -1
             if (rwp[0] & 1) return VL_MASK_Q(obits);  // -1^odd=-1
             return 1;  // -1^even=1
         }

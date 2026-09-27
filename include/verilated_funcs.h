@@ -1351,7 +1351,7 @@ QData VL_POW_QQW(int obits, int, int rbits, QData lhs, WDataInP const rwp) VL_MT
 #define VL_POWSS_WWI(obits, lbits, rbits, owp, lwp, rhs, lsign, rsign) \
     VL_POWSS_WWQ(obits, lbits, rbits, owp, lwp, rhs, lsign, rsign)
 
-inline IData VL_POWSS_III(int obits, int, int rbits, IData lhs, IData rhs, bool lsign,
+inline IData VL_POWSS_III(int obits, int lbits, int rbits, IData lhs, IData rhs, bool lsign,
                           bool rsign) VL_MT_SAFE {
     if (VL_UNLIKELY(rhs == 0)) return 1;
     if (rsign && VL_SIGN_I(rbits, rhs)) {
@@ -1359,7 +1359,7 @@ inline IData VL_POWSS_III(int obits, int, int rbits, IData lhs, IData rhs, bool 
             return 0;  // "X"
         }
         if (lhs == 1) { return 1; }
-        if (lsign && lhs == VL_MASK_I(obits)) {  // -1
+        if (lsign && lhs == VL_MASK_I(lbits)) {  // -1
             if (rhs & 1) return VL_MASK_I(obits);  // -1^odd=-1
             return 1;  // -1^even=1
         }
@@ -1367,14 +1367,14 @@ inline IData VL_POWSS_III(int obits, int, int rbits, IData lhs, IData rhs, bool 
     }
     return VL_POW_III(obits, rbits, rbits, lhs, rhs);
 }
-inline QData VL_POWSS_QQQ(int obits, int, int rbits, QData lhs, QData rhs, bool lsign,
+inline QData VL_POWSS_QQQ(int obits, int lbits, int rbits, QData lhs, QData rhs, bool lsign,
                           bool rsign) VL_MT_SAFE {
     if (VL_UNLIKELY(rhs == 0)) return 1;
     if (rsign && VL_SIGN_Q(rbits, rhs)) {
         if (lhs == 0) return 0;  // "X"
 
         if (lhs == 1) return 1;
-        if (lsign && lhs == VL_MASK_Q(obits)) {  // -1
+        if (lsign && lhs == VL_MASK_Q(lbits)) {  // -1
             if (rhs & 1) return VL_MASK_Q(obits);  // -1^odd=-1
             return 1;  // -1^even=1
         }
@@ -1382,11 +1382,11 @@ inline QData VL_POWSS_QQQ(int obits, int, int rbits, QData lhs, QData rhs, bool 
     }
     return VL_POW_QQQ(obits, rbits, rbits, lhs, rhs);
 }
-WDataOutP VL_POWSS_WWW(int obits, int, int rbits, WDataOutP owp, WDataInP const lwp,
+WDataOutP VL_POWSS_WWW(int obits, int lbits, int rbits, WDataOutP owp, WDataInP const lwp,
                        WDataInP const rwp, bool lsign, bool rsign) VL_MT_SAFE;
 WDataOutP VL_POWSS_WWQ(int obits, int, int rbits, WDataOutP owp, WDataInP const lwp, QData rhs,
                        bool lsign, bool rsign) VL_MT_SAFE;
-QData VL_POWSS_QQW(int obits, int, int rbits, QData lhs, WDataInP const rwp, bool lsign,
+QData VL_POWSS_QQW(int obits, int lbits, int rbits, QData lhs, WDataInP const rwp, bool lsign,
                    bool rsign) VL_MT_SAFE;
 
 //===================================================================
