@@ -1008,6 +1008,32 @@ class CaseVisitor final : public VNVisitor {
                 nodep->fileline(), new AstConst{nodep->fileline(), AstConst::BitTrue{}}, nullptr});
         }
 
+        // If any item is impure, build a simple if/else chain, as the item expressions must
+        // be evaluated in order, only until the first match (IEEE 1800-2023 12.5)
+        bool impureItems = false;
+        for (AstCaseItem* itemp = nodep->itemsp(); itemp;
+             itemp = VN_AS(itemp->nextp(), CaseItem)) {
+            if (!itemp->condsp()->isPure()) impureItems = true;
+        }
+        if (impureItems) {
+            AstIf* rootp = nullptr;
+            AstIf* lastp = nullptr;
+            for (AstCaseItem* itemp = nodep->itemsp(); itemp;
+                 itemp = VN_AS(itemp->nextp(), CaseItem)) {
+                AstNode* const istmtsp = itemp->stmtsp();
+                if (istmtsp) istmtsp->unlinkFrBackWithNext();
+                AstIf* const newp
+                    = new AstIf{itemp->fileline(), itemp->condsp()->unlinkFrBack(), istmtsp};
+                if (lastp) {
+                    lastp->addElsesp(newp);
+                } else {
+                    rootp = newp;
+                }
+                lastp = newp;
+            }
+            return rootp;
+        }
+
         // Now build the IF statement tree
         // The tree can be quite huge.  Pull every group of 8 out, and make a OR tree.
         // This reduces the depth for the bottom elements, at the cost of
