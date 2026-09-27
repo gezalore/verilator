@@ -115,7 +115,8 @@ class ExpandOkVisitor final : public VNVisitorConst {
     bool m_isImpure = true;  // Currently pure
 
     void visit(AstNode* nodep) override {
-        bool selfImpure = !nodep->isPure();
+        // Random values must not be duplicated either, as expanding might (e.g. replication)
+        bool selfImpure = !nodep->isPure() || VN_IS(nodep, Rand) || VN_IS(nodep, RandRNG);
         {
             VL_RESTORER(m_isImpure);
             m_isImpure = false;
