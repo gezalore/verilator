@@ -554,6 +554,7 @@ class VlReadMem final {
     bool m_anyAddr = false;  // Had address directive in the file
     bool m_pastEnd = false;  // Loaded the end address, no further addresses to load
     bool nextAddr(QData& addrr);
+
 public:
     VlReadMem(bool hex, int bits, const std::string& filename, QData start, QData end);
     ~VlReadMem();
