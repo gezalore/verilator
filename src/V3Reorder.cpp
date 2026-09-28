@@ -512,8 +512,9 @@ class ReorderVisitor final : public VNVisitor {
             return;
         }
 
-        // Order all impure statements with other impure statements
-        if (!nodep->isPure()) {
+        // Order all impure statements with other impure statements. So must accesses to class
+        // members, as they might refer to the same object via different handles.
+        if (!nodep->isPure() || VN_IS(nodep, MemberSel)) {
             if (!m_impureVtxp) m_impureVtxp = new ReorderImpureVertex{m_graphp, nodep};
             // This edge is only used to find weakly connected components, so one edge is enough
             for (ReorderLogicVertex* const vtxp : m_stmtStackps) {
