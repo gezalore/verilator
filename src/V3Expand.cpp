@@ -944,7 +944,10 @@ class ExpandVisitor final : public VNVisitor {
                 // The bit-select can refer to bits outside the width of nodep
                 // which we aren't allowed to assign to.  This is a mask of the
                 // valid range of nodep which we apply to the new shifted RHS.
-                V3Number cleanmask{nodep, destp->widthMin()};
+                // If the select does extend beyond, make the mask wider than
+                // the destination, so it is not removed as an AND with all ones.
+                const bool overhang = msb >= destp->widthMin() && destp->widthMin() != 64;
+                V3Number cleanmask{nodep, destp->widthMin() + (overhang ? 1 : 0)};
                 cleanmask.setMask(destp->widthMin());
                 AstNodeExpr* const shifted = new AstShiftL{
                     lfl, rhsp, new AstConst{lfl, static_cast<uint32_t>(lsb)}, destp->width()};
