@@ -105,15 +105,30 @@ class CastVisitor final : public VNVisitor {
         }
     }
 
+    // Whether the node is emitted as a C++ operator yielding a bool, which promotes to
+    // (signed) int, so it is not of a known size, e.g. '~(a < b) >> 1'
+    static bool isCppBool(const AstNode* nodep) {
+        return VN_IS(nodep, Eq) || VN_IS(nodep, EqCase) || VN_IS(nodep, EqWild)
+               || VN_IS(nodep, Neq) || VN_IS(nodep, NeqCase) || VN_IS(nodep, NeqWild)
+               || VN_IS(nodep, Lt) || VN_IS(nodep, LtS) || VN_IS(nodep, Lte) || VN_IS(nodep, LteS)
+               || VN_IS(nodep, Gt) || VN_IS(nodep, GtS) || VN_IS(nodep, Gte) || VN_IS(nodep, GteS)
+               || VN_IS(nodep, LogAnd) || VN_IS(nodep, LogOr) || VN_IS(nodep, LogEq)
+               || VN_IS(nodep, LogIf) || VN_IS(nodep, LogNot) || VN_IS(nodep, RedOr)
+               || VN_IS(nodep, RedAnd);
+    }
+
     // VISITORS
     void visit(AstNodeUniop* nodep) override {
         iterateChildren(nodep);
-        nodep->user1(nodep->lhsp()->user1());
+        nodep->user1(nodep->lhsp()->user1() && !isCppBool(nodep));
         if (nodep->sizeMattersLhs()) ensureCast(nodep->lhsp());
     }
     void visit(AstNodeBiop* nodep) override {
         iterateChildren(nodep);
-        nodep->user1(nodep->lhsp()->user1() | nodep->rhsp()->user1());
+        // The type of a shift is the type of its LHS only
+        const bool isShift = VN_IS(nodep, ShiftL) || VN_IS(nodep, ShiftR);
+        nodep->user1((nodep->lhsp()->user1() | (!isShift && nodep->rhsp()->user1()))
+                     && !isCppBool(nodep));
         if (nodep->sizeMattersLhs()) ensureCast(nodep->lhsp());
         if (nodep->sizeMattersRhs()) ensureCast(nodep->rhsp());
     }
