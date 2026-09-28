@@ -13,6 +13,9 @@
 // directly or via another handle to the same object
 class C;
   bit [199:0] w;
+  function void rot(C other);
+    w = {other.w[31:0], other.w[199:32]};
+  endfunction
 endclass
 
 module t;
@@ -29,6 +32,9 @@ module t;
     `checkh(h.w, v);
     h.w = {g.w[100:0], g.w[199:101]};
     v = {v[100:0], v[199:101]};
+    `checkh(h.w, v);
+    h.rot(g);
+    v = {v[31:0], v[199:32]};
     `checkh(h.w, v);
     $write("*-* All Finished *-*\n");
     $finish;

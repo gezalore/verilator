@@ -217,6 +217,14 @@ class PremitVisitor final : public VNVisitor {
             if (varp->isDeclRef()) lhsRef = true;
             if (!varp->isFuncLocal()) lhsNonLocal = true;
         });
+        // Class members written, which might be read via a different handle to the same object
+        nodep->lhsp()->foreach([](const AstMemberSel* selp) {
+            if (selp->access().isWriteOrRW() && selp->varp()) selp->varp()->user3(true);
+        });
+        if (nodep->rhsp()->exists(
+                [](const AstMemberSel* selp) { return selp->varp() && selp->varp()->user3(); })) {
+            return true;
+        }
         return nodep->rhsp()->exists([&](const AstVarRef* refp) {
             if (!refp->access().isReadOnly()) return false;
             const AstVar* const varp = refp->varp();

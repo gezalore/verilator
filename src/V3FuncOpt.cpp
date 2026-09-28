@@ -244,12 +244,20 @@ class FuncOptVisitor final : public VNVisitor {
         nodep->lhsp()->foreach([&](const AstMemberSel* selp) {
             if (selp->access().isWriteOrRW()) lhsWrMemberp.emplace(selp->varp());
         });
+        for (const AstVar* const varp : lhsWrVarps) {
+            if (varp->isClassMember()) lhsWrMemberp.emplace(varp);
+        }
         if (!lhsWrMemberp.empty()) {
             const auto readsMember = [&](const AstMemberSel* selp) {
                 return selp->access().isReadOrRW() && lhsWrMemberp.count(selp->varp());
             };
             if (nodep->rhsp()->exists(readsMember)) return true;
             if (nodep->lhsp()->exists(readsMember)) return true;
+            // Also via 'this' in a method
+            if (nodep->rhsp()->exists(
+                    [&](const AstVarRef* refp) { return lhsWrMemberp.count(refp->varp()); })) {
+                return true;
+            }
         }
 
         // Common case of 1 variable on the LHS - special handling for speed

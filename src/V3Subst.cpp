@@ -184,6 +184,8 @@ class SubstValidVisitor final : public VNVisitorConst {
 
     void visit(AstConst*) override {}  // Accelerate
     void visit(AstText*) override {}  // CExpr/CStmt literal text has no variable dependencies
+    // Class members might be written via other handles, or via 'this' in a method
+    void visit(AstMemberSel*) override { m_valid = false; }
 
     void visit(AstNodeExpr* nodep) override {
         if (!m_valid) return;
