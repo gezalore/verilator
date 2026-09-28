@@ -148,6 +148,8 @@ public:
         if (varp->isSigPublic()) return;
         if (varp->isReadByDpi()) return;
         if (varp->sensIfacep()) return;
+        // Class members might be accessed via other handles to the same object
+        if (varp->isClassMember()) return;
         // Check the var entry, and remove if appropriate
         AstNodeStmt* const oldassp = entr.assignp();
         if (!oldassp) return;
@@ -192,7 +194,9 @@ public:
                 if (!varrefp->varp()->isSigPublic() && !varrefp->varp()->isWrittenByDpi()
                     && !varrefp->varp()->isVirtIface()
                     // Might be written via a virtual interface
-                    && !varrefp->varp()->sensIfacep()) {
+                    && !varrefp->varp()->sensIfacep()
+                    // Might be written via other handles to the same object
+                    && !varrefp->varp()->isClassMember()) {
                     // Aha, variable is constant; substitute in.
                     // We'll later constant propagate
                     UINFO(4, "     replaceconst: " << varrefp);
