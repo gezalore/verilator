@@ -264,6 +264,13 @@ inline VlQueue<T> VL_CVT_UNPACK_TO_Q(const VlUnpacked<T, N_Depth>& q) VL_PURE {
     for (size_t i = 0; i < N_Depth; ++i) ret.push_back(q[i]);
     return ret;
 }
+// As above, but from an array with descending range, so the last element is the leftmost
+template <typename T, std::size_t N_Depth>
+inline VlQueue<T> VL_CVT_UNPACK_TO_Q_REVERSE(const VlUnpacked<T, N_Depth>& q) VL_PURE {
+    VlQueue<T> ret;
+    for (size_t i = N_Depth; i > 0; --i) ret.push_back(q[i - 1]);
+    return ret;
+}
 
 // Masked match functions
 inline IData VL_MATCHMASKED_I(int, IData lhs, WDataInP matchp) VL_PURE {

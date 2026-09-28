@@ -1195,6 +1195,14 @@ void AstCvtArrayToPacked::dumpJson(std::ostream& str) const {
     dumpJsonNumFunc(str, streamWidth);
     dumpJsonGen(str);
 }
+void AstCvtUnpackedToQueue::dump(std::ostream& str) const {
+    Super::dump(str);
+    if (reverse()) str << " [REVERSE]";
+}
+void AstCvtUnpackedToQueue::dumpJson(std::ostream& str) const {
+    dumpJsonBoolFuncIf(str, reverse);
+    dumpJsonGen(str);
+}
 void AstDelay::dump(std::ostream& str) const {
     Super::dump(str);
     if (isCycleDelay()) str << " [CYCLE]";

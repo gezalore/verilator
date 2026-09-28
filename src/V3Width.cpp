@@ -9592,8 +9592,11 @@ class WidthVisitor final : public VNVisitor {
             && VN_IS(rhsRawDTypep, UnpackArrayDType)) {
             VNRelinker relinker;
             rhsp->unlinkFrBack(&relinker);
-            relinker.relink(
-                new AstCvtUnpackedToQueue{rhsp->fileline(), VN_AS(rhsp, NodeExpr), lhsDTypep});
+            AstCvtUnpackedToQueue* const cvtp
+                = new AstCvtUnpackedToQueue{rhsp->fileline(), VN_AS(rhsp, NodeExpr), lhsDTypep};
+            // Elements are assigned left to right (IEEE 1800-2023 7.6)
+            cvtp->reverse(!VN_AS(rhsRawDTypep, UnpackArrayDType)->declRange().ascending());
+            relinker.relink(cvtp);
         }
     }
     static bool similarDTypeRecurse(const AstNodeDType* const node1p,

@@ -1363,6 +1363,7 @@ public:
 class AstCvtUnpackedToQueue final : public AstNodeExpr {
     // Cast from unpacked array to dynamic/unpacked queue data type
     // @astgen op1 := fromp : AstNodeExpr
+    bool m_reverse = false;  // Source has descending range, so last element is leftmost
 public:
     // cppcheck-suppress constParameterPointer
     // cppcheck-suppress constParameterCallback
@@ -1372,9 +1373,18 @@ public:
         dtypeFrom(dtp);
     }
     ASTGEN_MEMBERS_AstCvtUnpackedToQueue;
+    void dump(std::ostream& str) const override;
+    void dumpJson(std::ostream& str) const override;
     string emitVerilog() override { V3ERROR_NA_RETURN(""); }
-    string emitC() override { return "VL_CVT_UNPACK_TO_Q(%P, %li)"; }
+    string emitC() override {
+        return m_reverse ? "VL_CVT_UNPACK_TO_Q_REVERSE(%P, %li)" : "VL_CVT_UNPACK_TO_Q(%P, %li)";
+    }
     bool cleanOut() const override { return true; }
+    bool sameNode(const AstNode* samep) const override {
+        return m_reverse == VN_DBG_AS(samep, CvtUnpackedToQueue)->m_reverse;
+    }
+    bool reverse() const { return m_reverse; }
+    void reverse(bool flag) { m_reverse = flag; }
 };
 class AstDist final : public AstNodeExpr {
     // @astgen op1 := exprp : AstNodeExpr
