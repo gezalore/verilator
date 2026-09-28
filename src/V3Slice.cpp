@@ -311,7 +311,7 @@ class SliceVisitor final : public VNVisitor {
         // Skip optimization if array is too large
         const int elements = arrayp->rangep()->elementsConst();
         const int elementLimit = v3Global.opt.fSliceElementLimit();
-        if (elements > elementLimit && elementLimit > 0 && !mustExpand) {
+        if (elements > elementLimit && elementLimit > 0 && !hasSc && !mustExpand) {
             ++m_statSliceElementSkips;
             m_okInitArray = true;  // VL_RESTORER in visit(AstNodeAssign)
             return false;
