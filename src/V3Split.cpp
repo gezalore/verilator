@@ -426,8 +426,9 @@ class SplitVisitor final : public VNVisitor {
             return;
         }
 
-        // All impure statements must be grouped together.
-        if (!nodep->isPure()) {
+        // All impure statements must be grouped together. So must accesses to class members,
+        // as they might refer to the same object via different handles.
+        if (!nodep->isPure() || VN_IS(nodep, MemberSel)) {
             if (!m_impureVtxp) m_impureVtxp = new SplitImpureVertex{m_graphp, nodep};
             // One edge is enough to find the weakly connected components, but
             // it must point at the impure vertex, so it is an out edge (input
