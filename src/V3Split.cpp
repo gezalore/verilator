@@ -69,6 +69,7 @@
 #include "V3Stats.h"
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 VL_DEFINE_DEBUG_FUNCTIONS;
@@ -153,11 +154,22 @@ class SplitVisitor final : public VNVisitor {
     bool m_inDly = false;  // Inside AstAssignDly Lhs
     bool m_inCombo = false;  // Under a combinational AstActive
     const AstIf* m_currIfp = nullptr;  // The AstIf whose condition is currently visited
+    // Variables accessed by functions, which impure statements might call
+    std::unordered_set<const AstVarScope*> m_funcAccessedVscps;
     VDouble0 m_statSplits;  // Statistic tracking
 
     // METHODS
     void addEdge(V3GraphVertex* fromp, V3GraphVertex* top) {
         new V3GraphEdge{m_graphp, fromp, top, 1};
+    }
+
+    // Group the current statements with all impure statements
+    void addImpure(AstNode* nodep) {
+        if (!m_impureVtxp) m_impureVtxp = new SplitImpureVertex{m_graphp, nodep};
+        // One edge is enough to find the weakly connected components, but
+        // it must point at the impure vertex, so it is an out edge (input
+        // dependency) of any enclosing 'if' to prevent pruning.
+        for (SplitStmtVertex* const vtxp : m_stmtStackps) addEdge(vtxp, m_impureVtxp);
     }
 
     // Iterate the given list of statements, building the dependency graph
@@ -392,6 +404,10 @@ class SplitVisitor final : public VNVisitor {
 
         AstVarScope* const vscp = nodep->varScopep();
 
+        // A variable accessed by functions called from impure statements (DPI exports,
+        // non-inlined functions) must stay in order with the impure statements
+        if (m_funcAccessedVscps.count(vscp)) addImpure(nodep);
+
         // SPEEDUP: We add duplicate edges, that should be fixed
         if (m_inDly && nodep->access().isWriteOrRW()) {
             // Delayed variable: is different from non-delayed variable, writes to it
@@ -440,19 +456,21 @@ class SplitVisitor final : public VNVisitor {
 
         // All impure statements must be grouped together. So must accesses to class members,
         // as they might refer to the same object via different handles.
-        if (!nodep->isPure() || VN_IS(nodep, MemberSel)) {
-            if (!m_impureVtxp) m_impureVtxp = new SplitImpureVertex{m_graphp, nodep};
-            // One edge is enough to find the weakly connected components, but
-            // it must point at the impure vertex, so it is an out edge (input
-            // dependency) of any enclosing 'if' to prevent pruning.
-            for (SplitStmtVertex* const vtxp : m_stmtStackps) addEdge(vtxp, m_impureVtxp);
-        }
+        if (!nodep->isPure() || VN_IS(nodep, MemberSel)) addImpure(nodep);
 
         iterateChildren(nodep);
     }
 
     // CONSTRUCTORS
-    explicit SplitVisitor(AstNetlist* nodep) { iterate(nodep); }
+    explicit SplitVisitor(AstNetlist* nodep) {
+        // The remaining functions are not inlined, statements calling them are impure
+        nodep->foreach([this](const AstCFunc* funcp) {
+            funcp->foreach([this](const AstVarRef* refp) {
+                if (!refp->varp()->isFuncLocal()) m_funcAccessedVscps.emplace(refp->varScopep());
+            });
+        });
+        iterate(nodep);
+    }
     ~SplitVisitor() override { V3Stats::addStat("Optimizations, Split always", m_statSplits); }
     VL_UNCOPYABLE(SplitVisitor);
 
