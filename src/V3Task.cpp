@@ -700,8 +700,32 @@ class TaskVisitor final : public VNVisitor {
                     AstNode::addNext<AstNode, AstNode>(preassp, afterp);
                 }
                 beginp->addNext(preassp);
+            } else if (portp->isNonOutput()
+                       && arrayDirectionDiffers(portp->dtypep(), pinp->dtypep())) {
+                // An unpacked array input with the opposite range direction is passed via a
+                // temporary, so the elements are reordered by the assignment to it
+                AstVarScope* const newvscp
+                    = createVarScope(portp, namePrefix + "__" + portp->shortName());
+                AstAssign* const preassp = connectPortMakeInAssign(pinp, newvscp, false);
+                pinp->replaceWith(new AstVarRef{newvscp->fileline(), newvscp, VAccess::READ});
+                pushDeletep(pinp);  // Cloned by connectPortMakeInAssign
+                // Put assignment in FRONT of all other statements
+                if (AstNode* const afterp = beginp->nextp()) {
+                    afterp->unlinkFrBackWithNext();
+                    AstNode::addNext<AstNode, AstNode>(preassp, afterp);
+                }
+                beginp->addNext(preassp);
             }
         }
+    }
+
+    // Whether two unpacked array types have the opposite range direction in some dimension
+    static bool arrayDirectionDiffers(const AstNodeDType* ap, const AstNodeDType* bp) {
+        const AstUnpackArrayDType* const aArrayp = VN_CAST(ap->skipRefp(), UnpackArrayDType);
+        const AstUnpackArrayDType* const bArrayp = VN_CAST(bp->skipRefp(), UnpackArrayDType);
+        if (!aArrayp || !bArrayp) return false;
+        if (aArrayp->declRange().ascending() != bArrayp->declRange().ascending()) return true;
+        return arrayDirectionDiffers(aArrayp->subDTypep(), bArrayp->subDTypep());
     }
 
     bool hasRefArgument(AstNodeFTask* nodep) {
