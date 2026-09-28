@@ -227,6 +227,18 @@ class FuncOptVisitor final : public VNVisitor {
             if (refp->access().isWriteOrRW()) lhsWrVarps.emplace(refp->varp());
             if (refp->access().isReadOrRW()) lhsRdVarps.emplace(refp->varp());
         });
+        // Class members written, which might be read via a different handle to the same object
+        std::unordered_set<const AstVar*> lhsWrMemberp;
+        nodep->lhsp()->foreach([&](const AstMemberSel* selp) {
+            if (selp->access().isWriteOrRW()) lhsWrMemberp.emplace(selp->varp());
+        });
+        if (!lhsWrMemberp.empty()) {
+            const auto readsMember = [&](const AstMemberSel* selp) {
+                return selp->access().isReadOrRW() && lhsWrMemberp.count(selp->varp());
+            };
+            if (nodep->rhsp()->exists(readsMember)) return true;
+            if (nodep->lhsp()->exists(readsMember)) return true;
+        }
 
         // Common case of 1 variable on the LHS - special handling for speed
         if (lhsWrVarps.size() == 1) {
