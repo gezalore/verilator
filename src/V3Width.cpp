@@ -4098,10 +4098,17 @@ class WidthVisitor final : public VNVisitor {
                 const bool waiveRhs = expWidth == 32
                                       && !(expDTypep->isSigned() && nodep->rhsp()->isSigned())
                                       && expWidth >= nodep->rhsp()->widthMin();
-                iterateCheck(nodep, "Range LHS", nodep->lhsp(), CONTEXT_DET, FINAL,
-                             insidePairDTypep(expDTypep, nodep->lhsp()), EXTEND_EXP, !waiveLhs);
-                iterateCheck(nodep, "Range RHS", nodep->rhsp(), CONTEXT_DET, FINAL,
-                             insidePairDTypep(expDTypep, nodep->rhsp()), EXTEND_EXP, !waiveRhs);
+                // '$' bounds are not values, they are dropped when lowering the range
+                if (!VN_IS(nodep->lhsp(), Unbounded)) {
+                    iterateCheck(nodep, "Range LHS", nodep->lhsp(), CONTEXT_DET, FINAL,
+                                 insidePairDTypep(expDTypep, nodep->lhsp()), EXTEND_EXP,
+                                 !waiveLhs);
+                }
+                if (!VN_IS(nodep->rhsp(), Unbounded)) {
+                    iterateCheck(nodep, "Range RHS", nodep->rhsp(), CONTEXT_DET, FINAL,
+                                 insidePairDTypep(expDTypep, nodep->rhsp()), EXTEND_EXP,
+                                 !waiveRhs);
+                }
             }
         }
         // The range is as wide as the wider of its bounds, which is what it is sized by
