@@ -190,7 +190,9 @@ public:
         } else {
             if (AstConst* const constp = entr.constNodep()) {
                 if (!varrefp->varp()->isSigPublic() && !varrefp->varp()->isWrittenByDpi()
-                    && !varrefp->varp()->isVirtIface()) {
+                    && !varrefp->varp()->isVirtIface()
+                    // Might be written via a virtual interface
+                    && !varrefp->varp()->sensIfacep()) {
                     // Aha, variable is constant; substitute in.
                     // We'll later constant propagate
                     UINFO(4, "     replaceconst: " << varrefp);
