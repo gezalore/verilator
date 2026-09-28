@@ -258,6 +258,20 @@ class CodeMotionAnalysisVisitor final : public VNVisitorConst {
         }
     }
 
+    void analyzeMemberSel(AstMemberSel* nodep) {
+        // The same class member might be accessed via different handles referencing the same
+        // object, so treat accesses as reads/writes of the member variable itself
+        if (!m_propsp) return;
+        const AstVar* const varp = nodep->varp();
+        if (!varp) {
+            m_propsp->m_isFence = true;
+            return;
+        }
+        const VAccess access = nodep->access();
+        if (access.isReadOrRW()) m_propsp->m_rdVars.insert(varp);
+        if (access.isWriteOrRW()) m_propsp->m_wrVars.insert(varp);
+    }
+
     void checkProperties(AstNode* nodep) {
         // Ignore StmtExpr. It interferes with special casing DPI calls below,
         // and it only checks if the child expr is impure, which is checked
@@ -286,6 +300,8 @@ class CodeMotionAnalysisVisitor final : public VNVisitorConst {
 
         // If impure, or branch, mark statement as fence
         if (!nodep->isPure() || nodep->isBrancher()) m_propsp->m_isFence = true;
+        // A shallow copy reads all members of the object, without a reference to them
+        if (VN_IS(nodep, NewCopy)) m_propsp->m_isFence = true;
     }
 
     void analyzeNode(AstNode* nodep) {
@@ -310,6 +326,9 @@ class CodeMotionAnalysisVisitor final : public VNVisitorConst {
             analyzeStmt(stmtp, /*tryCondMatch:*/ !singletonListStart);
         } else if (AstVarRef* const vrefp = VN_CAST(nodep, VarRef)) {
             analyzeVarRef(vrefp);
+        } else if (AstMemberSel* const mselp = VN_CAST(nodep, MemberSel)) {
+            analyzeMemberSel(mselp);
+            analyzeNode(nodep);
         } else {
             analyzeNode(nodep);
         }
@@ -811,6 +830,10 @@ class MergeCondVisitor final : public VNVisitor {
                 AstVar* const varp = nodep->varp();
                 varp->user1(1);
                 if (varp->isSigPublic() || varp->isWrittenByDpi()) m_mgCondPubWritable = true;
+            });
+            // Class members, which might be written via a different handle
+            condp->foreach([&](const AstMemberSel* nodep) {
+                if (nodep->varp()) nodep->varp()->user1(1);
             });
             // Now check again if mergeable. We need this to pick up assignments to conditions,
             // e.g.: 'c = c ? a : b' at the beginning of the list, which is in fact not mergeable
