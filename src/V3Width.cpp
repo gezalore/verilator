@@ -3707,6 +3707,20 @@ class WidthVisitor final : public VNVisitor {
         UASSERT_OBJ(vdtypep, nodep, "ConsPackMember requires member data type");
         if (m_vup->prelim()) userIterateAndNext(nodep->rhsp(), WidthVP{vdtypep, BOTH}.p());
     }
+    // If an unpacked array, convert it to the given dynamic array or queue type
+    static void convertUnpackedToQueue(AstNodeExpr* exprp, AstNodeDType* dtypep) {
+        if (!exprp) return;
+        const AstUnpackArrayDType* const arrayp
+            = VN_CAST(exprp->dtypep()->skipRefp(), UnpackArrayDType);
+        if (!arrayp) return;
+        VNRelinker relinker;
+        exprp->unlinkFrBack(&relinker);
+        AstCvtUnpackedToQueue* const cvtp
+            = new AstCvtUnpackedToQueue{exprp->fileline(), exprp, dtypep};
+        // Elements are assigned left to right (IEEE 1800-2023 7.6)
+        cvtp->reverse(!arrayp->declRange().ascending());
+        relinker.relink(cvtp);
+    }
     void visit(AstConsDynArray* nodep) override {
         // Type computed when constructed here
         AstDynArrayDType* const vdtypep = VN_AS(m_vup->dtypep()->skipRefp(), DynArrayDType);
@@ -3730,6 +3744,7 @@ class WidthVisitor final : public VNVisitor {
                     iterateCheckTyped(nodep, "LHS", nodep->lhsp(), lhsDtp, FINAL);
                 } else {
                     userIterateAndNext(nodep->lhsp(), WidthVP{lhsDtp, FINAL}.p());
+                    convertUnpackedToQueue(nodep->lhsp(), lhsDtp);
                 }
             }
             if (nodep->rhsp()) {
@@ -3737,6 +3752,7 @@ class WidthVisitor final : public VNVisitor {
                     iterateCheckTyped(nodep, "RHS", nodep->rhsp(), rhsDtp, FINAL);
                 } else {
                     userIterateAndNext(nodep->rhsp(), WidthVP{rhsDtp, FINAL}.p());
+                    convertUnpackedToQueue(nodep->rhsp(), rhsDtp);
                 }
             }
             if (nodep->didWidthAndSet()) return;
@@ -3766,6 +3782,7 @@ class WidthVisitor final : public VNVisitor {
                     iterateCheckTyped(nodep, "LHS", nodep->lhsp(), lhsDtp, FINAL);
                 } else {
                     userIterateAndNext(nodep->lhsp(), WidthVP{lhsDtp, FINAL}.p());
+                    convertUnpackedToQueue(nodep->lhsp(), lhsDtp);
                 }
             }
             if (nodep->rhsp()) {
@@ -3773,6 +3790,7 @@ class WidthVisitor final : public VNVisitor {
                     iterateCheckTyped(nodep, "RHS", nodep->rhsp(), rhsDtp, FINAL);
                 } else {
                     userIterateAndNext(nodep->rhsp(), WidthVP{rhsDtp, FINAL}.p());
+                    convertUnpackedToQueue(nodep->rhsp(), rhsDtp);
                 }
             }
             nodep->dtypeFrom(vdtypep);
@@ -9588,15 +9606,8 @@ class WidthVisitor final : public VNVisitor {
                                 << " cannot be assigned to non-class "
                                 << lhsDTypep->prettyDTypeNameQ());
         }
-        if ((VN_IS(lhsRawDTypep, DynArrayDType) || VN_IS(lhsRawDTypep, QueueDType))
-            && VN_IS(rhsRawDTypep, UnpackArrayDType)) {
-            VNRelinker relinker;
-            rhsp->unlinkFrBack(&relinker);
-            AstCvtUnpackedToQueue* const cvtp
-                = new AstCvtUnpackedToQueue{rhsp->fileline(), VN_AS(rhsp, NodeExpr), lhsDTypep};
-            // Elements are assigned left to right (IEEE 1800-2023 7.6)
-            cvtp->reverse(!VN_AS(rhsRawDTypep, UnpackArrayDType)->declRange().ascending());
-            relinker.relink(cvtp);
+        if (VN_IS(lhsRawDTypep, DynArrayDType) || VN_IS(lhsRawDTypep, QueueDType)) {
+            convertUnpackedToQueue(VN_AS(rhsp, NodeExpr), lhsDTypep);
         }
     }
     static bool similarDTypeRecurse(const AstNodeDType* const node1p,
