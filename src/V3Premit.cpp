@@ -208,11 +208,23 @@ class PremitVisitor final : public VNVisitor {
 
     static bool rhsReadsLhs(const AstNodeAssign* nodep) {
         const VNUser3InUse user3InUse;
-        nodep->lhsp()->foreach([](const AstVarRef* refp) {
-            if (refp->access().isWriteOrRW()) refp->varp()->user3(true);
+        bool lhsRef = false;  // Writes a reference argument
+        bool lhsNonLocal = false;  // Writes a non-local variable
+        nodep->lhsp()->foreach([&](const AstVarRef* refp) {
+            if (!refp->access().isWriteOrRW()) return;
+            AstVar* const varp = refp->varp();
+            varp->user3(true);
+            if (varp->isDeclRef()) lhsRef = true;
+            if (!varp->isFuncLocal()) lhsNonLocal = true;
         });
-        return nodep->rhsp()->exists([](const AstVarRef* refp) {
-            return refp->access().isReadOnly() && refp->varp()->user3();
+        return nodep->rhsp()->exists([&](const AstVarRef* refp) {
+            if (!refp->access().isReadOnly()) return false;
+            const AstVar* const varp = refp->varp();
+            if (varp->user3()) return true;
+            // A reference argument might alias another one, or a non-local variable
+            const bool rhsRef = varp->isDeclRef();
+            return (lhsRef && (rhsRef || !varp->isFuncLocal()))
+                   || (rhsRef && (lhsRef || lhsNonLocal));
         });
     }
 

@@ -2473,6 +2473,8 @@ public:
     }
     void declDirection(const VDirection& flag) { m_declDirection = flag; }
     VDirection declDirection() const { return m_declDirection; }
+    // Declared as a 'ref' or 'const ref' argument, which might alias other variables
+    bool isDeclRef() const { return m_declDirection.isRef() || m_declDirection.isConstRef(); }
     void varType(VVarType type) { m_varType = type; }
     void varType2Out() {
         m_tristate = false;

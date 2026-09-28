@@ -950,6 +950,12 @@ class MergeCondVisitor final : public VNVisitor {
     }
 
     void visit(AstCFunc* nodep) override {
+        // Reference arguments might alias each other, or other variables, which the analysis
+        // cannot see, so do not optimize these functions
+        for (AstNode* argp = nodep->argsp(); argp; argp = argp->nextp()) {
+            const AstVar* const varp = VN_CAST(argp, Var);
+            if (varp && varp->isDeclRef()) return;
+        }
         // Merge function body
         if (nodep->stmtsp()) process(nodep->stmtsp());
     }

@@ -227,6 +227,18 @@ class FuncOptVisitor final : public VNVisitor {
             if (refp->access().isWriteOrRW()) lhsWrVarps.emplace(refp->varp());
             if (refp->access().isReadOrRW()) lhsRdVarps.emplace(refp->varp());
         });
+        // A reference argument might alias another one, or a non-local variable
+        const auto mayAliasRef = [](const AstVar* ap, const AstVar* bp) {
+            return ap->isDeclRef() && (bp->isDeclRef() || !bp->isFuncLocal());
+        };
+        for (const AstVar* const lhsWrVarp : lhsWrVarps) {
+            if (nodep->rhsp()->exists([&](const AstVarRef* refp) {
+                    return mayAliasRef(lhsWrVarp, refp->varp())
+                           || mayAliasRef(refp->varp(), lhsWrVarp);
+                })) {
+                return true;
+            }
+        }
         // Class members written, which might be read via a different handle to the same object
         std::unordered_set<const AstVar*> lhsWrMemberp;
         nodep->lhsp()->foreach([&](const AstMemberSel* selp) {

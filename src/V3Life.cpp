@@ -481,6 +481,11 @@ class LifeVisitor final : public VNVisitor {
         m_tracingCall = false;
         if (nodep->recursive()) setNoopt("recursive");
         if (nodep->noLife()) setNoopt("nolife");
+        // Reference arguments might alias each other, or other variables
+        for (AstNode* argp = nodep->argsp(); argp; argp = argp->nextp()) {
+            const AstVar* const varp = VN_CAST(argp, Var);
+            if (varp && varp->isDeclRef()) setNoopt("ref argument");
+        }
         if (nodep->dpiImportPrototype() && !nodep->dpiPure()) {
             m_sideEffect = true;  // If appears on assign RHS, don't ever delete the assignment
         }

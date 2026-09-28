@@ -281,6 +281,13 @@ class SubstVisitor final : public VNVisitor {
         UASSERT_OBJ(!m_funcp, nodep, "Should not nest");
         UASSERT_OBJ(m_entries.empty(), nodep, "Should not visit outside functions");
 
+        // Reference arguments might alias each other, or other variables, which the analysis
+        // cannot see, so do not optimize these functions
+        for (AstNode* argp = nodep->argsp(); argp; argp = argp->nextp()) {
+            const AstVar* const varp = VN_CAST(argp, Var);
+            if (varp && varp->isDeclRef()) return;
+        }
+
         // Process the function body
         {
             VL_RESTORER(m_funcp);
