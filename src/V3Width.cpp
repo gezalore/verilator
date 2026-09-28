@@ -2280,7 +2280,8 @@ class WidthVisitor final : public VNVisitor {
             AstNodeDType* const expDTypep = m_vup->dtypeOverridep(nodep->dtypep());
             nodep->dtypep(expDTypep);
             // rhs already finalized in iterate_shift_prelim
-            iterateCheck(nodep, "LHS", nodep->lhsp(), SELF, FINAL, nodep->dtypep(), EXTEND_EXP);
+            iterateCheck(nodep, "LHS", nodep->lhsp(), CONTEXT_DET, FINAL, nodep->dtypep(),
+                         EXTEND_EXP);
             AstNode* newp = nullptr;  // No change
             if (nodep->lhsp()->isSigned() && nodep->rhsp()->isSigned()) {
                 newp = new AstPowSS{nodep->fileline(), nodep->lhsp()->unlinkFrBack(),

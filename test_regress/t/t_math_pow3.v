@@ -75,8 +75,8 @@ module t;
 `ifndef IVERILOG
 `ifndef QUESTA
 `ifndef VCS
-    `checkh((-8'sh1 ** -8'sh2),  8'h1 );  // -1^odd=-1, -1^even=1
-    `checkh((-8'sh1 ** -8'sh3),  8'hff);  // -1^odd=-1, -1^even=1
+    `checkh((-8'sh1 ** -8'sh2),  8'sh1);  // -1^odd=-1, -1^even=1
+    `checkh((-8'sh1 ** -8'sh3),  8'shff);  // -1^odd=-1, -1^even=1
 `endif
 `endif
 `endif
