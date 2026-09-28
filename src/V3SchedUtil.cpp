@@ -247,6 +247,65 @@ AstIf* createIfFromSenTree(AstSenTree* senTreep) {
     return new AstIf{senTreep->fileline(), senEqnp};
 }
 
+VarScopeSet multiWrittenCombVars(const std::vector<const LogicByScope*>& lbsps) {
+    VarScopeSet result;
+    std::unordered_map<const AstVarScope*, const AstNode*> writers;
+    for (const LogicByScope* const lbsp : lbsps) {
+        for (const auto& pair : *lbsp) {
+            if (!pair.second->hasCombo()) continue;
+            for (const AstNode* logicp = pair.second->stmtsp(); logicp; logicp = logicp->nextp()) {
+                logicp->foreach([&](const AstNodeVarRef* refp) {
+                    if (!refp->access().isWriteOrRW()) return;
+                    const auto it = writers.emplace(refp->varScopep(), logicp);
+                    if (!it.second && it.first->second != logicp) {
+                        result.emplace(refp->varScopep());
+                    }
+                });
+            }
+        }
+    }
+    return result;
+}
+
+// The bit range of a packed variable accessed by the given reference, if known
+static bool accessedBits(const AstNodeVarRef* refp, int& lsb, int& width) {
+    const AstVarScope* const vscp = refp->varScopep();
+    if (!vscp->dtypep()->skipRefp()->isIntegralOrPacked()) return false;
+    if (const AstSel* const selp = VN_CAST(refp->backp(), Sel)) {
+        if (selp->fromp() != refp) return false;
+        const AstConst* const lsbp = VN_CAST(selp->lsbp(), Const);
+        if (!lsbp) return false;
+        lsb = lsbp->toSInt();
+        width = selp->widthConst();
+        return lsb >= 0 && lsb + width <= vscp->width();
+    }
+    lsb = 0;
+    width = vscp->width();
+    return true;
+}
+
+void CombOwnWrites::recordWrite(const AstNodeVarRef* refp) {
+    int lsb = 0;
+    int width = 0;
+    if (!accessedBits(refp, lsb, width)) return;
+    std::vector<bool>& bits = m_bits[refp->varScopep()];
+    bits.resize(refp->varScopep()->width());
+    for (int i = lsb; i < lsb + width; ++i) bits[i] = true;
+}
+
+bool CombOwnWrites::readIsDependency(const AstNodeVarRef* refp) const {
+    if (!m_multiWritten.count(refp->varScopep())) return false;
+    int lsb = 0;
+    int width = 0;
+    if (!accessedBits(refp, lsb, width)) return true;
+    const auto it = m_bits.find(refp->varScopep());
+    if (it == m_bits.end()) return true;
+    for (int i = lsb; i < lsb + width; ++i) {
+        if (!it->second[i]) return true;
+    }
+    return false;
+}
+
 }  // namespace util
 
 }  // namespace V3Sched

@@ -116,6 +116,10 @@ class OrderGraphBuilder final : public VNVisitor {
     const V3Sched::CovergroupRefBindings& m_cgRefBindings;
     // Bindings reachable from the covergroup sample() being walked, nullptr when not in one
     const V3Sched::CovergroupRefBindings::Bindings* m_cgRefBoundps = nullptr;
+    // Variables written by more than one combinational logic block
+    const V3Sched::util::VarScopeSet m_multiWritten;
+    // Bits written so far by the current combinational logic block
+    V3Sched::util::CombOwnWrites m_ownWrites{m_multiWritten};
 
     // METHODS
 
@@ -124,6 +128,7 @@ class OrderGraphBuilder final : public VNVisitor {
         // Reset VarUsage and VarAccess
         AstNode::user2ClearTree();
         AstNode::user4ClearTree();
+        m_ownWrites.clear();
         m_forceReadEdgeIgnores.clear();
         if (!m_inClocked)
             V3Sched::util::collectForceReadEdgeIgnores(nodep, m_forceReadEdgeIgnores);
@@ -229,6 +234,14 @@ class OrderGraphBuilder final : public VNVisitor {
         if (!varscp->user4Or(recorded)) m_accessedVscps.push_back(varscp);
     }
 
+    // Whether a read, after a write of the same variable in the same logic, is a dependency
+    bool readIsDependency(const AstVarScope* varscp, const AstNode* nodep) const {
+        const AstNodeVarRef* const refp = VN_CAST(nodep, NodeVarRef);
+        // Covergroup bound references and the like: be conservative
+        if (!refp || refp->varScopep() != varscp) return false;
+        return m_ownWrites.readIsDependency(refp);
+    }
+
     // Add the graph edges, and record the raw access, for one access of one variable
     void accountVarAccess(AstVarScope* varscp, const VAccess& access, AstNode* nodep) {
         // Variable reference in logic. Add data dependency.
@@ -247,7 +260,7 @@ class OrderGraphBuilder final : public VNVisitor {
         bool con = false;
         if (!prevCon && access.isReadOrRW()) {
             con = true;
-            if (prevGen && !m_inClocked) {
+            if (prevGen && !m_inClocked && !readIsDependency(varscp, nodep)) {
                 // Dangerous assumption:
                 // If a variable is consumed in the same combinational process that produced it
                 // earlier, consider it something like:
@@ -265,6 +278,12 @@ class OrderGraphBuilder final : public VNVisitor {
                 // Ignored reads and references from within covergroups do not
                 // add to the combinational sensitivity of the block
                 if (m_forceReadEdgeIgnores.count(varscp) || m_cgRefBoundps) con = false;
+            }
+        }
+
+        if (!m_inClocked && access.isWriteOrRW()) {
+            if (const AstNodeVarRef* const refp = VN_CAST(nodep, NodeVarRef)) {
+                if (refp->varScopep() == varscp) m_ownWrites.recordWrite(refp);
             }
         }
 
@@ -432,7 +451,8 @@ class OrderGraphBuilder final : public VNVisitor {
                       const V3Sched::CovergroupRefBindings& cgRefBindings, bool parallel)
         : m_trigToSen{trigToSen}
         , m_parallel{parallel}
-        , m_cgRefBindings{cgRefBindings} {
+        , m_cgRefBindings{cgRefBindings}
+        , m_multiWritten{V3Sched::util::multiWrittenCombVars({coll.begin(), coll.end()})} {
         // Build the graph
         for (const V3Sched::LogicByScope* const lbsp : coll) {
             for (const auto& pair : *lbsp) {

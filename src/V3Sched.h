@@ -518,6 +518,27 @@ AstNodeStmt* callVoidFunc(AstCFunc* funcp);
 void splitCheck(AstCFunc* ofuncp);
 // Build an AstIf conditional on the given SenTree being triggered
 AstIf* createIfFromSenTree(AstSenTree* senTreep);
+// Variables written by more than one block of the given combinational logic
+VarScopeSet multiWrittenCombVars(const std::vector<const LogicByScope*>& lbsps);
+
+// A combinational logic block reading a variable it has written earlier is not considered to
+// depend on that variable (TODO: use live variable analysis). This does not hold if the read
+// might see bits written by some other logic. Tracks the bits written by one logic block so far.
+class CombOwnWrites final {
+    const VarScopeSet& m_multiWritten;  // Variables written by more than one logic block
+    std::unordered_map<const AstVarScope*, std::vector<bool>> m_bits;  // Bits written so far
+
+public:
+    explicit CombOwnWrites(const VarScopeSet& multiWritten)
+        : m_multiWritten{multiWritten} {}
+    // Start a new logic block
+    void clear() { m_bits.clear(); }
+    // Record a write via the given reference
+    void recordWrite(const AstNodeVarRef* refp);
+    // Whether a read via the given reference, after a write of the same variable in the same
+    // logic block, is still a dependency on the variable
+    bool readIsDependency(const AstNodeVarRef* refp) const;
+};
 }  // namespace util
 
 void beforeTrigVisitor(AstNetlist* netlistp, SenExprBuilder& senExprBuilder,
