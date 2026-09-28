@@ -4104,7 +4104,9 @@ class WidthVisitor final : public VNVisitor {
                              insidePairDTypep(expDTypep, nodep->rhsp()), EXTEND_EXP, !waiveRhs);
             }
         }
-        nodep->dtypeFrom(nodep->lhsp());
+        // The range is as wide as the wider of its bounds, which is what it is sized by
+        const bool rhsWider = nodep->rhsp()->width() > nodep->lhsp()->width();
+        nodep->dtypeFrom(rhsWider ? nodep->rhsp() : nodep->lhsp());
     }
 
     void visit(AstIfaceRefDType* nodep) override {
