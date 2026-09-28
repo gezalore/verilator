@@ -151,6 +151,7 @@ class SplitVisitor final : public VNVisitor {
     SplitImpureVertex* m_impureVtxp = nullptr;  // Vertex connecting impure statements
     const char* m_noSplitWhy = nullptr;  // Reason current block cannot be split
     bool m_inDly = false;  // Inside AstAssignDly Lhs
+    bool m_inCombo = false;  // Under a combinational AstActive
     const AstIf* m_currIfp = nullptr;  // The AstIf whose condition is currently visited
     VDouble0 m_statSplits;  // Statistic tracking
 
@@ -298,6 +299,11 @@ class SplitVisitor final : public VNVisitor {
         const VNUser2InUse user2InUse;
         scanBlock(nodep->stmtsp());
 
+        // A combinational block executes when any of its inputs change. Split out
+        // impure statements would only execute when their own inputs change, and
+        // never again if they have none (e.g.: line coverage), so keep them together.
+        if (m_inCombo && m_impureVtxp && !m_noSplitWhy) m_noSplitWhy = "Impure combinational";
+
         // We might have to give up
         if (m_noSplitWhy) {
             UINFO(9, "  NoSplitBlock because " << m_noSplitWhy);
@@ -338,6 +344,12 @@ class SplitVisitor final : public VNVisitor {
             lastp->addNextHere(newp);
             lastp = newp;
         }
+    }
+
+    void visit(AstActive* nodep) override {
+        VL_RESTORER(m_inCombo);
+        m_inCombo = nodep->hasCombo();
+        iterateChildren(nodep);
     }
 
     void visit(AstIf* nodep) override {

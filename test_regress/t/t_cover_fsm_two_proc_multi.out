@@ -110,9 +110,9 @@
             endcase
           end
         
-%000001   always_comb begin
-%000001     busy = (state_q == S_BUSY);
-%000001     done = (state_q == S_DONE);
+ 000010   always_comb begin
+ 000010     busy = (state_q == S_BUSY);
+ 000010     done = (state_q == S_DONE);
           end
         
 %000009   always_ff @(posedge clk) begin

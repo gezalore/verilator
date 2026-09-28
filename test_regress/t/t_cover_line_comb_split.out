@@ -1,0 +1,46 @@
+//      // verilator_coverage annotation
+        // DESCRIPTION: Verilator: Verilog Test module
+        //
+        // This file ONLY is placed under the Creative Commons Public Domain.
+        // SPDX-FileCopyrightText: 2026 Wilson Snyder
+        // SPDX-License-Identifier: CC0-1.0
+        
+        module t (
+            input clk
+        );
+        
+%000001   integer cyc = 0;
+-000001  point: type=line comment=block hier=top.t
+          logic [7:0] i;
+          logic [15:0] a, b;
+        
+          // Splitting this block must not separate the coverage increment from its inputs
+ 000012   always_comb begin
++000012  point: type=line comment=block hier=top.t
+ 000012     a = {8'd0, i} + 16'd1;
++000012  point: type=line comment=block hier=top.t
+ 000012     b = {i, i};
++000012  point: type=line comment=block hier=top.t
+          end
+        
+ 000011   always @(posedge clk) begin
++000011  point: type=line comment=block hier=top.t
+ 000011     cyc <= cyc + 1;
++000011  point: type=line comment=block hier=top.t
+ 000011     i <= 8'(cyc * 3);
++000011  point: type=line comment=block hier=top.t
+ 000011     if (cyc > 0 && a != {8'd0, i} + 16'd1) $stop;
++000011  point: type=line comment=else hier=top.t
+ 000011     if (cyc > 0 && b != {i, i}) $stop;
++000011  point: type=line comment=else hier=top.t
+~000010     if (cyc == 10) begin
+-000001  point: type=branch comment=if hier=top.t
++000010  point: type=branch comment=else hier=top.t
+%000001       $write("*-* All Finished *-*\n");
+-000001  point: type=branch comment=if hier=top.t
+%000001       $finish;
+-000001  point: type=branch comment=if hier=top.t
+            end
+          end
+        endmodule
+        
