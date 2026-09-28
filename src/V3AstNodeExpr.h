@@ -1893,7 +1893,9 @@ public:
     string emitC() override { V3ERROR_NA_RETURN(""); }
     bool cleanOut() const override { return false; }  // NA
     // Create AstAnd(AstGte(...), AstLte(...))
-    AstNodeExpr* newAndFromInside(AstNodeExpr* exprp, AstNodeExpr* lhsp, AstNodeExpr* rhsp);
+    // 'rhsExprp', if given, is used as the expression compared with 'rhsp'
+    AstNodeExpr* newAndFromInside(AstNodeExpr* exprp, AstNodeExpr* lhsp, AstNodeExpr* rhsp,
+                                  AstNodeExpr* rhsExprp = nullptr);
 };
 class AstLambdaArgRef final : public AstNodeExpr {
     // Lambda argument usage
