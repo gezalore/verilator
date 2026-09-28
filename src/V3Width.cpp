@@ -8181,12 +8181,38 @@ class WidthVisitor final : public VNVisitor {
                                      portp->direction() == VDirection::OUTPUT);
                     userIterate(pinp, WidthVP{portDTypep, FINAL, STREAM_USE_ASSIGN}.p());
                 } else {
+                    // Input arguments are assigned to the formals (IEEE 1800-2023 13.5.1)
+                    if (!portp->isWritable() && VN_IS(pinp, NodeStream)
+                        && pinp->width() < portDTypep->width()) {
+                        userIterate(pinp, WidthVP{pinp->dtypep(), FINAL, STREAM_USE_ASSIGN}.p());
+                        leftJustifyStream(argp->exprp(), portDTypep);
+                        continue;
+                    }
                     iterateCheckAssign(nodep, "Function Argument", pinp, FINAL, portDTypep);
                 }
             }
         }
     }
 
+    // IEEE 1800-2023 11.4.14: When assigning a stream to a wider fixed-size target, widen
+    // by filling zero bits on the right. That is, left-justify the stream bits within the
+    // target width. Build: ShiftL(Extend(stream, expWidth), expWidth - streamWidth)
+    static void leftJustifyStream(AstNodeExpr* underp, AstNodeDType* expDTypep) {
+        const int expWidth = expDTypep->width();
+        UINFO(5, "Widen NodeStream RHS with left-justify per 11.4.14");
+        VNRelinker linker;
+        const int shift = expWidth - underp->width();
+        underp->unlinkFrBack(&linker);
+        AstExtend* const widenedp = new AstExtend{underp->fileline(), underp, expWidth};
+        widenedp->didWidth(true);
+        // Shift left so zeros fill on the right
+        AstNodeExpr* const shiftedp = new AstShiftL{
+            underp->fileline(), widenedp,
+            new AstConst{underp->fileline(), static_cast<uint32_t>(shift)}, expWidth};
+        // Final dtype should match expected
+        shiftedp->dtypep(expDTypep);
+        linker.relink(shiftedp);
+    }
     void handleStdRandomizeArgs(AstNodeFTaskRef* const nodep) {
         AstConst* nullp = nullptr;
         for (AstArg *argp = nodep->argsp(), *nextp; argp; argp = nextp) {
@@ -10102,25 +10128,14 @@ class WidthVisitor final : public VNVisitor {
                 } else if (pinp && pinp->modVarp()->direction() != VDirection::INPUT) {
                     // V3Inst::pinReconnectSimple must deal
                     UINFO(5, "pinInSizeMismatch: " << pinp);
-                } else if (assignp && VN_IS(underp, NodeStream) && expWidth > underp->width()) {
+                } else if ((assignp || pinp || VN_IS(parentp, Var)) && VN_IS(underp, NodeStream)
+                           && expWidth > underp->width()) {
                     // IEEE 1800-2023 11.4.14: When assigning a stream to a wider fixed-size
-                    // target, widen by filling zero bits on the right. That is, left-justify
-                    // the stream bits within the target width.
+                    // target (including a parameter's value or an input port connection), widen
+                    // by filling zero bits on the right. That is, left-justify the stream bits
+                    // within the target width.
                     // Build: ShiftL(Extend(stream, expWidth), expWidth - streamWidth)
-                    UINFO(5, "Widen NodeStream RHS with left-justify per 11.4.14");
-                    VNRelinker linker;
-                    const int shift = expWidth - underp->width();
-                    underp->unlinkFrBack(&linker);
-                    AstExtend* const widenedp
-                        = new AstExtend{underp->fileline(), underp, expWidth};
-                    widenedp->didWidth(true);
-                    // Shift left so zeros fill on the right
-                    AstNodeExpr* const shiftedp = new AstShiftL{
-                        underp->fileline(), widenedp,
-                        new AstConst{underp->fileline(), static_cast<uint32_t>(shift)}, expWidth};
-                    // Final dtype should match expected
-                    shiftedp->dtypep(expDTypep);
-                    linker.relink(shiftedp);
+                    leftJustifyStream(underp, expDTypep);
                 } else {
                     VL_DO_DANGLING(fixWidthExtend(underp, expDTypep, extendRule), underp);
                 }
