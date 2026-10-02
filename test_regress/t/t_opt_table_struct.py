@@ -11,7 +11,8 @@ import vltest_bootstrap
 
 test.scenarios('simulator')
 
-test.compile(verilator_flags2=["--stats", "-fno-case-table", "-fno-case-decoder"])
+test.compile(
+    verilator_flags2=["--stats", "-fno-case-table", "-fno-case-decoder", "-fno-decompose"])
 
 if test.vlt_all:
     test.file_grep(test.stats, r'Optimizations, Tables created\s+(\d+)', 1)
