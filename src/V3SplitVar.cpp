@@ -1401,6 +1401,9 @@ void V3SplitVar::splitVariable(AstNetlist* nodep) {
     }
     V3Global::dumpCheckGlobalTree("split_var", 0, dumpTreeEitherLevel() >= 9);
     { SplitPackedVarVisitor{nodep, std::move(refs)}; }
+    // The attribute is consumed, with warnings issued above, V3SplitComponents should not warn
+    // again, including on variables created here, which inherit it
+    nodep->foreach([](AstVar* varp) { varp->attrSplitVar(false); });
     V3Global::dumpCheckGlobalTree("split_var", 0, dumpTreeEitherLevel() >= 9);
 }
 

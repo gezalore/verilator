@@ -180,6 +180,7 @@ set(HEADERS
     V3Simulate.h
     V3Slice.h
     V3Split.h
+    V3SplitComponents.h
     V3SplitVar.h
     V3StackCount.h
     V3Stats.h
@@ -359,6 +360,7 @@ set(COMMON_SOURCES
     V3Scope.cpp
     V3Slice.cpp
     V3Split.cpp
+    V3SplitComponents.cpp
     V3SplitVar.cpp
     V3StackCount.cpp
     V3Stats.cpp

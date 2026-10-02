@@ -434,6 +434,7 @@ private:
     bool m_fSlice = true;  // main switch: -fno-slice: array assignment slicing
     int  m_fSliceElementLimit = 256;  // main switch: --fslice-element-limit
     bool m_fSplit;       // main switch: -fno-split: always assignment splitting
+    bool m_fSplitComponents;  // main switch: -fno-split-components: array and struct splitting
     bool m_fSubst;       // main switch: -fno-subst: substitute expression temp values
     bool m_fSubstConst;  // main switch: -fno-subst-const: final constant substitution
     bool m_fTable;       // main switch: -fno-table: lookup table creation
@@ -775,6 +776,7 @@ public:
     bool fSlice() const { return m_fSlice; }
     int fSliceElementLimit() const { return m_fSliceElementLimit; }
     bool fSplit() const { return m_fSplit; }
+    bool fSplitComponents() const { return m_fSplitComponents; }
     bool fSubst() const { return m_fSubst; }
     bool fSubstConst() const { return m_fSubstConst; }
     bool fTable() const { return m_fTable; }

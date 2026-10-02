@@ -100,6 +100,7 @@
 #include "V3Scope.h"
 #include "V3Slice.h"
 #include "V3Split.h"
+#include "V3SplitComponents.h"
 #include "V3SplitVar.h"
 #include "V3Stats.h"
 #include "V3String.h"
@@ -283,7 +284,7 @@ static void process() {
         if (!(v3Global.opt.serializeOnly() && !v3Global.opt.flatten())) {
             // Split packed variables into multiple pieces to resolve UNOPTFLAT.
             // should be after constifyAllLint() which flattens to 1D bit vector
-            V3SplitVar::splitVariable(v3Global.rootp());
+            if (v3Global.opt.fVarSplit()) V3SplitVar::splitVariable(v3Global.rootp());
 
             if (v3Global.opt.timing().isSetTrue()) {
                 // Generate classes and tasks required to maintain proper lifetimes for references
@@ -395,6 +396,11 @@ static void process() {
             // Move assignments/sensitives into a SBLOCK for each unique sensitivity list
             // (May convert some ALWAYS to combo blocks, so should be before V3Gate step.)
             V3Active::activeAll(v3Global.rootp());
+
+            // Split arrays and structs into their elements and members
+            if (v3Global.opt.fSplitComponents()) {
+                V3SplitComponents::splitComponentsAll(v3Global.rootp());
+            }
 
             if (v3Global.opt.fLife()) V3Life::lifeAll(v3Global.rootp());
 

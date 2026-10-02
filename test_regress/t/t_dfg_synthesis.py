@@ -55,6 +55,7 @@ with open(rdFile, 'r', encoding="utf8") as rdFh, \
 # Compile un-optimized
 test.compile(verilator_flags2=[
     "--stats",
+    "-fno-split-components",
     "--build",
     "-fno-dfg",
     "+incdir+" + test.obj_dir,
@@ -68,6 +69,7 @@ test.file_grep_not(test.obj_dir + "/obj_ref/Vref__stats.txt", r'DFG.*Synthesis')
 # Compile optimized - also builds executable
 test.compile(verilator_flags2=[
     "--stats",
+    "-fno-split-components",
     "--build",
     "--fdfg-synthesize-all",
     "--exe",

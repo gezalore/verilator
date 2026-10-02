@@ -1553,6 +1553,7 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc,
         if (m_fSliceElementLimit < 0) fl->v3fatal("--fslice-element-limit must be >= 0: " << valp);
     });
     DECL_OPTION("-fsplit", FOnOff, &m_fSplit);
+    DECL_OPTION("-fsplit-components", FOnOff, &m_fSplitComponents);
     DECL_OPTION("-fsubst", FOnOff, &m_fSubst);
     DECL_OPTION("-fsubst-const", FOnOff, &m_fSubstConst);
     DECL_OPTION("-ftable", FOnOff, &m_fTable);
@@ -2417,6 +2418,7 @@ void V3Options::optimize(int level) {
     m_fReloop = flag;
     m_fReorder = flag;
     m_fSplit = flag;
+    m_fSplitComponents = flag;
     m_fSubst = flag;
     m_fSubstConst = flag;
     m_fTable = flag;

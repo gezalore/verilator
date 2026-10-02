@@ -865,6 +865,8 @@ Summary:
 
 .. option:: -fno-split
 
+.. option:: -fno-split-components
+
 .. option:: -fno-subst
 
 .. option:: -fno-subst-const
