@@ -10,10 +10,9 @@
 import vltest_bootstrap
 
 test.scenarios('simulator')
-test.top_filename = 't/t_opt_slice.v'
 
-test.compile(verilator_flags2=['--sc', '--stats', '-fno-slice'])
+test.compile(verilator_flags2=['--sc', '--stats'])
 
-test.file_grep(test.stats, r'Optimizations, Slice array assignments\s+(\d+)', 2)
+test.file_grep(test.stats, r'Optimizations, Slice, array assignments\s+(\d+)', 2)
 
 test.passes()

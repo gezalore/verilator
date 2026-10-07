@@ -1,6 +1,6 @@
 // -*- mode: C++; c-file-style: "cc-mode" -*-
 //*************************************************************************
-// DESCRIPTION: Verilator: Parse module/signal name references
+// DESCRIPTION: Verilator: Expand unpacked array assignments and comparisons
 //
 // Code available from: https://verilator.org
 //
@@ -13,26 +13,19 @@
 // SPDX-License-Identifier: LGPL-3.0-only OR Artistic-2.0
 //
 //*************************************************************************
-// Slice TRANSFORMATIONS:
-//      Top-down traversal (SliceVisitor):
-//        NODEASSIGN
-//          ARRAYSEL
-//            Compare the dimensions to the Var to check for implicit slices.
-//            Using ->length() calculate the number of clones needed.
-//          VARREF
-//            Check the dimensions of the Var for an implicit slice.
-//            Replace with ArraySel nodes if needed.
-//          SEL, EXTEND
-//            We might be assigning a 1-D packed array to a 2-D packed array,
-//            this is unsupported.
-//          SliceCloneVisitor (called if this node is a slice):
-//            NODEASSIGN
-//              Clone and iterate the clone:
-//                ARRAYSEL
-//                  Modify bitp() for the new value and set ->length(1)
-//
-// TODO: This code was written before SLICESEL was a type, it might be
-// simplified to look primarily for SLICESELs.
+// V3Slice expands operations on whole unpacked arrays element-wise:
+//   - An assignment to an unpacked array becomes one assignment per element,
+//     unless disabled by -fno-slice, the array has more elements than
+//     -fslice-element-limit, or it is a copy of an identical array. Assignments
+//     involving SystemC variables are always expanded, as these can only be
+//     accessed per element.
+//   - EQ, NEQ, EQCASE and NEQCASE of unpacked arrays become the LOGAND or LOGOR
+//     of the element-wise comparisons.
+//   - A SLICESEL used as a value (e.g. a $display argument) becomes a call to
+//     VlUnpacked::slice.
+// Elements are paired by position from the left (IEEE 1800-2023 7.6), so
+// sides with opposite range directions are reversed. The expanded assignments
+// are visited in turn, which expands further unpacked dimensions.
 //*************************************************************************
 
 #include "V3PchAstNoMT.h"  // VL_MT_DISABLED_CODE_UNIT
@@ -41,6 +34,8 @@
 
 #include "V3Stats.h"
 
+#include <limits>
+
 VL_DEFINE_DEBUG_FUNCTIONS;
 
 //*************************************************************************
@@ -48,15 +43,18 @@ VL_DEFINE_DEBUG_FUNCTIONS;
 class SliceVisitor final : public VNVisitor {
     // NODE STATE
     // Cleared on netlist
-    //  AstNodeAssign::user1()      -> bool.  True if find is complete
-    //  AstNodeUniop::user1()       -> bool.  True if find is complete
-    //  AstArraySel::user1p()       -> AstVarRef. The VarRef that the final ArraySel points to
+    //  AstNodeAssign::user1()      -> bool.  Already processed
+    //  AstNodeBiop::user1()        -> bool.  Already processed (Eq, Neq, EqCase, NeqCase)
     const VNUser1InUse m_inuser1;
     //  AstInitArray::user2()       -> uint64_t.  Previously accessed itemIdx
     //  AstInitItem::user2()        -> uint64_t.  Corresponding first elemIdx
     const VNUser2InUse m_inuser2;
 
     // STATE - across all visitors
+    // Maximum number of elements to expand a slice assignment
+    const int m_elementLimit = v3Global.opt.fSliceElementLimit()
+                                   ? v3Global.opt.fSliceElementLimit()
+                                   : std::numeric_limits<int>::max();
     VDouble0 m_statAssigns;  // Statistic tracking
     VDouble0 m_statSliceElementSkips;  // Statistic tracking
 
@@ -66,6 +64,12 @@ class SliceVisitor final : public VNVisitor {
     bool m_okInitArray = false;  // Allow InitArray children
 
     // METHODS
+    // Storage index of the element at position 'idxFromLeft' of 'range', counted from the left
+    static int storageIndex(const VNumRange& range, uint64_t idxFromLeft) {
+        const int idx = static_cast<int>(idxFromLeft);
+        return range.ascending() ? idx : range.elements() - 1 - idx;
+    }
+
     AstNodeExpr* cloneAndSel(AstNodeExpr* const nodep, uint64_t elements, uint64_t elemIdx,
                              const bool needPure) {
         // Insert an ArraySel, except for a few special cases
@@ -93,21 +97,16 @@ class SliceVisitor final : public VNVisitor {
             elements = 1;
             elemIdx = 0;
         }
-        AstNodeExpr* newp;
+
         if (AstInitArray* const initp = VN_CAST(nodep, InitArray)) {
             UINFO(9, "  cloneInitArray(" << elements << "," << elemIdx << ") " << nodep);
 
-            auto considerOrder = [](const auto* nodep, int idxFromLeft) -> int {
-                return !nodep->rangep()->ascending()
-                           ? nodep->rangep()->elementsConst() - 1 - idxFromLeft
-                           : idxFromLeft;
-            };
-            newp = nullptr;
+            AstNodeExpr* newp = nullptr;
             uint64_t itemIdx = 0;
             uint64_t i = 0;
             const AstInitArray::KeyItemMap& itemMap = initp->map();
             if (const uint64_t prevItemIdx = initp->user2()) {
-                const auto it = itemMap.find(considerOrder(arrayp, prevItemIdx));
+                const auto it = itemMap.find(storageIndex(arrayp->declRange(), prevItemIdx));
                 if (it != itemMap.end()) {
                     const AstInitItem* itemp = it->second;
                     if (itemp->user2() && itemp->user2() < elemIdx) {
@@ -119,7 +118,7 @@ class SliceVisitor final : public VNVisitor {
             }
             const AstNodeDType* const expectedItemDTypep = arrayp->subDTypep()->skipRefp();
             while (i <= elemIdx) {
-                const auto itemIt = itemMap.find(considerOrder(arrayp, itemIdx));
+                const auto itemIt = itemMap.find(storageIndex(arrayp->declRange(), itemIdx));
                 AstNodeExpr* const itemp
                     = itemIt != itemMap.end() ? itemIt->second->valuep() : initp->defaultp();
                 const bool directItem = itemIt != itemMap.end();
@@ -153,7 +152,7 @@ class SliceVisitor final : public VNVisitor {
                     }
                     if (i + itemDTypep->elementsConst()
                         > elemIdx) {  // This item contains the element
-                        int offset = considerOrder(itemDTypep, elemIdx - i);
+                        int offset = storageIndex(itemDTypep->declRange(), elemIdx - i);
                         if (AstSliceSel* const slicep = VN_CAST(itemp, SliceSel)) {
                             offset += slicep->declRange().lo();
                             newp = new AstArraySel{nodep->fileline(),
@@ -186,32 +185,39 @@ class SliceVisitor final : public VNVisitor {
                 m_assignError = true;
             }
             if (newp) {
-                const auto it = itemMap.find(considerOrder(arrayp, itemIdx));
+                const auto it = itemMap.find(storageIndex(arrayp->declRange(), itemIdx));
                 if (it != itemMap.end()) {  // Remember current position for the next invocation.
                     initp->user2(itemIdx);
                     it->second->user2(i);
                 }
             }
             if (!newp) newp = new AstConst{nodep->fileline(), 0};
-        } else if (AstCond* const snodep = VN_CAST(nodep, Cond)) {
+            return newp;
+        }
+
+        if (AstCond* const snodep = VN_CAST(nodep, Cond)) {
             UINFO(9, "  cloneCond(" << elements << "," << elemIdx << ") " << nodep);
             return new AstCond{snodep->fileline(), snodep->condp()->cloneTree(false, needPure),
                                cloneAndSel(snodep->thenp(), elements, elemIdx, needPure),
                                cloneAndSel(snodep->elsep(), elements, elemIdx, needPure)};
-        } else if (const AstSliceSel* const snodep = VN_CAST(nodep, SliceSel)) {
+        }
+
+        if (const AstSliceSel* const snodep = VN_CAST(nodep, SliceSel)) {
             UINFO(9, "  cloneSliceSel(" << elements << "," << elemIdx << ") " << nodep);
-            const int leOffset = (snodep->declRange().lo()
-                                  + (!snodep->declRange().ascending()
-                                         ? snodep->declRange().elements() - 1 - elemIdx
-                                         : elemIdx));
-            newp = new AstArraySel{nodep->fileline(), snodep->fromp()->cloneTree(false, needPure),
+            const int leOffset
+                = snodep->declRange().lo() + storageIndex(snodep->declRange(), elemIdx);
+            return new AstArraySel{nodep->fileline(), snodep->fromp()->cloneTree(false, needPure),
                                    leOffset};
-        } else if (const AstSampled* const snodep = VN_CAST(nodep, Sampled)) {
-            UINFO(9, "  cloneSliceSel(" << elements << "," << elemIdx << ") " << nodep);
+        }
+
+        if (const AstSampled* const snodep = VN_CAST(nodep, Sampled)) {
+            UINFO(9, "  cloneSampled(" << elements << "," << elemIdx << ") " << nodep);
             AstNodeExpr* const exprp = VN_AS(snodep->exprp(), NodeExpr);
             AstNodeExpr* const selp = cloneAndSel(exprp, elements, elemIdx, needPure);
             return new AstSampled{nodep->fileline(), selp, selp->dtypep(), snodep->internal()};
-        } else if (AstExprStmt* const snodep = VN_CAST(nodep, ExprStmt)) {
+        }
+
+        if (AstExprStmt* const snodep = VN_CAST(nodep, ExprStmt)) {
             UINFO(9, "  cloneExprStmt(" << elements << "," << elemIdx << ") " << nodep);
             AstNodeExpr* const resultSelp
                 = cloneAndSel(snodep->resultp(), elements, elemIdx, needPure);
@@ -221,70 +227,65 @@ class SliceVisitor final : public VNVisitor {
             } else {
                 return resultSelp;
             }
-        } else if (VN_IS(nodep, NodeVarRef) || VN_IS(nodep, NodeSel) || VN_IS(nodep, CMethodHard)
-                   || VN_IS(nodep, MemberSel) || VN_IS(nodep, StructSel)) {
-            UINFO(9, "  cloneSel(" << elements << "," << elemIdx << ") " << nodep);
-            const int leOffset = !arrayp->rangep()->ascending()
-                                     ? arrayp->rangep()->elementsConst() - 1 - elemIdx
-                                     : elemIdx;
-            newp = new AstArraySel{nodep->fileline(), nodep->cloneTree(false, needPure), leOffset};
-        } else {
-            if (!m_assignError) {
-                nodep->v3error(nodep->prettyTypeName()
-                               << " unexpected in assignment to unpacked array");
-            }
-            m_assignError = true;
-            // Likely will cause downstream errors
-            newp = nodep->cloneTree(false, needPure);
         }
-        return newp;
+
+        if (VN_IS(nodep, NodeVarRef) || VN_IS(nodep, NodeSel) || VN_IS(nodep, CMethodHard)
+            || VN_IS(nodep, MemberSel) || VN_IS(nodep, StructSel)) {
+            UINFO(9, "  cloneSel(" << elements << "," << elemIdx << ") " << nodep);
+            const int leOffset = storageIndex(arrayp->declRange(), elemIdx);
+            return new AstArraySel{nodep->fileline(), nodep->cloneTree(false, needPure), leOffset};
+        }
+
+        if (!m_assignError) {
+            nodep->v3error(nodep->prettyTypeName()
+                           << " unexpected in assignment to unpacked array");
+        }
+        m_assignError = true;
+        // Likely will cause downstream errors
+        return nodep->cloneTree(false, needPure);
     }
 
-    bool assignOptimize(AstNodeAssign* nodep) {
-        // Return true if did optimization
-        AstNodeDType* const dtp = nodep->lhsp()->dtypep()->skipRefp();
-        AstNode* stp = nodep->rhsp();
-        const AstUnpackArrayDType* const arrayp = VN_CAST(dtp, UnpackArrayDType);
-        if (!arrayp) return false;
-        if (VN_IS(stp, CvtPackedToArray)) return false;
-        if (VN_IS(stp, CReset)) return false;
+    // Returns true if did expand and 'nodep' was deleted
+    bool expandArrayAssign(AstNodeAssign* nodep, const AstUnpackArrayDType* arrayp) {
+        const bool expand = [&]() {
+            // Any isSc variables must be always expanded
+            const bool hasSc = nodep->exists([&](const AstVarRef* refp) -> bool {  //
+                return refp->varp()->isSc();
+            });
+            if (hasSc) return true;
 
-        // Any isSc variables must be expanded regardless of --fno-slice
-        const bool hasSc
-            = nodep->exists([&](const AstVarRef* refp) -> bool { return refp->varp()->isSc(); });
-        if (!hasSc && !v3Global.opt.fSlice()) {
-            m_okInitArray = true;  // VL_RESTORER in visit(AstNodeAssign)
-            return false;
-        }
+            // Don't if disabled by -fno-slice
+            if (!v3Global.opt.fSlice()) return false;
 
-        // Skip optimization if array is too large
-        const int elements = arrayp->rangep()->elementsConst();
-        const int elementLimit = v3Global.opt.fSliceElementLimit();
-        if (elements > elementLimit && elementLimit > 0) {
-            ++m_statSliceElementSkips;
-            m_okInitArray = true;  // VL_RESTORER in visit(AstNodeAssign)
-            return false;
-        }
+            // Skip optimization if array is too large
+            const int elements = arrayp->rangep()->elementsConst();
+            if (elements > m_elementLimit) {
+                ++m_statSliceElementSkips;
+                return false;
+            }
 
-        // Skip if this is a simple a = b assignment of identical arrays
-        if (AstVarRef* const lhsp = VN_CAST(nodep->lhsp(), VarRef)) {
-            if (AstVarRef* const rhsp = VN_CAST(nodep->rhsp(), VarRef)) {
-                if (!hasSc && lhsp->dtypep()->skipRefp()->sameTree(rhsp->dtypep()->skipRefp())) {
-                    m_okInitArray = true;  // VL_RESTORER in visit(AstNodeAssign)
-                    return false;
+            // Skip if this is a simple a = b assignment of identical arrays
+            if (AstVarRef* const lhsp = VN_CAST(nodep->lhsp(), VarRef)) {
+                if (AstVarRef* const rhsp = VN_CAST(nodep->rhsp(), VarRef)) {
+                    if (lhsp->dtypep()->skipRefp()->sameTree(rhsp->dtypep()->skipRefp())) {
+                        return false;
+                    }
                 }
             }
-        }
+
+            return true;
+        }();
+        if (!expand) return false;
 
         UINFO(4, "Slice optimizing " << nodep);
         ++m_statAssigns;
 
-        // Left and right could have different ascending/descending range,
-        // but #elements is common and all variables are realigned to start at zero
-        // Assign of an ascending range slice to a descending range one must reverse
-        // the elements
+        // Element 'elemIdx' is counted from the left on both sides, as assignment pairs
+        // elements left to right (IEEE 1800-2023 7.6). cloneAndSel maps it to the storage
+        // index of each side, so sides with opposite range directions are reversed there.
         AstNodeAssign* newlistp = nullptr;
-        for (uint64_t elemIdx = 0; elemIdx < static_cast<uint64_t>(elements); ++elemIdx) {
+        const uint64_t elements = arrayp->rangep()->elementsConst();
+        for (uint64_t elemIdx = 0; elemIdx < elements; ++elemIdx) {
             // Original node is replaced, so it is safe to copy it one time even if it is impure.
             AstNodeAssign* const newp
                 = nodep->cloneType(cloneAndSel(nodep->lhsp(), elements, elemIdx, elemIdx != 0),
@@ -292,24 +293,32 @@ class SliceVisitor final : public VNVisitor {
             UINFOTREE(9, newp, "", "new");
             newlistp = AstNode::addNext(newlistp, newp);
         }
-        UINFOTREE(9, nodep, "", "Deslice-Dn");
+
+        // The normal edit iterator will iterate on the replacements next
         nodep->replaceWith(newlistp);
-        VL_DO_DANGLING(nodep->deleteTree(), nodep);
-        // Normal edit iterator will now iterate on all of the expansion assignments
-        // This will potentially call this function again to resolve next level of slicing
+        VL_DO_DANGLING(pushDeletep(nodep), nodep);
         return true;
     }
 
     void visit(AstNodeAssign* nodep) override {
-        // Called recursively on newly created assignments
+        // The expanded assignments are visited next by the iterator
         if (nodep->user1SetOnce()) return;  // Process once
         UINFOTREE(9, nodep, "", "Deslice-In");
         VL_RESTORER(m_assignError);
         VL_RESTORER(m_assignp);
-        VL_RESTORER(m_okInitArray);  // Set in assignOptimize
+        VL_RESTORER(m_okInitArray);
         m_assignError = false;
         m_assignp = nodep;
-        if (assignOptimize(nodep)) return;
+
+        AstNodeDType* const dtp = nodep->lhsp()->dtypep()->skipRefp();
+        if (const AstUnpackArrayDType* const uatp = VN_CAST(dtp, UnpackArrayDType)) {
+            AstNode* const rhsp = nodep->rhsp();
+            if (!VN_IS(rhsp, CvtPackedToArray) && !VN_IS(rhsp, CReset)) {
+                if (expandArrayAssign(nodep, uatp)) return;
+                m_okInitArray = true;
+            }
+        }
+
         iterateChildren(nodep);
     }
 
@@ -344,8 +353,8 @@ class SliceVisitor final : public VNVisitor {
         if (const AstUnpackArrayDType* const adtypep = VN_CAST(fromDtp, UnpackArrayDType)) {
             AstNodeBiop* logp = nullptr;
 
-            const int elements = adtypep->rangep()->elementsConst();
-            for (int elemIdx = 0; elemIdx < elements; ++elemIdx) {
+            const uint64_t elements = adtypep->rangep()->elementsConst();
+            for (uint64_t elemIdx = 0; elemIdx < elements; ++elemIdx) {
                 // EQ(a,b) -> LOGAND(EQ(ARRAYSEL(a,0), ARRAYSEL(b,0)), ...[1])
                 // Original node is replaced, so it is safe to copy it one time even if it is
                 // impure.
@@ -405,8 +414,8 @@ public:
     // CONSTRUCTORS
     explicit SliceVisitor(AstNetlist* nodep) { iterate(nodep); }
     ~SliceVisitor() override {
-        V3Stats::addStat("Optimizations, Slice array assignments", m_statAssigns);
-        V3Stats::addStat("Optimizations, Slice array skips due to size limit",
+        V3Stats::addStat("Optimizations, Slice, array assignments", m_statAssigns);
+        V3Stats::addStat("Optimizations, Slice, array skips due to size limit",
                          m_statSliceElementSkips);
     }
 };

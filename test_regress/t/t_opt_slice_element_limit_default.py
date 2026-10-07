@@ -15,6 +15,6 @@ test.top_filename = "t/t_opt_slice_element_limit.v"
 
 test.compile(verilator_flags2=['--stats'])
 
-test.file_grep(test.stats, r'Optimizations, Slice array skips due to size limit\s+(\d+)', 1)
+test.file_grep(test.stats, r'Optimizations, Slice, array skips due to size limit\s+(\d+)', 1)
 
 test.passes()
