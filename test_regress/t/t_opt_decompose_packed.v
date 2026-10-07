@@ -95,7 +95,7 @@ module t (
   // Concatenation aligned with the members
   ps_t pcat;  // Split 1
   // Concatenation with an expression assigned to a member that is split itself
-  pout_t pnest;  // Split 2
+  pout_t pnest;  // Split 2: component value assigned to a temporary first
   logic [7:0] pnest_f;
   // Concatenation with a variable reference spanning members
   logic [3:0] n4;
@@ -107,8 +107,8 @@ module t (
   ps_t pcc;  // Split 1
   // Concatenation with a select path spanning members
   ps_t pcx;  // Split 1
-  // Concatenation with another expression spanning members
-  ps_t pcy;  // No split: concatenation term spans members
+  // Concatenation with another expression spanning members, assigned to a temporary first
+  ps_t pcy;  // Split 1
   logic [7:0] pcy_lo;
   // Concatenation reading the variable assigned, blocking swap of the members
   pw_t psw;  // No split: concatenation reads the variable

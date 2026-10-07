@@ -43,6 +43,14 @@
                                                                : ... note: In instance 't'
   140 |     do if ((dyn[crc[1:0]]) !== (crc[crc[1:0]*7+:7] ^ in_arr[0])) begin $write("%%Error: %s:%0d:  got='h%x exp='h%x\n", "t/t_opt_decompose_unpacked_attr_bad.v",140, (dyn[crc[1:0]]), (crc[crc[1:0]*7+:7] ^ in_arr[0])); $stop; end while(0);;
       |             ^~~
+%Warning-SPLITVAR: t/t_opt_decompose_unpacked_attr_bad.v:140:166: 'dyn' marked split_var but will not be split because it is referenced in an unsupported way.
+                                                                : ... note: In instance 't'
+  140 |     do if ((dyn[crc[1:0]]) !== (crc[crc[1:0]*7+:7] ^ in_arr[0])) begin $write("%%Error: %s:%0d:  got='h%x exp='h%x\n", "t/t_opt_decompose_unpacked_attr_bad.v",140, (dyn[crc[1:0]]), (crc[crc[1:0]*7+:7] ^ in_arr[0])); $stop; end while(0);;
+      |                                                                                                                                                                      ^~~
+%Warning-SPLITVAR: t/t_opt_decompose_unpacked_attr_bad.v:146:34: 'whole' marked split_var but will not be split because it is referenced in an unsupported way.
+                                                               : ... note: In instance 't'
+  146 |       $display("%p %p %p %p %p", whole, whole2, q, md2[0], stw);
+      |                                  ^~~~~
 %Warning-SPLITVAR: t/t_opt_decompose_unpacked_attr_bad.v:146:41: 'whole2' marked split_var but will not be split because it is referenced in an unsupported way.
                                                                : ... note: In instance 't'
   146 |       $display("%p %p %p %p %p", whole, whole2, q, md2[0], stw);

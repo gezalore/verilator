@@ -11,7 +11,15 @@
                                                             : ... note: In instance 't'
    55 |     do if ((span[8:3]) !== ({crc[1:0], crc[11:8]})) begin $write("%%Error: %s:%0d:  got='h%x exp='h%x\n", "t/t_opt_decompose_packed_attr_bad.v",55, (span[8:3]), ({crc[1:0], crc[11:8]})); $stop; end while(0);;
       |             ^~~~
+%Warning-SPLITVAR: t/t_opt_decompose_packed_attr_bad.v:55:150: 'span' marked split_var but will not be split because it is referenced in an unsupported way.
+                                                             : ... note: In instance 't'
+   55 |     do if ((span[8:3]) !== ({crc[1:0], crc[11:8]})) begin $write("%%Error: %s:%0d:  got='h%x exp='h%x\n", "t/t_opt_decompose_packed_attr_bad.v",55, (span[8:3]), ({crc[1:0], crc[11:8]})); $stop; end while(0);;
+      |                                                                                                                                                      ^~~~
 %Warning-SPLITVAR: t/t_opt_decompose_packed_attr_bad.v:56:13: 'vix' marked split_var but will not be split because it is referenced in an unsupported way.
                                                             : ... note: In instance 't'
    56 |     do if ((vix[crc[1:0]]) !== (3'(crc[2:0] + 3'(crc[1:0])))) begin $write("%%Error: %s:%0d:  got='h%x exp='h%x\n", "t/t_opt_decompose_packed_attr_bad.v",56, (vix[crc[1:0]]), (3'(crc[2:0] + 3'(crc[1:0])))); $stop; end while(0);;
       |             ^~~
+%Warning-SPLITVAR: t/t_opt_decompose_packed_attr_bad.v:56:160: 'vix' marked split_var but will not be split because it is referenced in an unsupported way.
+                                                             : ... note: In instance 't'
+   56 |     do if ((vix[crc[1:0]]) !== (3'(crc[2:0] + 3'(crc[1:0])))) begin $write("%%Error: %s:%0d:  got='h%x exp='h%x\n", "t/t_opt_decompose_packed_attr_bad.v",56, (vix[crc[1:0]]), (3'(crc[2:0] + 3'(crc[1:0])))); $stop; end while(0);;
+      |                                                                                                                                                                ^~~

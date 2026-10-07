@@ -25,11 +25,11 @@ if len(nSplits) != contents.count('// Split'):
     test.error("All '// Split' markers must give the number of splits")
 test.file_grep(test.stats, r'Optimizations, Decompose, unpacked variables split\s+(\d+)',
                len(nSplits))
-test.file_grep(test.stats, r'Optimizations, Decompose, unpacked components split\s+(\d+)',
+test.file_grep(test.stats, r'Optimizations, Decompose, unpacked components split further\s+(\d+)',
                sum(nSplits) - len(nSplits))
 
 # Nothing packed, as disabled
 test.file_grep(test.stats, r'Optimizations, Decompose, packed variables split\s+(\d+)', 0)
-test.file_grep(test.stats, r'Optimizations, Decompose, packed components split\s+(\d+)', 0)
+test.file_grep(test.stats, r'Optimizations, Decompose, packed components split further\s+(\d+)', 0)
 
 test.passes()
