@@ -32,6 +32,7 @@
 
 #include "V3Slice.h"
 
+#include "V3SharedTmps.h"
 #include "V3Stats.h"
 
 #include <limits>
@@ -49,6 +50,7 @@ class SliceVisitor final : public VNVisitor {
     //  AstInitArray::user2()       -> uint64_t.  Previously accessed itemIdx
     //  AstInitItem::user2()        -> uint64_t.  Corresponding first elemIdx
     const VNUser2InUse m_inuser2;
+    //  AstVarScope::user3()        -> bool.  Written by the LHS. Only in 'rhsReadsLhs'.
 
     // STATE - across all visitors
     // Maximum number of elements to expand a slice assignment
@@ -57,8 +59,11 @@ class SliceVisitor final : public VNVisitor {
                                    : std::numeric_limits<int>::max();
     VDouble0 m_statAssigns;  // Statistic tracking
     VDouble0 m_statSliceElementSkips;  // Statistic tracking
+    VDouble0 m_statSelfTemps;  // Statistic tracking
+    V3SharedTmps m_sharedTmps{"__VsliceSelf", VVarType::MODULETEMP};  // Temporaries
 
     // STATE - for current visit position (use VL_RESTORER)
+    AstScope* m_scopep = nullptr;  // Current scope
     AstNode* m_assignp = nullptr;  // Assignment we are under
     bool m_assignError = false;  // True if the current assign already has an error
     bool m_okInitArray = false;  // Allow InitArray children
@@ -245,8 +250,36 @@ class SliceVisitor final : public VNVisitor {
         return nodep->cloneTree(false, needPure);
     }
 
+    // Does the RHS of the assignment read a variable written by the LHS
+    static bool rhsReadsLhs(const AstNodeAssign* nodep) {
+        const VNUser3InUse user3InUse;
+        nodep->lhsp()->foreach([](const AstVarRef* refp) {
+            if (refp->access().isWriteOrRW()) refp->varScopep()->user3(true);
+        });
+        return nodep->rhsp()->exists([](const AstVarRef* refp) {  //
+            return refp->varScopep()->user3();
+        });
+    }
+
+    // If the RHS reads the LHS, assign it through a temporary, as the expanded assignments
+    // would read parts already overwritten by the ones before. E.g. "a = '{a[1], a[0]}"
+    // becomes "tmp = '{a[1], a[0]}; a = tmp;". Nonblocking assignments read the old values.
+    void assignThroughTempIfSelfReferencing(AstNodeAssign* nodep) {
+        if (VN_IS(nodep, AssignDly) || !rhsReadsLhs(nodep)) return;
+        ++m_statSelfTemps;
+        FileLine* const flp = nodep->fileline();
+        AstNodeExpr* const rhsp = nodep->rhsp()->unlinkFrBack();
+        AstVarScope* const tmpVscp = m_sharedTmps.make(flp, m_scopep, rhsp->dtypep());
+        AstVarRef* const lhsp = new AstVarRef{flp, tmpVscp, VAccess::WRITE};
+        // The new assignment will be processed next, hence can get expanded
+        nodep->addHereThisAsNext(nodep->cloneType(lhsp, rhsp));
+        nodep->rhsp(new AstVarRef{flp, tmpVscp, VAccess::READ});
+    }
+
     // Returns true if did expand and 'nodep' was deleted
     bool expandArrayAssign(AstNodeAssign* nodep, const AstUnpackArrayDType* arrayp) {
+        assignThroughTempIfSelfReferencing(nodep);
+
         const bool expand = [&]() {
             // Any isSc variables must be always expanded
             const bool hasSc = nodep->exists([&](const AstVarRef* refp) -> bool {  //
@@ -408,6 +441,11 @@ class SliceVisitor final : public VNVisitor {
         VL_DO_DANGLING(pushDeletep(nodep), nodep);
     }
 
+    void visit(AstScope* nodep) override {
+        VL_RESTORER(m_scopep);
+        m_scopep = nodep;
+        iterateChildren(nodep);
+    }
     void visit(AstNode* nodep) override { iterateChildren(nodep); }
 
 public:
@@ -415,6 +453,8 @@ public:
     explicit SliceVisitor(AstNetlist* nodep) { iterate(nodep); }
     ~SliceVisitor() override {
         V3Stats::addStat("Optimizations, Slice, array assignments", m_statAssigns);
+        V3Stats::addStat("Optimizations, Slice, temporaries added for self assignments",
+                         m_statSelfTemps);
         V3Stats::addStat("Optimizations, Slice, array skips due to size limit",
                          m_statSliceElementSkips);
     }
