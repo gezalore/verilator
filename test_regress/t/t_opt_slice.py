@@ -15,8 +15,9 @@ test.compile(verilator_flags2=['--stats'])
 
 test.execute()
 
-test.file_grep(test.stats, r'Optimizations, Slice, array assignments\s+(\d+)', 2)
+test.file_grep(test.stats, r'Optimizations, Slice, array assignments\s+(\d+)', 3)
 test.file_grep(test.stats, r'Optimizations, Slice, temporaries added for self assignments\s+(\d+)',
-               1)
+               2)
+test.file_grep(test.stats, r'Optimizations, Slice, struct assignments\s+(\d+)', 1)
 
 test.passes()

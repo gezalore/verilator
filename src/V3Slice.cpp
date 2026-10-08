@@ -60,6 +60,7 @@ class SliceVisitor final : public VNVisitor {
     VDouble0 m_statAssigns;  // Statistic tracking
     VDouble0 m_statSliceElementSkips;  // Statistic tracking
     VDouble0 m_statSelfTemps;  // Statistic tracking
+    VDouble0 m_statStructAssigns;  // Statistic tracking
     V3SharedTmps m_sharedTmps{"__VsliceSelf", VVarType::MODULETEMP};  // Temporaries
 
     // STATE - for current visit position (use VL_RESTORER)
@@ -333,6 +334,42 @@ class SliceVisitor final : public VNVisitor {
         return true;
     }
 
+    // Expand the assignment of a struct pattern to an unpacked struct member-wise, e.g.
+    // "s = '{a: x, b: y}" becomes "s.a = x; s.b = y;". Returns true if 'nodep' was deleted.
+    bool expandStructAssign(AstNodeAssign* nodep) {
+        assignThroughTempIfSelfReferencing(nodep);
+
+        if (!v3Global.opt.fSlice()) return false;
+
+        AstConsPackUOrStruct* const consp = VN_CAST(nodep->rhsp(), ConsPackUOrStruct);
+        if (!consp) return false;
+
+        UINFO(4, "Struct expanding " << nodep);
+        ++m_statStructAssigns;
+
+        AstNodeAssign* newlistp = nullptr;
+        bool first = true;
+        FileLine* const flp = nodep->lhsp()->fileline();
+        for (AstConsPackMember* mp = consp->membersp(); mp;
+             mp = VN_AS(mp->nextp(), ConsPackMember)) {
+            const AstMemberDType* const memberp = VN_AS(mp->dtypep(), MemberDType);
+            // Original node is replaced, so it is safe to copy it one time even if it is impure.
+            AstNodeExpr* const lhsClonep = nodep->lhsp()->cloneTree(false, !first);
+            AstStructSel* const newLhsp = new AstStructSel{flp, lhsClonep, memberp->name()};
+            newLhsp->dtypep(memberp->subDTypep()->skipRefToEnump());
+            AstNodeExpr* const newRhsp = mp->rhsp()->unlinkFrBack();
+            // The value might have the member as its type, which must not outlive the struct
+            newRhsp->dtypep(newLhsp->dtypep());
+            newlistp = AstNode::addNext(newlistp, nodep->cloneType(newLhsp, newRhsp));
+            first = false;
+        }
+
+        // The normal edit iterator will iterate on the replacements next
+        nodep->replaceWith(newlistp);
+        VL_DO_DANGLING(pushDeletep(nodep), nodep);
+        return true;
+    }
+
     void visit(AstNodeAssign* nodep) override {
         // The expanded assignments are visited next by the iterator
         if (nodep->user1SetOnce()) return;  // Process once
@@ -349,6 +386,10 @@ class SliceVisitor final : public VNVisitor {
             if (!VN_IS(rhsp, CvtPackedToArray) && !VN_IS(rhsp, CReset)) {
                 if (expandArrayAssign(nodep, uatp)) return;
                 m_okInitArray = true;
+            }
+        } else if (const AstStructDType* const sdtp = VN_CAST(dtp, StructDType)) {
+            if (!sdtp->packed()) {
+                if (expandStructAssign(nodep)) return;
             }
         }
 
@@ -455,6 +496,7 @@ public:
         V3Stats::addStat("Optimizations, Slice, array assignments", m_statAssigns);
         V3Stats::addStat("Optimizations, Slice, temporaries added for self assignments",
                          m_statSelfTemps);
+        V3Stats::addStat("Optimizations, Slice, struct assignments", m_statStructAssigns);
         V3Stats::addStat("Optimizations, Slice, array skips due to size limit",
                          m_statSliceElementSkips);
     }
