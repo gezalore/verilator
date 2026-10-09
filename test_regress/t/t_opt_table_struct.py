@@ -11,12 +11,12 @@ import vltest_bootstrap
 
 test.scenarios('simulator')
 
-test.compile(
-    verilator_flags2=["--stats", "-fno-case-table", "-fno-case-decoder", "-fno-decompose"])
+test.compile(verilator_flags2=["--stats", "-fno-case-table", "-fno-case-decoder"])
 
 if test.vlt_all:
     test.file_grep(test.stats, r'Optimizations, Tables created\s+(\d+)', 1)
-    test.file_grep(test.stats, r'ConstPool, Tables emitted\s+(\d+)', 1)
+    # One output table for each member, as the variable is decomposed
+    test.file_grep(test.stats, r'ConstPool, Tables emitted\s+(\d+)', 3)
 
 test.execute(expect_filename=test.golden_filename)
 
