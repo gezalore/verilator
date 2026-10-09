@@ -141,7 +141,7 @@ struct Copy final {
 struct ComponentSelect final {
     AstNodeExpr* exprp;  // The select
     Place* placep;  // The component
-    int lsb;  // The first bit selected from the component, for bits
+    int lsb;  // The first bit selected from the component, for packed
 };
 
 // A place: an original variable that might be split (an eligible AstVarScope), or one of its
@@ -349,8 +349,8 @@ using namespace DecomposeNamespace;
 class DecomposeRecord final : public VNVisitorConst {
     // NODE STATE
     //  AstVar::user1()             -> int: bit 0: eligible, bit 1: evaluated, see isEligible
-    //  AstStructDType::user1()     -> bool: members annotated with their indices, see memberIndex
-    //  AstMemberDType::user1()     -> uint64_t: index of the member, see memberIndex
+    //  AstStructDType::user1()     -> bool: members annotated with their indices
+    //  AstMemberDType::user1()     -> uint64_t: component index of the member
     //  AstNodeExpr::user1u()       -> Place*: the one an assignment side addresses exactly
     const VNUser1InUse m_user1InUse;
 
@@ -432,83 +432,89 @@ class DecomposeRecord final : public VNVisitorConst {
         }
     }
 
-    // The index of the component of 'structp' that is member 'name'
-    size_t memberIndex(AstStructDType* structp, const std::string& name) {
-        // Annotate the members with their component indices, on first use
-        if (!structp->user1SetOnce()) {
-            const std::vector<Component>& compsr = dtypeComponents(structp);
-            for (size_t i = 0; i < compsr.size(); ++i) compsr[i].memberp->user1(i);
-        }
-        const AstNode* const memberp = m_memberMap.findMember(structp, name);
-        UASSERT_OBJ(memberp, structp, "Struct member not found: " << name);
-        return static_cast<size_t>(memberp->user1());
-    }
-
     // Resolve the select chain ending at 'exprp' to the Place it addresses exactly.
     // Returns nullptr if it does not address an eligible one exactly. A Place a component of
     // which is selected wants to be split, one used by a select that cannot be followed is
     // blocked. Iterates expressions not part of the select chain. The components selected are
     // appended to 'chain'.
     Place* resolveChain(AstNodeExpr* exprp, std::vector<ComponentSelect>& chain) {
-        if (AstVarRef* const refp = VN_CAST(exprp, VarRef)) return placeOf(refp);
+        // Array selects correspond one to one with a component select
         if (AstArraySel* const selp = VN_CAST(exprp, ArraySel)) {
-            Place* const fromp = resolveChain(selp->fromp(), chain);
-            // Constant index, in bounds
-            if (fromp) {
-                const AstUnpackArrayDType* const arrayp
-                    = VN_CAST(fromp->dtypep->skipRefp(), UnpackArrayDType);
+            if (Place* const fromp = resolveChain(selp->fromp(), chain)) {
+                UASSERT_OBJ(isUnpacked(fromp->dtypep), selp, "ArraySel of non-unpacked Place");
+                // Index must be constant and in bounds
                 const AstConst* const bitp = VN_CAST(selp->bitp(), Const);
-                if (arrayp && bitp
-                    && bitp->toUQuad() < static_cast<uint64_t>(arrayp->elementsConst())) {
-                    Place* const childp = componentOf(fromp, bitp->toUInt());
+                if (bitp && bitp->toUQuad() < dtypeComponents(fromp->dtypep).size()) {
+                    Place* const childp = componentOf(fromp, bitp->toUQuad());
                     fromp->wantsSplit = true;
                     chain.push_back({selp, childp, 0});
                     return childp;
                 }
+                // Otherwise block splitting of the Place
                 block(fromp, selp->fromp());
             }
+            // Must visit the non-constant index
             iterateConst(selp->bitp());
             return nullptr;
         }
+        // Struct selects correspond one to one with a component select
         if (AstStructSel* const selp = VN_CAST(exprp, StructSel)) {
-            Place* const fromp = resolveChain(selp->fromp(), chain);
-            if (!fromp) return nullptr;
-            // Not a member of a union
-            AstStructDType* const structp = VN_CAST(fromp->dtypep->skipRefp(), StructDType);
-            if (!structp) return nullptr;
-            Place* const childp = componentOf(fromp, memberIndex(structp, selp->name()));
-            fromp->wantsSplit = true;
-            chain.push_back({selp, childp, 0});
-            return childp;
-        }
-        if (AstSel* const selp = VN_CAST(exprp, Sel)) {
-            Place* placep = resolveChain(selp->fromp(), chain);
-            const AstConst* const lsbp = VN_CAST(selp->lsbp(), Const);
-            if (placep && lsbp) {
-                int lsb = lsbp->toSInt();
-                int msb = lsb + selp->widthConst() - 1;
-                if (lsb >= 0 && msb < placep->dtypep->width()) {
-                    // Descend into the component containing the bits, until exact
-                    while (true) {
-                        if (lsb == 0 && msb == placep->dtypep->width() - 1) return placep;
-                        // Within a component of a type not split
-                        if (!isPacked(placep->dtypep)) return nullptr;
-                        const size_t idx = componentIndex(placep->dtypep, lsb);
-                        // Crossing the components
-                        if (idx != componentIndex(placep->dtypep, msb)) break;
-                        placep->wantsSplit = true;
-                        const Component& comp = dtypeComponents(placep->dtypep).at(idx);
-                        lsb -= comp.lsb;
-                        msb -= comp.lsb;
-                        placep = componentOf(placep, idx);
-                        chain.push_back({selp, placep, lsb});
-                    }
+            if (Place* const fromp = resolveChain(selp->fromp(), chain)) {
+                if (!isUnpacked(fromp->dtypep)) return nullptr;
+                AstStructDType* const structp = VN_AS(fromp->dtypep->skipRefp(), StructDType);
+                // Annotate member indices of the struct on first encounter
+                if (!structp->user1SetOnce()) {
+                    const std::vector<Component>& compsr = dtypeComponents(structp);
+                    for (size_t i = 0; i < compsr.size(); ++i) compsr[i].memberp->user1(i);
                 }
+                const AstNode* const memberp = m_memberMap.findMember(structp, selp->name());
+                UASSERT_OBJ(memberp, selp, "Struct member not found: " << selp->name());
+                Place* const childp = componentOf(fromp, memberp->user1());
+                fromp->wantsSplit = true;
+                chain.push_back({selp, childp, 0});
+                return childp;
             }
-            if (placep) block(placep, selp->fromp());
-            iterateConst(selp->lsbp());
             return nullptr;
         }
+        // A packed Sel corresponds to one or more component selects, depends on source dimensions
+        // E.g. Sel(VarRef(a), 3) on 'logic [3:0][2:0][1:0]' a corresponds to a[0][1][1],
+        // and will contribute 2 chain entries (the fastest varying dimension is not splittable)
+        if (AstSel* const selp = VN_CAST(exprp, Sel)) {
+            Place* placep = resolveChain(selp->fromp(), chain);
+            if (!placep) {
+                iterateConst(selp->lsbp());
+                return nullptr;
+            }
+            // Not followed with a variable LSB, or if out of range, so the Place is used whole
+            const AstConst* const lsbp = VN_CAST(selp->lsbp(), Const);
+            if (!lsbp || lsbp->toSInt() + selp->widthConst() > placep->dtypep->width()) {
+                block(placep, selp->fromp());
+                iterateConst(selp->lsbp());
+                return nullptr;
+            }
+            // Descend into the Place containing the bits, until exact
+            int lsb = lsbp->toSInt();
+            int msb = lsb + selp->widthConst() - 1;
+            while (lsb != 0 || msb != placep->dtypep->width() - 1) {
+                // Within a component of a type not split
+                if (!isPacked(placep->dtypep)) return nullptr;
+                const size_t idx = componentIndex(placep->dtypep, lsb);
+                // Crossing components prevents splitting
+                if (idx != componentIndex(placep->dtypep, msb)) {
+                    block(placep, selp->fromp());
+                    return nullptr;
+                }
+                placep->wantsSplit = true;
+                const Component& comp = dtypeComponents(placep->dtypep).at(idx);
+                lsb -= comp.lsb;
+                msb -= comp.lsb;
+                placep = componentOf(placep, idx);
+                chain.push_back({selp, placep, lsb});
+            }
+            return placep;
+        }
+        // Base case
+        if (AstVarRef* const refp = VN_CAST(exprp, VarRef)) return placeOf(refp);
         // Not a select chain
         iterateConst(exprp);
         return nullptr;
