@@ -20,6 +20,20 @@ typedef struct {
   logic [4:0] c [2:3];
 } st_t;
 
+typedef struct {
+  logic [4:0] m [4];
+} sm_t;
+
+typedef union {
+  logic [6:0] x;
+  logic [6:0] y;
+} uu_t;
+
+typedef struct {
+  uu_t u;
+  logic [6:0] d;
+} su_t;
+
 typedef struct packed {
   logic [3:0] x;
   logic [3:0] y;
@@ -50,6 +64,8 @@ module t (
   logic [6:0] revd [3:0];  // No split: opposite direction
   // Assignment patterns
   logic [7:0] pat [0:3];  // No split: pattern value
+  logic [7:0] pat_lo;
+  logic [7:0] pat_hi;
   logic [32:0] def [2:0];  // Split 1
   // Chain through elements, would be UNOPTFLAT if not split
   logic [6:0] chain [0:3];  // Split 1
@@ -85,6 +101,18 @@ module t (
   // Struct copied to an element selected with an index expression
   st_t sz;  // No split: copied to a select with an index expression
   st_t szz [2];  // No split: index expression
+  // Assigned from a member of an element selected with a variable index, more elements than the
+  // slice limit
+  sm_t smv [2];  // No split: variable index
+  logic [4:0] cs [4];  // Split 1
+  // Assigned from an element selected with a narrow index, more elements than the slice limit
+  logic [6:0] t8 [8][4];  // No split: variable index
+  logic [6:0] ce [4];  // Split 1
+  // Copied to an element selected with an index reading the variable itself
+  st_t sref;  // No split: read by the left hand side of its copy
+  st_t srefs [2];  // No split: index expression
+  // Struct with an unpacked union member, which is not split
+  su_t su;  // Split 1
   // Packed struct
   pst_t pk;
   // Function result
@@ -130,7 +158,10 @@ module t (
   always_comb rev = dn;
   assign revd = dyn;
 
-  always_comb pat = '{8'h11, crc[7:0], crc[15:8], 8'h44};
+  // Registered, so the pattern elements are of the element type
+  always_ff @(posedge clk) pat_lo <= crc[7:0];
+  always_ff @(posedge clk) pat_hi <= crc[15:8];
+  always_comb pat = '{8'h11, pat_lo, pat_hi, 8'h44};
   always_comb def = '{default: crc[40:8]};
 
   assign chain[0] = crc[6:0];
@@ -212,6 +243,35 @@ module t (
   end
 
   always_comb pk = crc[7:0];
+
+  always_comb begin
+    su.u.x = crc[6:0];
+    su.d = crc[13:7];
+  end
+
+  always_comb begin
+    for (int i = 0; i < 4; i++) begin
+      smv[sel].m[i] = crc[i*5+:5];
+      smv[nsel].m[i] = crc[i*5+20+:5];
+    end
+    cs = smv[sel].m;
+  end
+
+  always_comb begin
+    for (int i = 0; i < 8; i++) begin
+      for (int j = 0; j < 4; j++) t8[i][j] = crc[i*7+j+:7];
+    end
+    ce = t8[3'(crc[1:0])];
+  end
+
+  always_comb begin
+    sref.a = crc[6:0];
+    sref.b = crc[40:8];
+    sref.c[2] = {4'b0, crc[0]};
+    sref.c[3] = crc[9:5];
+    srefs[sref.c[2][0]] = sref;
+    srefs[~sref.c[2][0]] = sref;
+  end
 
   assign cw1 = dyn;
   assign cw2 = cw1;
@@ -301,8 +361,8 @@ module t (
     // `checkh(revd[1], dyn[2]);
     // `checkh(revd[0], dyn[3]);
     `checkh(pat[0], 8'h11);
-    `checkh(pat[1], crc[7:0]);
-    `checkh(pat[2], crc[15:8]);
+    `checkh(pat[1], pat_lo);
+    `checkh(pat[2], pat_hi);
     `checkh(pat[3], 8'h44);
     `checkh(def[0], crc[40:8]);
     `checkh(def[2], crc[40:8]);
@@ -340,6 +400,14 @@ module t (
     `checkh(szz[0].a, crc[6:0]);
     `checkh(szz[1].c[3], crc[9:5]);
     `checkh(pk.y, crc[3:0]);
+    `checkh(su.u.y, crc[6:0]);
+    `checkh(su.d, crc[13:7]);
+    `checkh(cs[0], crc[4:0]);
+    `checkh(cs[3], crc[19:15]);
+    `checkh(ce[1], crc[crc[1:0]*7+1+:7]);
+    `checkh(ce[3], crc[crc[1:0]*7+3+:7]);
+    `checkh(srefs[crc[0]].a, crc[6:0]);
+    `checkh(srefs[1].b, crc[40:8]);
     `checkh(cwo[crc[1:0]], crc[7*crc[1:0]+:7]);
     `checkh(cl2[0], crc[6:0]);
     `checkh(cl2[3], crc[27:21]);

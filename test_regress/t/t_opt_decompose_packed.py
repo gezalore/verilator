@@ -13,7 +13,8 @@ import vltest_bootstrap
 
 test.scenarios('vlt_all')
 
-test.compile(verilator_flags2=['--stats', '-fno-var-split', '-fno-decompose-unpacked'])
+test.compile(
+    verilator_flags2=['--stats', '--trace-vcd', '-fno-var-split', '-fno-decompose-unpacked'])
 
 test.execute()
 
@@ -26,8 +27,10 @@ test.file_grep(test.stats, r'Optimizations, Decompose, packed variables split\s+
 test.file_grep(test.stats, r'Optimizations, Decompose, packed components split further\s+(\d+)',
                sum(nSplits) - len(nSplits))
 
-# Expression terms of 'pnest' and 'pcy' that would be evaluated more than once
-test.file_grep(test.stats, r'Optimizations, Decompose, terms hoisted\s+(\d+)', 2)
+# Terms of 'pnest', 'pcy', 'pvt', 'prx' and 'pcn' that would be evaluated more than once
+test.file_grep(test.stats, r'Optimizations, Decompose, terms hoisted\s+(\d+)', 5)
+# Terms of 'psc', 'psb', 'psn', 'pse', 'pwe', 'psr' and 'pst' spanning members
+test.file_grep(test.stats, r'Optimizations, Decompose, terms sliced\s+(\d+)', 7)
 
 # Nothing unpacked, as disabled
 test.file_grep(test.stats, r'Optimizations, Decompose, unpacked variables split\s+(\d+)', 0)

@@ -109,244 +109,245 @@
 
 VL_DEFINE_DEBUG_FUNCTIONS;
 
-namespace DecomposeNamespace {
+//######################################################################
+// Base of the steps of the pass, with the types and functions they share
 
-// TYPES
+class DecomposeBase VL_NOT_FINAL {
+public:
+    // TYPES
 
-// A component (element or member) of an aggregate type
-struct Component final {
-    std::string suffix;  // Name suffix of the AstVar for the component
-    AstNodeDType* dtypep;  // Type of the component
-    AstMemberDType* memberp;  // The member, if a struct
-    int lsb;  // LSB in the whole value, if packed
-    int msb;  // MSB in the whole value, if packed
-};
+    // A component (element or member) of an aggregate type
+    struct Component final {
+        std::string suffix;  // Name suffix of the AstVar for the component
+        AstNodeDType* dtypep;  // Type of the component
+        AstMemberDType* memberp;  // The member, if a struct
+        int lsb;  // LSB in the whole value, if packed
+        int msb;  // MSB in the whole value, if packed
+    };
 
-struct Place;  // A variable or a component of one, see below
+    struct Place;  // A variable or a component of one, see below
 
-// A copy between bits of a packed Place and of another Place, or between two whole
-// unpacked Places of the same shape, as seen from one end. Made for a splittable assignment
-// between two Places, or by splitting a copy when one of its Places is split. Each end lists
-// the copy, with itself as this end, until split.
-struct Copy final {
-    Place* otherp;  // The Place at the other end
-    // Following only for packed places
-    int lsb;  // The first bit covered of this end
-    int otherLsb;  // The first bit covered of the other end
-    int width;  // The number of bits covered at each end
-};
+    // A copy between bits of a packed Place and of another Place, or between two whole
+    // unpacked Places of the same shape, as seen from one end. Made for a splittable assignment
+    // between two Places, or by splitting a copy when one of its Places is split. Each end lists
+    // the copy, with itself as this end, until split.
+    struct Copy final {
+        Place* otherp;  // The Place at the other end
+        // Following only for packed places
+        int lsb;  // The first bit covered of this end
+        int otherLsb;  // The first bit covered of the other end
+        int width;  // The number of bits covered at each end
+    };
 
-// A component selected by a select chain: the select, and the component it addresses, or for
-// bits, the component containing them, from bit 'lsb'
-struct ComponentSelect final {
-    AstNodeExpr* exprp;  // The select
-    Place* placep;  // The component
-    int lsb;  // The first bit selected from the component, for packed
-};
+    // A component selected by a select chain: the select, and the component it addresses, or for
+    // bits, the component containing them, from bit 'lsb'
+    struct ComponentSelect final {
+        AstNodeExpr* exprp;  // The select
+        Place* placep;  // The component
+        int lsb;  // The first bit selected from the component, for packed
+    };
 
-// A place: an original variable that might be split (an eligible AstVarScope), or one of its
-// components, recursively: an element or member at any depth, e.g. 's', 's.a', 's.a[1]'. A
-// component becomes a variable of its own if its parent is split. They form a tree (trie)
-// per original variable, created lazily as references and copies reach them, and all
-// components of a Place once it is split. DecomposeRecord records the facts about each, the
-// worklist decides which ones are split, then the split ones get component AstVarScopes.
-struct Place final {
-    Place* parentp = nullptr;  // The Place this is a component of, nullptr if original
-    Place* rootp = nullptr;  // The original variable (root of the tree), root points to itself
-    AstNodeDType* dtypep = nullptr;  // The data type of the variable or component
-    AstVarScope* vscp = nullptr;  // The AstVarScope for this Place, null for unsplit components
-    // The component Places created so far, by index, sized on the first one created
-    std::vector<std::unique_ptr<Place>> childrenp;
-    std::vector<Copy> copies;  // The copies covering it, until split
-    bool splittable = true;  // Can be split (there is no reason not to)
-    bool wantsSplit = false;  // Should be split (if possible, do split)
-    bool split = false;  // Place was split
-    bool queued = false;  // On the worklist
-};
+    // A place: an original variable that might be split (an eligible AstVarScope), or one of its
+    // components, recursively: an element or member at any depth, e.g. 's', 's.a', 's.a[1]'. A
+    // component becomes a variable of its own if its parent is split. They form a tree (trie)
+    // per original variable, created lazily as references and copies reach them, and all
+    // components of a Place once it is split. DecomposeRecord records the facts about each, the
+    // worklist decides which ones are split, then the split ones get component AstVarScopes.
+    struct Place final {
+        Place* parentp = nullptr;  // The Place this is a component of, nullptr if original
+        Place* rootp = nullptr;  // The original variable (root of the tree), root points to itself
+        AstNodeDType* dtypep = nullptr;  // The data type of the variable or component
+        // The AstVarScope for this Place, null for unsplit components
+        AstVarScope* vscp = nullptr;
+        // The component Places created so far, by index, sized on the first one created
+        std::vector<std::unique_ptr<Place>> childrenp;
+        std::vector<Copy> copies;  // The copies covering it, until split
+        bool splittable = true;  // Can be split (there is no reason not to)
+        bool wantsSplit = false;  // Should be split (if possible, do split)
+        bool split = false;  // Place was split
+        bool queued = false;  // On the worklist
+    };
 
-// An assignment to expand if a side is split
-struct Assignment final {
-    AstNodeAssign* assp;  // The assignment
-    Place* lPlacep;  // The Place the LHS addresses exactly, if any
-    Place* rPlacep;  // The Place the RHS addresses exactly, if any
-};
+    // An assignment to expand if a side is split
+    struct Assignment final {
+        AstNodeAssign* assp;  // The assignment
+        Place* lPlacep;  // The Place the LHS addresses exactly, if any
+        Place* rPlacep;  // The Place the RHS addresses exactly, if any
+    };
 
-// What DecomposeRecord records
-struct DecomposeInfo final {
-    std::vector<Place*> rootps;  // The original Places, in creation order
-    std::vector<std::vector<ComponentSelect>> chains;  // Select chains addressing components
-    std::vector<Assignment> assignments;  // Assignments to expand if a side is split
-};
+    // The state of the pass, shared by the steps
+    struct State final {
+        // NODE STATE
+        //  AstNodeDType::user4()       -> Components of the type, via dtypeComponentsCache
+        //  AstVarScope::user4()        -> Place: the original variable, via places
+        const VNUser4InUse user4InUse;
+        // The components of the aggregate types, see DecomposeBase::dtypeComponents
+        AstUser4Allocator<AstNodeDType, std::vector<Component>> dtypeComponentsCache;
+        // The Places of the original variables, see DecomposeRecord::placeOf
+        AstUser4Allocator<AstVarScope, Place> places;
+        // Recorded by DecomposeRecord
+        std::vector<Place*> rootps;  // The original Places, in creation order
+        std::vector<std::vector<ComponentSelect>> chains;  // Select chains addressing components
+        std::vector<Assignment> assignments;  // Assignments to expand if a side is split
+    };
 
-// FUNCTIONS
+protected:
+    // STATE
+    State& m_state;  // The state of the pass
 
-// The components of the aggregate types, see dtypeComponents. Function local, as
-// the allocator checks that user4 is in use when constructed. Cleared at the end of the pass.
-AstUser4Allocator<AstNodeDType, std::vector<Component>>& dtypeComponentsCache() {
-    static AstUser4Allocator<AstNodeDType, std::vector<Component>> s_dtypeComponents;
-    return s_dtypeComponents;
-}
+    // CONSTRUCTORS
+    explicit DecomposeBase(State& state)
+        : m_state{state} {}
 
-// The Places of the original variables, see DecomposeRecord::placeOf. Function local, as
-// the allocator checks that user4 is in use when constructed. Cleared at the end of the pass.
-AstUser4Allocator<AstVarScope, Place>& places() {
-    static AstUser4Allocator<AstVarScope, Place> s_places;
-    return s_places;
-}
+    // METHODS
 
-// Unpacked array or unpacked struct
-bool isUnpacked(const AstNodeDType* dtypep) {
-    dtypep = dtypep->skipRefp();
-    if (VN_IS(dtypep, UnpackArrayDType)) return true;
-    const AstStructDType* const structp = VN_CAST(dtypep, StructDType);
-    return structp && !structp->packed();
-}
-
-// Multi-dimensional packed array or packed struct. A packed array of single bit elements
-// is not split into individual bits (logic [31:0], bit_t [31:0], logic [31:0][0:0]) here.
-bool isPacked(const AstNodeDType* dtypep) {
-    dtypep = dtypep->skipRefp();
-    if (const AstPackArrayDType* const arrayp = VN_CAST(dtypep, PackArrayDType)) {
-        return arrayp->subDTypep()->width() > 1;
+    // Unpacked array or unpacked struct
+    static bool isUnpacked(const AstNodeDType* dtypep) {
+        dtypep = dtypep->skipRefp();
+        if (VN_IS(dtypep, UnpackArrayDType)) return true;
+        const AstStructDType* const structp = VN_CAST(dtypep, StructDType);
+        return structp && !structp->packed();
     }
-    const AstStructDType* const structp = VN_CAST(dtypep, StructDType);
-    return structp && structp->packed();
-}
 
-// Is the type an aggregate that can be split, as enabled by the options
-bool isSplittableType(const AstNodeDType* dtypep) {
-    if (isPacked(dtypep)) return v3Global.opt.fDecomposePacked();
-    if (isUnpacked(dtypep)) return v3Global.opt.fDecomposeUnpacked();
-    return false;
-}
-
-// Type of the expression. For a VarRef, this returns the type of the variable,
-// which might differ from the type of the VarRef itself after earlier optimizations.
-AstNodeDType* dtypeOf(const AstNodeExpr* nodep) {
-    if (const AstVarRef* const refp = VN_CAST(nodep, VarRef)) return refp->varp()->dtypep();
-    return nodep->dtypep();
-}
-
-// Components of an aggregate type. Indexed in storage order, that is:
-// - For packed arrays, component 0 is in the LSBs
-// - For packed structs, component 0 is the last declared member, in the LSBs
-// - For unpacked arrays, component 0 is in storage slot 0 at runtime (element at lo() index)
-// - For unpacked structs, component 0 is the last declared member, to match packed
-const std::vector<Component>& dtypeComponents(AstNodeDType* dtypep) {
-    dtypep = dtypep->skipRefp();
-    UASSERT_OBJ(isUnpacked(dtypep) || isPacked(dtypep), dtypep,
-                "dtypeComponents of non-aggregate type");
-
-    // Cached via user4
-    std::vector<Component>& compsr = dtypeComponentsCache()(dtypep);
-
-    // Compute on first lookup
-    if (compsr.empty()) {
-        if (const AstNodeArrayDType* const arrayp = VN_CAST(dtypep, NodeArrayDType)) {
-            const bool packed = isPacked(dtypep);
-            const VNumRange range = arrayp->declRange();
-            const bool rev = packed && range.ascending();  // Only for naming components
-            AstNodeDType* const subp = arrayp->subDTypep();
-            for (int i = 0; i < range.elements(); ++i) {
-                const int lsb = packed ? i * subp->width() : 0;
-                const int msb = packed ? lsb + subp->width() - 1 : 0;
-                // The *declared* index of the element in slot i, only used for the name
-                const std::string idx
-                    = AstNode::encodeNumber(rev ? range.hi() - i : range.lo() + i);
-                compsr.push_back({"__BRA__" + idx + "__KET__", subp, nullptr, lsb, msb});
-            }
-        } else {
-            const AstStructDType* const structp = VN_AS(dtypep, StructDType);
-            const bool packed = isPacked(dtypep);
-            for (AstMemberDType* mp = structp->membersp(); mp;
-                 mp = VN_AS(mp->nextp(), MemberDType)) {
-                const int lsb = packed ? mp->lsb() : 0;
-                const int msb = packed ? lsb + mp->width() - 1 : 0;
-                compsr.push_back({"__DOT__" + mp->name(), mp->subDTypep(), mp, lsb, msb});
-            }
-            // Last member is first
-            std::reverse(compsr.begin(), compsr.end());
+    // Multi-dimensional packed array or packed struct. A packed array of single bit elements
+    // is not split into individual bits (logic [31:0], bit_t [31:0], logic [31:0][0:0]) here.
+    static bool isPacked(const AstNodeDType* dtypep) {
+        dtypep = dtypep->skipRefp();
+        if (const AstPackArrayDType* const arrayp = VN_CAST(dtypep, PackArrayDType)) {
+            return arrayp->subDTypep()->width() > 1;
         }
+        const AstStructDType* const structp = VN_CAST(dtypep, StructDType);
+        return structp && structp->packed();
     }
 
-    // The components of this data type
-    return compsr;
-}
+    // Is the type an aggregate that can be split, as enabled by the options
+    static bool isSplittableType(const AstNodeDType* dtypep) {
+        if (isPacked(dtypep)) return v3Global.opt.fDecomposePacked();
+        if (isUnpacked(dtypep)) return v3Global.opt.fDecomposeUnpacked();
+        return false;
+    }
 
-// Index of the component of a packed type containing bit 'bit'
-size_t componentIndex(AstNodeDType* dtypep, int bit) {
-    UASSERT_OBJ(isPacked(dtypep), dtypep, "componentIndex of non-packed type");
-    const std::vector<Component>& compsr = dtypeComponents(dtypep);
-    // The first component ending above the bit. This is O(log n) binary search.
-    const auto it = std::lower_bound(compsr.begin(), compsr.end(), bit,
-                                     [](const Component& comp, int b) {  //
-                                         return b > comp.msb;
-                                     });
-    return it - compsr.begin();
-}
+    // Type of the expression. For a VarRef, this returns the type of the variable,
+    // which might differ from the type of the VarRef itself after earlier optimizations.
+    static AstNodeDType* dtypeOf(const AstNodeExpr* nodep) {
+        if (const AstVarRef* const refp = VN_CAST(nodep, VarRef)) return refp->varp()->dtypep();
+        return nodep->dtypep();
+    }
 
-// The Place for component 'idx' of 'placep', created if needed
-Place* componentOf(Place* placep, size_t idx) {
-    const std::vector<Component>& comps = dtypeComponents(placep->dtypep);
-    if (placep->childrenp.empty()) placep->childrenp.resize(comps.size());
-    std::unique_ptr<Place>& childpr = placep->childrenp.at(idx);
-    if (!childpr) {
-        childpr = std::make_unique<Place>();
-        childpr->parentp = placep;
-        childpr->rootp = placep->rootp;
-        childpr->dtypep = comps.at(idx).dtypep;
-        childpr->splittable = isSplittableType(childpr->dtypep);
-        childpr->wantsSplit = placep->rootp->vscp->varp()->attrSplitVar();
-    }
-    return childpr.get();
-}
+    // Components of an aggregate type. Indexed in storage order, that is:
+    // - For packed arrays, component 0 is in the LSBs
+    // - For packed structs, component 0 is the last declared member, in the LSBs
+    // - For unpacked arrays, component 0 is in storage slot 0 at runtime (element at lo() index)
+    // - For unpacked structs, component 0 is the last declared member, to match packed
+    const std::vector<Component>& dtypeComponents(AstNodeDType* dtypep) {
+        dtypep = dtypep->skipRefp();
+        UASSERT_OBJ(isUnpacked(dtypep) || isPacked(dtypep), dtypep,
+                    "dtypeComponents of non-aggregate type");
 
-// Is 'nodep' cheap to clone
-bool isCheap(const AstNodeExpr* nodep) {
-    // Constants are cheap
-    if (VN_IS(nodep, Const)) return true;
-    // So are resets
-    if (VN_IS(nodep, CReset)) return true;
-    // Variable references are cheap for the most part
-    if (const AstVarRef* const refp = VN_CAST(nodep, VarRef)) {
-        // Not a forced variable, while technically splittable,
-        // splitting trips several bugs in V3Force.
-        if (refp->varp()->isForced()) return false;
-        // Not a SystemC variable, which can only be accessed whole, not selected from.
-        if (refp->varp()->isSc()) return false;
-        // Otherwise the path rooted here is cheap
-        return true;
-    }
-    // Bit selects only with a constant LSB
-    if (const AstSel* const selp = VN_CAST(nodep, Sel)) {
-        return VN_IS(selp->lsbp(), Const) && isCheap(selp->fromp());
-    }
-    // Other selects with cheap indices are cheap
-    if (const AstArraySel* const selp = VN_CAST(nodep, ArraySel)) {
-        return isCheap(selp->bitp()) && isCheap(selp->fromp());
-    }
-    if (const AstStructSel* const selp = VN_CAST(nodep, StructSel)) {  //
-        return isCheap(selp->fromp());
-    }
-    // Extensions of cheap expressions, e.g. of narrow indices
-    if (const AstExtend* const extp = VN_CAST(nodep, Extend)) {  //
-        return isCheap(extp->lhsp());
-    }
-    if (const AstExtendS* const extp = VN_CAST(nodep, ExtendS)) {  //
-        return isCheap(extp->lhsp());
-    }
-    // Other expressions are not cheap
-    return false;
-}
+        // Cached via user4
+        std::vector<Component>& compsr = m_state.dtypeComponentsCache(dtypep);
 
-}  // namespace DecomposeNamespace
+        // Compute on first lookup
+        if (compsr.empty()) {
+            if (const AstNodeArrayDType* const arrayp = VN_CAST(dtypep, NodeArrayDType)) {
+                const bool packed = isPacked(dtypep);
+                const VNumRange range = arrayp->declRange();
+                const bool rev = packed && range.ascending();  // Only for naming components
+                AstNodeDType* const subp = arrayp->subDTypep();
+                for (int i = 0; i < range.elements(); ++i) {
+                    const int lsb = packed ? i * subp->width() : 0;
+                    const int msb = packed ? lsb + subp->width() - 1 : 0;
+                    // The *declared* index of the element in slot i, only used for the name
+                    const std::string idx
+                        = AstNode::encodeNumber(rev ? range.hi() - i : range.lo() + i);
+                    compsr.push_back({"__BRA__" + idx + "__KET__", subp, nullptr, lsb, msb});
+                }
+            } else {
+                const AstStructDType* const structp = VN_AS(dtypep, StructDType);
+                const bool packed = isPacked(dtypep);
+                for (AstMemberDType* mp = structp->membersp(); mp;
+                     mp = VN_AS(mp->nextp(), MemberDType)) {
+                    const int lsb = packed ? mp->lsb() : 0;
+                    const int msb = packed ? lsb + mp->width() - 1 : 0;
+                    compsr.push_back({"__DOT__" + mp->name(), mp->subDTypep(), mp, lsb, msb});
+                }
+                // Last member is first
+                std::reverse(compsr.begin(), compsr.end());
+            }
+        }
 
-using namespace DecomposeNamespace;
+        // The components of this data type
+        return compsr;
+    }
+
+    // Index of the component of a packed type containing bit 'bit'
+    size_t componentIndex(AstNodeDType* dtypep, int bit) {
+        UASSERT_OBJ(isPacked(dtypep), dtypep, "componentIndex of non-packed type");
+        const std::vector<Component>& compsr = dtypeComponents(dtypep);
+        // The first component ending above the bit. This is O(log n) binary search.
+        const auto it = std::lower_bound(compsr.begin(), compsr.end(), bit,
+                                         [](const Component& comp, int b) {  //
+                                             return b > comp.msb;
+                                         });
+        return it - compsr.begin();
+    }
+
+    // The Place for component 'idx' of 'placep', created if needed
+    Place* componentOf(Place* placep, size_t idx) {
+        const std::vector<Component>& comps = dtypeComponents(placep->dtypep);
+        if (placep->childrenp.empty()) placep->childrenp.resize(comps.size());
+        std::unique_ptr<Place>& childpr = placep->childrenp.at(idx);
+        if (!childpr) {
+            childpr = std::make_unique<Place>();
+            childpr->parentp = placep;
+            childpr->rootp = placep->rootp;
+            childpr->dtypep = comps.at(idx).dtypep;
+            childpr->splittable = isSplittableType(childpr->dtypep);
+            childpr->wantsSplit = placep->rootp->vscp->varp()->attrSplitVar();
+        }
+        return childpr.get();
+    }
+
+    // Is 'nodep' cheap to clone
+    static bool isCheap(const AstNodeExpr* nodep) {
+        // Constants are cheap
+        if (VN_IS(nodep, Const)) return true;
+        // So are resets
+        if (VN_IS(nodep, CReset)) return true;
+        // Variable references are cheap for the most part
+        if (const AstVarRef* const refp = VN_CAST(nodep, VarRef)) {
+            // Not a forced variable, while technically splittable,
+            // splitting trips several bugs in V3Force.
+            if (refp->varp()->isForced()) return false;
+            // Not a SystemC variable, which can only be accessed whole, not selected from.
+            if (refp->varp()->isSc()) return false;
+            // Otherwise the path rooted here is cheap
+            return true;
+        }
+        // Bit selects only with a constant LSB
+        if (const AstSel* const selp = VN_CAST(nodep, Sel)) {
+            return VN_IS(selp->lsbp(), Const) && isCheap(selp->fromp());
+        }
+        // Other selects with cheap indices are cheap
+        if (const AstArraySel* const selp = VN_CAST(nodep, ArraySel)) {
+            return isCheap(selp->bitp()) && isCheap(selp->fromp());
+        }
+        if (const AstStructSel* const selp = VN_CAST(nodep, StructSel)) {  //
+            return isCheap(selp->fromp());
+        }
+        // A zero extension of a cheap expression, e.g. of a narrow index
+        if (const AstExtend* const extp = VN_CAST(nodep, Extend)) {  //
+            return isCheap(extp->lhsp());
+        }
+        // Other expressions are not cheap
+        return false;
+    }
+};
 
 //######################################################################
 // Record the facts about the places, without changing the tree
 
-class DecomposeRecord final : public VNVisitorConst {
+class DecomposeRecord final : public VNVisitorConst, public DecomposeBase {
     // NODE STATE
     //  AstVar::user1()             -> int: bit 0: eligible, bit 1: evaluated, see isEligible
     //  AstStructDType::user1()     -> bool: members annotated with their indices
@@ -355,7 +356,6 @@ class DecomposeRecord final : public VNVisitorConst {
     const VNUser1InUse m_user1InUse;
 
     // STATE
-    DecomposeInfo m_info;  // What is recorded
     VMemberMap m_memberMap;  // Struct members by name
     AstNodeAssign* m_assignp = nullptr;  // The visited assignment iff splittable
 
@@ -412,13 +412,13 @@ class DecomposeRecord final : public VNVisitorConst {
     Place* placeOf(const AstVarRef* refp) {
         AstVarScope* const vscp = refp->varScopep();
         if (!isEligible(vscp->varp())) return nullptr;
-        Place& place = places()(vscp);
+        Place& place = m_state.places(vscp);
         if (!place.rootp) {
             place.rootp = &place;
             place.dtypep = vscp->varp()->dtypep();
             place.vscp = vscp;
             place.wantsSplit = vscp->varp()->attrSplitVar();
-            m_info.rootps.push_back(&place);
+            m_state.rootps.push_back(&place);
         }
         return &place;
     }
@@ -542,7 +542,7 @@ class DecomposeRecord final : public VNVisitorConst {
         // If the select addresses a Place, it references it whole, mark it as such
         if (placep) referencedWhole(nodep, placep);
         // Record the chain for the rewriting phase
-        if (!chain.empty()) m_info.chains.push_back(std::move(chain));
+        if (!chain.empty()) m_state.chains.push_back(std::move(chain));
     }
 
     // Does 'nodep' reference the original variable of 'placep'
@@ -622,7 +622,7 @@ class DecomposeRecord final : public VNVisitorConst {
             rPlacep->copies.push_back({lPlacep, 0, 0, width});
         }
         // Recorrd for the rewriting phase
-        m_info.assignments.push_back({nodep, lPlacep, rPlacep});
+        m_state.assignments.push_back({nodep, lPlacep, rPlacep});
     }
 
     // VISITORS
@@ -651,24 +651,23 @@ class DecomposeRecord final : public VNVisitorConst {
     }
 
     // CONSTRUCTORS
-    explicit DecomposeRecord(AstNetlist* netlistp) {
+    DecomposeRecord(State& state, AstNetlist* netlistp)
+        : DecomposeBase{state} {
         iterateConst(netlistp);
         // Block the original Places that became ineligible during traversal only
-        for (Place* const placep : m_info.rootps) {
+        for (Place* const placep : m_state.rootps) {
             if (!isEligible(placep->vscp->varp())) placep->splittable = false;
         }
     }
 
 public:
-    static DecomposeInfo apply(AstNetlist* netlistp) {
-        return std::move(DecomposeRecord{netlistp}.m_info);
-    }
+    static void apply(State& state, AstNetlist* netlistp) { DecomposeRecord{state, netlistp}; }
 };
 
 //######################################################################
 // Decision, which places are split, creating their components
 
-class DecomposeDecision final {
+class DecomposeDecision final : public DecomposeBase {
     // NODE STATE
     //  AstVar::user1()             -> Split components, via m_splitVarps
     const VNUser1InUse m_user1InUse;
@@ -755,15 +754,6 @@ class DecomposeDecision final {
     // or between the whole of them if unpacked
     void newCopy(Place* ap, int aLsb, Place* bp, int bLsb, int width) {
         UASSERT(ap != bp, "Copy within a Place");
-        // Split right away if one end is already split (can't add copies to a split place)
-        if (ap->split) {
-            splitCopy(ap, {bp, aLsb, bLsb, width});
-            return;
-        }
-        if (bp->split) {
-            splitCopy(bp, {ap, bLsb, aLsb, width});
-            return;
-        }
         addCopy(ap, {bp, aLsb, bLsb, width});
         addCopy(bp, {ap, bLsb, aLsb, width});
     }
@@ -823,9 +813,10 @@ class DecomposeDecision final {
     }
 
     // CONSTRUCTORS
-    explicit DecomposeDecision(const std::vector<Place*>& rootps) {
+    explicit DecomposeDecision(State& state)
+        : DecomposeBase{state} {
         // Enqueue the original variables
-        for (Place* const placep : rootps) enqueue(placep);
+        for (Place* const placep : m_state.rootps) enqueue(placep);
         // Split enqueued places, which might make others splittable, repeat until done
         while (!m_worklist.empty()) {
             Place* const placep = m_worklist.back();
@@ -845,13 +836,13 @@ class DecomposeDecision final {
     }
 
 public:
-    static void apply(const std::vector<Place*>& rootps) { DecomposeDecision{rootps}; }
+    static void apply(State& state) { DecomposeDecision{state}; }
 };
 
 //######################################################################
 // Rewrite, replacing the references to the split places
 
-class DecomposeRewrite final : public VNDeleter {
+class DecomposeRewrite final : public VNDeleter, public DecomposeBase {
     // NODE STATE
     //  AstScope::user1p()          -> AstActive*: combinational active, see comboActive
     //  AstNodeExpr::user2()        -> uint64_t: count of a term, (only in hoistTerms)
@@ -895,7 +886,7 @@ class DecomposeRewrite final : public VNDeleter {
     }
 
     // Select component 'idx' of 'fromp', with the components of aggregate 'dtypep'
-    static AstNodeExpr* newSelect(AstNodeExpr* fromp, AstNodeDType* dtypep, size_t idx) {
+    AstNodeExpr* newSelect(AstNodeExpr* fromp, AstNodeDType* dtypep, size_t idx) {
         FileLine* const flp = fromp->fileline();
         const Component& comp = dtypeComponents(dtypep).at(idx);
         // If Packed, it's a Sel of the bits
@@ -983,9 +974,8 @@ class DecomposeRewrite final : public VNDeleter {
         }
         // A constant bit select, from the bits of what it selects from
         if (AstSel* const selp = VN_CAST(nodep, Sel)) {
-            if (const AstConst* const lsbp = VN_CAST(selp->lsbp(), Const)) {
-                return newSlice(selp->fromp(), lsbp->toSInt() + lsb, width);
-            }
+            const int selLsb = VN_AS(selp->lsbp(), Const)->toSInt();
+            return newSlice(selp->fromp(), selLsb + lsb, width);
         }
         // A concatenation, from the RHS for the low bits, and the LHS for the high bits
         if (AstConcat* const catp = VN_CAST(nodep, Concat)) {
@@ -1048,7 +1038,7 @@ class DecomposeRewrite final : public VNDeleter {
 
     // Values of the components of 'nodep', with the components of 'dtypep': for a reset cloned
     // from it, for packed assembled from the portions of its terms, otherwise selected from it
-    static std::vector<AstNodeExpr*> newAssignRhsps(AstNodeExpr* nodep, AstNodeDType* dtypep) {
+    std::vector<AstNodeExpr*> newAssignRhsps(AstNodeExpr* nodep, AstNodeDType* dtypep) {
         const std::vector<Component>& compsr = dtypeComponents(dtypep);
         std::vector<AstNodeExpr*> valueps;
         valueps.reserve(compsr.size());
@@ -1092,7 +1082,7 @@ class DecomposeRewrite final : public VNDeleter {
     }
 
     // Return the expression holding bits 'lsb' to 'msb' of the packed Place
-    static AstNodeExpr* newBits(FileLine* flp, const Place* placep, int lsb, int msb) {
+    AstNodeExpr* newBits(FileLine* flp, const Place* placep, int lsb, int msb) {
         AstNodeDType* const dtypep = placep->dtypep;
         // Note this assertion seems obtuse. 'isPacked' means a "splittable" packed
         UASSERT_OBJ(isPacked(dtypep) || !placep->split, dtypep, "Bits of non-packed Place");
@@ -1197,7 +1187,7 @@ class DecomposeRewrite final : public VNDeleter {
     }
 
     // Will bits 'lsb' to 'msb' of the Place be in different variables after splitting it?
-    static bool isSplitBetween(const Place* placep, int lsb, int msb) {
+    bool isSplitBetween(const Place* placep, int lsb, int msb) {
         while (placep->split) {
             const size_t idx = componentIndex(placep->dtypep, lsb);
             if (idx != componentIndex(placep->dtypep, msb)) return true;
@@ -1301,7 +1291,7 @@ class DecomposeRewrite final : public VNDeleter {
 
     // Drive the split Place 'placep' from its components, recursively,
     // so the original variable has its value available.
-    static void driveFromComponents(Place* placep, AstActive* activep) {
+    void driveFromComponents(Place* placep, AstActive* activep) {
         if (!placep->split) return;
         AstVarScope* const vscp = placep->vscp;
         FileLine* const flp = vscp->fileline();
@@ -1316,16 +1306,15 @@ class DecomposeRewrite final : public VNDeleter {
     }
 
     // CONSTRUCTORS
-    DecomposeRewrite(const std::vector<Place*>& rootps,
-                     const std::vector<std::vector<ComponentSelect>>& chains,
-                     const std::vector<Assignment>& assignments) {
+    explicit DecomposeRewrite(State& state)
+        : DecomposeBase{state} {
         // Rewrite the references: the select chains, then expand the assignments, so the clones
         // of their sides are rewritten already
-        for (const std::vector<ComponentSelect>& chain : chains) rewriteChain(chain);
-        for (const Assignment& assignment : assignments) rewriteAssignment(assignment);
+        for (const std::vector<ComponentSelect>& chain : m_state.chains) rewriteChain(chain);
+        for (const Assignment& assignment : m_state.assignments) rewriteAssignment(assignment);
 
         // Drive variables that must be kept from their components
-        for (Place* const placep : rootps) {
+        for (Place* const placep : m_state.rootps) {
             if (!placep->split) continue;
             const AstVarScope* const vscp = placep->vscp;
             // Only traced ones at this point
@@ -1339,11 +1328,7 @@ class DecomposeRewrite final : public VNDeleter {
     }
 
 public:
-    static void apply(const std::vector<Place*>& rootps,
-                      const std::vector<std::vector<ComponentSelect>>& chains,
-                      const std::vector<Assignment>& assignments) {
-        DecomposeRewrite{rootps, chains, assignments};
-    }
+    static void apply(State& state) { DecomposeRewrite{state}; }
 };
 
 //######################################################################
@@ -1352,16 +1337,10 @@ public:
 void V3Decompose::decomposeAll(AstNetlist* nodep) {
     UINFO(2, __FUNCTION__ << ":");
     {
-        // NODE STATE, shared by the steps
-        //  AstNodeDType::user4()       -> Components of the type, via dtypeComponentsCache()
-        //  AstVarScope::user4()        -> Place: the original variable, via places()
-        const VNUser4InUse user4InUse;
-
-        const DecomposeInfo info = DecomposeRecord::apply(nodep);
-        DecomposeDecision::apply(info.rootps);
-        DecomposeRewrite::apply(info.rootps, info.chains, info.assignments);
-        dtypeComponentsCache().clear();
-        places().clear();
+        DecomposeBase::State state;
+        DecomposeRecord::apply(state, nodep);
+        DecomposeDecision::apply(state);
+        DecomposeRewrite::apply(state);
     }  // Destruct before checking
     V3Global::dumpCheckGlobalTree("decompose", 0, dumpTreeEitherLevel() >= 3);
 }

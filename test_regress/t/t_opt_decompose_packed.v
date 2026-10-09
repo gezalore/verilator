@@ -145,6 +145,23 @@ module t (
   bit_t [7:0] bvec;  // No split: plain vector
   // Plain vector, as a packed array of single bit elements
   logic [7:0][0:0] zvec;  // No split: plain vector
+  // Expressions spanning members, the selects of the members pushed into the operations
+  ps_t psc;  // Split 1
+  ps_t psb;  // Split 1
+  ps_t psn;  // Split 1
+  ps_t pse;  // Split 1
+  pw_t pwe;  // Split 1
+  ps_t psr;  // Split 1
+  ps_t pst;  // Split 1
+  // Expression within one member, evaluated once
+  ps_t pone;  // Split 1
+  // Variable bit select spanning members, assigned to a temporary first
+  ps_t pvt;  // Split 1
+  // Replicated expression spanning members, assigned to a temporary first
+  ps_t prx;  // Split 1
+  logic [3:0] prx_x;
+  // Condition not cheap, assigned to a temporary first
+  ps_t pcn;  // Split 1
 
   assign ps.a = crc[4:0];
   assign ps.b = 7'(ps.a) + 7'd3;
@@ -254,6 +271,19 @@ module t (
   assign pl2 = pl1;
 
   always_comb pk = 12'h5a3;
+
+  assign psc = crc[0] ? crc[11:0] : 12'h5a3;
+  assign psb = (crc[11:0] & crc[23:12]) | ~(crc[35:24] ^ crc[47:36]);
+  assign psn = crc[1] ? {crc[3:0], crc[39:32]} : {crc[47:42], crc[5:0]};
+  assign pse = 12'(crc[7:0] ^ crc[15:8]);
+  assign pwe = 12'(crc[5:0] & crc[11:6]);
+  assign psr = {3{crc[3:0]}} ^ crc[11:0];
+  assign pst = 12'(crc[23:0] ^ crc[47:24]);
+  assign pone = {crc[4:0] + 5'd1, crc[11:5]};
+  assign pvt = crc[6'(crc[3:0])+:12];
+  assign prx = {3{4'(crc[7:0] / (crc[15:8] | 8'd1))}};
+  assign prx_x = 4'(crc[7:0] / (crc[15:8] | 8'd1));
+  assign pcn = (crc[0] ^ crc[5]) ? crc[11:0] : crc[23:12];
 
   assign pshr = crc[47:36];
   always_comb for (int i = 0; i < 2; i++) shr[i] = 6'(pshr >> (6 * i));
@@ -370,6 +400,28 @@ module t (
     `checkh(pl2.b, crc[42:36]);
     `checkh(pk.a, 5'h0b);
     `checkh(pk.b, 7'h23);
+    `checkh(psc.a, crc[0] ? crc[11:7] : 5'h0b);
+    `checkh(psc.b, crc[0] ? crc[6:0] : 7'h23);
+    `checkh(psb.a, (crc[11:7] & crc[23:19]) | ~(crc[35:31] ^ crc[47:43]));
+    `checkh(psb.b, (crc[6:0] & crc[18:12]) | ~(crc[30:24] ^ crc[42:36]));
+    `checkh(psn.a, crc[1] ? {crc[3:0], crc[39]} : crc[47:43]);
+    `checkh(psn.b, crc[1] ? crc[38:32] : {crc[42], crc[5:0]});
+    `checkh(pse.a, {4'b0, crc[7] ^ crc[15]});
+    `checkh(pse.b, crc[6:0] ^ crc[14:8]);
+    `checkh(pwe.hi, 6'h0);
+    `checkh(pwe.lo, crc[5:0] & crc[11:6]);
+    `checkh(psr.a, {crc[3:0], crc[3]} ^ crc[11:7]);
+    `checkh(psr.b, {crc[2:0], crc[3:0]} ^ crc[6:0]);
+    `checkh(pst.a, crc[11:7] ^ crc[35:31]);
+    `checkh(pst.b, crc[6:0] ^ crc[30:24]);
+    `checkh(pone.a, crc[4:0] + 5'd1);
+    `checkh(pone.b, crc[11:5]);
+    `checkh(pvt.a, 5'(crc >> (crc[3:0] + 7)));
+    `checkh(pvt.b, 7'(crc >> crc[3:0]));
+    `checkh(prx.a, {prx_x, prx_x[3]});
+    `checkh(prx.b, {prx_x[2:0], prx_x});
+    `checkh(pcn.a, (crc[0] ^ crc[5]) ? crc[11:7] : crc[23:19]);
+    `checkh(pcn.b, (crc[0] ^ crc[5]) ? crc[6:0] : crc[18:12]);
     `checkh(shr[0], crc[41:36]);
     `checkh(shr[1], crc[47:42]);
     `checkh(locx, 7'(crc[4:0]) + crc[11:5]);
@@ -400,6 +452,7 @@ module t (
       .clk(clk),
       .crc(~crc)
   );
+  subq u_subq ();
 
 endmodule
 
@@ -419,6 +472,29 @@ module sub (
 
   always @(posedge clk) begin
     `checkh(s.b, 7'(crc[4:0]) ^ crc[11:5]);
+  end
+
+endmodule
+
+// Not inlined, without ports and with only clocked logic, so without combinational logic to
+// drive the traced original variable from its components with
+module subq;
+  /*verilator no_inline_module*/
+
+  ps_t r;  // Split 1
+  logic [63:0] crc_q = '0;
+
+  always_ff @(posedge t.clk) begin
+    r.a <= t.crc[4:0];
+    r.b <= t.crc[11:5];
+    crc_q <= t.crc;
+  end
+
+  always @(posedge t.clk) begin
+    if (crc_q != '0) begin
+      `checkh(r.a, crc_q[4:0]);
+      `checkh(r.b, crc_q[11:5]);
+    end
   end
 
 endmodule
