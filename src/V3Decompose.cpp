@@ -860,6 +860,7 @@ class DecomposeRewrite final : public VNDeleter {
     // STATE
     V3SharedTmps m_tmps{"__VdecompHoisted", VVarType::MODULETEMP};  // Temporaries of hoisted terms
     VDouble0 m_statHoisted;  // Terms assigned to temporaries
+    VDouble0 m_statSliced;  // Terms sliced instead of hoisted
 
     // METHODS
 
@@ -937,6 +938,114 @@ class DecomposeRewrite final : public VNDeleter {
         return termps;
     }
 
+    // Can bits of 'nodep' be selected without evaluating it more than once, see newSlice
+    static bool isSliceable(const AstNodeExpr* nodep) {
+        if (const AstSel* const selp = VN_CAST(nodep, Sel)) {
+            return VN_IS(selp->lsbp(), Const) && isSliceable(selp->fromp());
+        }
+        if (const AstConcat* const catp = VN_CAST(nodep, Concat)) {
+            return isSliceable(catp->lhsp()) && isSliceable(catp->rhsp());
+        }
+        if (const AstCond* const condp = VN_CAST(nodep, Cond)) {
+            return isCheap(condp->condp()) && isSliceable(condp->thenp())
+                   && isSliceable(condp->elsep());
+        }
+        if (const AstAnd* const andp = VN_CAST(nodep, And)) {
+            return isSliceable(andp->lhsp()) && isSliceable(andp->rhsp());
+        }
+        if (const AstOr* const orp = VN_CAST(nodep, Or)) {
+            return isSliceable(orp->lhsp()) && isSliceable(orp->rhsp());
+        }
+        if (const AstXor* const xorp = VN_CAST(nodep, Xor)) {
+            return isSliceable(xorp->lhsp()) && isSliceable(xorp->rhsp());
+        }
+        if (const AstExtend* const extp = VN_CAST(nodep, Extend)) {
+            return isSliceable(extp->lhsp());
+        }
+        if (const AstNot* const notp = VN_CAST(nodep, Not)) {  //
+            return isSliceable(notp->lhsp());
+        }
+        if (const AstReplicate* const repp = VN_CAST(nodep, Replicate)) {
+            return isSliceable(repp->srcp());
+        }
+        return isCheap(nodep);
+    }
+
+    // Select 'width' bits of 'nodep' from 'lsb', pushing the select into the operands where the
+    // operation allows
+    static AstNodeExpr* newSlice(AstNodeExpr* nodep, int lsb, int width) {
+        FileLine* const flp = nodep->fileline();
+        // A constant, as a new constant of the bits
+        if (const AstConst* const constp = VN_CAST(nodep, Const)) {
+            V3Number num{nodep, width};
+            num.opSel(constp->num(), lsb + width - 1, lsb);
+            return new AstConst{flp, num};
+        }
+        // A constant bit select, from the bits of what it selects from
+        if (AstSel* const selp = VN_CAST(nodep, Sel)) {
+            if (const AstConst* const lsbp = VN_CAST(selp->lsbp(), Const)) {
+                return newSlice(selp->fromp(), lsbp->toSInt() + lsb, width);
+            }
+        }
+        // A concatenation, from the RHS for the low bits, and the LHS for the high bits
+        if (AstConcat* const catp = VN_CAST(nodep, Concat)) {
+            const int rWidth = catp->rhsp()->width();
+            const int msb = lsb + width - 1;
+            if (msb < rWidth) return newSlice(catp->rhsp(), lsb, width);
+            if (lsb >= rWidth) return newSlice(catp->lhsp(), lsb - rWidth, width);
+            return new AstConcat{flp, newSlice(catp->lhsp(), 0, msb - rWidth + 1),
+                                 newSlice(catp->rhsp(), lsb, rWidth - lsb)};
+        }
+        if (AstCond* const condp = VN_CAST(nodep, Cond)) {
+            return new AstCond{flp, condp->condp()->cloneTreePure(false),
+                               newSlice(condp->thenp(), lsb, width),
+                               newSlice(condp->elsep(), lsb, width)};
+        }
+        if (AstAnd* const andp = VN_CAST(nodep, And)) {
+            return new AstAnd{flp, newSlice(andp->lhsp(), lsb, width),
+                              newSlice(andp->rhsp(), lsb, width)};
+        }
+        if (AstOr* const orp = VN_CAST(nodep, Or)) {
+            return new AstOr{flp, newSlice(orp->lhsp(), lsb, width),
+                             newSlice(orp->rhsp(), lsb, width)};
+        }
+        if (AstXor* const xorp = VN_CAST(nodep, Xor)) {
+            return new AstXor{flp, newSlice(xorp->lhsp(), lsb, width),
+                              newSlice(xorp->rhsp(), lsb, width)};
+        }
+        // A zero extension, from the operand for its bits, and zeros above
+        if (AstExtend* const extp = VN_CAST(nodep, Extend)) {
+            const int srcWidth = extp->lhsp()->width();
+            const int msb = lsb + width - 1;
+            if (msb < srcWidth) return newSlice(extp->lhsp(), lsb, width);
+            if (lsb >= srcWidth) return new AstConst{flp, AstConst::WidthedValue{}, width, 0};
+            return new AstConcat{
+                flp, new AstConst{flp, AstConst::WidthedValue{}, msb - srcWidth + 1, 0},
+                newSlice(extp->lhsp(), lsb, srcWidth - lsb)};
+        }
+        if (AstNot* const notp = VN_CAST(nodep, Not)) {
+            return new AstNot{flp, newSlice(notp->lhsp(), lsb, width)};
+        }
+        // A replication, from the portions of the copies overlapping the bits
+        if (AstReplicate* const repp = VN_CAST(nodep, Replicate)) {
+            AstNodeExpr* const srcp = repp->srcp();
+            const int srcWidth = srcp->width();
+            const int msb = lsb + width - 1;
+            AstNodeExpr* resultp = nullptr;
+            for (int copyLsb = lsb / srcWidth * srcWidth; copyLsb <= msb; copyLsb += srcWidth) {
+                const int partLsb = std::max(lsb, copyLsb) - copyLsb;
+                const int partMsb = std::min(msb, copyLsb + srcWidth - 1) - copyLsb;
+                AstNodeExpr* const bitsp = newSlice(srcp, partLsb, partMsb - partLsb + 1);
+                // Higher bits go to the left
+                resultp = resultp ? new AstConcat{flp, bitsp, resultp} : bitsp;
+            }
+            return resultp;
+        }
+        AstNodeExpr* const clonep = nodep->cloneTreePure(false);
+        if (lsb == 0 && width == nodep->width()) return clonep;
+        return new AstSel{flp, clonep, lsb, width};
+    }
+
     // Values of the components of 'nodep', with the components of 'dtypep': for a reset cloned
     // from it, for packed assembled from the portions of its terms, otherwise selected from it
     static std::vector<AstNodeExpr*> newAssignRhsps(AstNodeExpr* nodep, AstNodeDType* dtypep) {
@@ -967,11 +1076,8 @@ class DecomposeRewrite final : public VNDeleter {
                     const int partLsb = std::max(lsb, comp.lsb);
                     const int partMsb = std::min(msb, comp.msb);
                     FileLine* const flp = termp->fileline();
-                    AstNodeExpr* bitsp = termp->cloneTreePure(false);
-                    if (partLsb != lsb || partMsb != msb) {
-                        bitsp = new AstSel{flp, bitsp, partLsb - lsb, partMsb - partLsb + 1};
-                    }
-                    valueps[i] = valueps[i] ? new AstConcat{flp, bitsp, valueps[i]} : bitsp;
+                    AstNodeExpr* const sp = newSlice(termp, partLsb - lsb, partMsb - partLsb + 1);
+                    valueps[i] = valueps[i] ? new AstConcat{flp, sp, valueps[i]} : sp;
                 }
                 lsb = msb + 1;
             }
@@ -1119,12 +1225,21 @@ class DecomposeRewrite final : public VNDeleter {
             const int tMsb = lsb + termp->width() - 1;
             lsb = tMsb + 1;
 
-            // Already hoisted
+            // Already decided, for a replicated term
             if (!termp->user2()) continue;
-            // Cheap to clone
-            if (isCheap(termp)) continue;
+            // Cheap to select from
+            if (isCheap(termp)) {
+                termp->user2(0);
+                continue;
+            }
             // No need to hoist if pure, appears once, and lands in one assignment
             if (termp->isPure() && termp->user2() == 1 && !isSplitBetween(lPlacep, tLsb, tMsb)) {
+                continue;
+            }
+            // Bits can be selected without evaluating it more than once
+            if (isSliceable(termp)) {
+                termp->user2(0);
+                ++m_statSliced;
                 continue;
             }
 
@@ -1220,6 +1335,7 @@ class DecomposeRewrite final : public VNDeleter {
         }
 
         V3Stats::addStat("Optimizations, Decompose, terms hoisted", m_statHoisted);
+        V3Stats::addStat("Optimizations, Decompose, terms sliced", m_statSliced);
     }
 
 public:
