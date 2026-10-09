@@ -1383,7 +1383,7 @@ class VRtmdLevelKind final {
 public:
     // Kind of hierarchy level. Note: Entries must match VlRtmdHierRow::Push::Kind (by name)
     enum en : uint8_t {
-        ROOT, // The root module
+        ROOT,  // The root module
         ROOTIO,  // Wraps the variables of the root module
         MODULE,
         INTERFACE,
