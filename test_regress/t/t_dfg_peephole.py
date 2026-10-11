@@ -25,7 +25,8 @@ with open(hdrFile, 'r', encoding="utf8") as hdrFh:
     lineno = 0
     for line in hdrFh:
         lineno += 1
-        m = re.search(r'^\s*_FOR_EACH_DFG_PEEPHOLE_OPTIMIZATION_APPLY\(macro, (\w+)\)', line)
+        m = re.search(r'^\s*_FOR_EACH_DFG_PEEPHOLE_OPTIMIZATION_APPLY\(macro, (\w+), (?:true|false)\)',
+                      line)
         if not m:
             continue
         opt = m.group(1)

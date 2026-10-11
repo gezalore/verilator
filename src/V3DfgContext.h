@@ -176,7 +176,7 @@ private:
             });
             m_enabled[id] = v3Global.opt.fDfgPeepholeEnabled(str);
         };
-#define OPTIMIZATION_CHECK_ENABLED(id, name) checkEnabled(VDfgPeepholePattern::id);
+#define OPTIMIZATION_CHECK_ENABLED(id, name, canonical) checkEnabled(VDfgPeepholePattern::id);
         FOR_EACH_DFG_PEEPHOLE_OPTIMIZATION(OPTIMIZATION_CHECK_ENABLED)
 #undef OPTIMIZATION_CHECK_ENABLED
     }
@@ -191,7 +191,7 @@ private:
             });
             addStat(str, m_count[id]);
         };
-#define OPTIMIZATION_EMIT_STATS(id, name) emitStat(VDfgPeepholePattern::id);
+#define OPTIMIZATION_EMIT_STATS(id, name, canonical) emitStat(VDfgPeepholePattern::id);
         FOR_EACH_DFG_PEEPHOLE_OPTIMIZATION(OPTIMIZATION_EMIT_STATS)
 #undef OPTIMIZATION_EMIT_STATS
     }
