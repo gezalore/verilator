@@ -618,11 +618,11 @@
            "pinsp": [
             {"type":"CEXPR","addr":"(GL)","loc":"d,48:22,48:27","dtypep":"(IB)","pure":true,
              "nodesp": [
-              {"type":"TEXT","addr":"(HL)","loc":"d,48:22,48:27","text":"\"length\"s"}
+              {"type":"TEXT","addr":"(HL)","loc":"d,48:22,48:27","text":"VlString{\"length\"}"}
             ]},
             {"type":"CEXPR","addr":"(IL)","loc":"d,48:22,48:27","dtypep":"(IB)","pure":true,
              "nodesp": [
-              {"type":"TEXT","addr":"(JL)","loc":"d,48:22,48:27","text":"\"header\"s"}
+              {"type":"TEXT","addr":"(JL)","loc":"d,48:22,48:27","text":"VlString{\"header\"}"}
             ]}
           ]}
         ]}

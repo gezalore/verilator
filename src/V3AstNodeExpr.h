@@ -6215,7 +6215,8 @@ public:
     void numberOperate(V3Number& out, const V3Number& lhs) override { V3ERROR_NA; }
     string emitVerilog() override { return "$sformatf(\"%p\", %l)"; }
     string emitC() override {
-        return isWide() ? "VL_TO_STRING_W(%nw, %li)" : "VL_TO_STRING_DEREF(%li)";
+        return isWide() ? "VlString{VL_TO_STRING_W(%nw, %li)}"
+                        : "VlString{VL_TO_STRING_DEREF(%li)}";
     }
     bool cleanOut() const override { return true; }
     bool cleanLhs() const override { return true; }

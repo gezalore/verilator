@@ -993,7 +993,7 @@ public:
         case VDumpCtlType::FILE:
             putns(nodep, "vlSymsp->_vm_contextp__->dumpfile(");
             iterateConst(nodep->exprp());
-            puts(");\n");
+            puts(".str());\n");
             break;
         case VDumpCtlType::VARS:
             // We ignore number of levels to dump in exprp()
@@ -1452,7 +1452,7 @@ public:
             puts("true, ");
             iterateAndNextConstNull(nodep->suffixp());
         } else {
-            puts("false, \"\"");
+            puts("false, VlString{}");
         }
         puts(", ");
         if (nodep->widthp()) {

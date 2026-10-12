@@ -998,7 +998,7 @@ string V3Number::emitC() const VL_MT_STABLE {
         const string quoted
             = V3OutFormatter::quoteNameControls(strg, V3OutFormatter::Language::LA_C);
         // Note: putsQuoted does not track indentation, so we use this instead
-        return '"' + quoted + "\"s";
+        return "VlString{\"" + quoted + "\"}";
     } else if (words() > 2) {
         // Note the double {{ initializer. The first { starts the initializer of the VlWide,
         // and the second starts the initializer of m_storage within the VlWide.

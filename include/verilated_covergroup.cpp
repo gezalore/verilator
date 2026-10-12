@@ -259,7 +259,8 @@ struct VlCoverpoint::ValueData final {
         }
         return VL_SFORMATF_N_NX("%0d", 1,
                                 m_isSigned ? VL_VFORMATATTR_SIGNED : VL_VFORMATATTR_UNSIGNED,
-                                static_cast<int>(m_bits), value.data());
+                                static_cast<int>(m_bits), value.data())
+            .str();
     }
     bool contains(const Range& range, WDataInP value) const {
         if (less(value, range.m_lo) || less(range.m_hi, value)) return false;

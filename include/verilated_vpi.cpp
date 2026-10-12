@@ -3654,7 +3654,7 @@ void vl_vpi_get_value(const VerilatedVpioVarBase* vop, p_vpi_value valuep) {
                 valuep->value.str = static_cast<char*>(varDatap);
                 return;
             }
-            t_outDynamicStr = *vop->readStringDatap();
+            t_outDynamicStr = vop->readStringDatap()->str();
             valuep->value.str = const_cast<char*>(t_outDynamicStr.c_str());
             return;
         } else {
@@ -4054,7 +4054,7 @@ vpiHandle vpi_put_value(vpiHandle object, p_vpi_value valuep, p_vpi_time /*time_
         } else if (valuep->format == vpiStringVal) {
             if (valueVop->varp()->vltype() == VLVT_STRING) {
                 // Does not use valueVop, because strings are not forceable anyway
-                *(baseSignalVop->readStringDatap()) = valuep->value.str;
+                *(baseSignalVop->readStringDatap()) = VlString{valuep->value.str};
                 return object;
             }
             const int chars = VL_BYTES_I(varBits);
@@ -4759,7 +4759,7 @@ void vpi_get_time(vpiHandle object, p_vpi_time time_p) {
 PLI_UINT32 vpi_mcd_open(PLI_BYTE8* filenamep) {
     VerilatedVpiImp::assertOneCheck();
     VL_VPI_ERROR_RESET_();
-    return VL_FOPEN_NN(filenamep, "wb");
+    return VL_FOPEN_NN(VlString{filenamep}, VlString{"wb"});
 }
 
 PLI_UINT32 vpi_mcd_close(PLI_UINT32 mcd) {

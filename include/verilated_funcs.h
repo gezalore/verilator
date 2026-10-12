@@ -147,30 +147,27 @@ extern void VL_FCLOSE_I(IData fdi) VL_MT_SAFE;
 extern IData VL_FREAD_I(int width, int array_lsb, int array_size, void* memp, IData fpi,
                         IData start, IData count) VL_MT_SAFE;
 
-extern IData VL_FSCANF_INX(IData fpi, const std::string& format, int argc, ...) VL_MT_SAFE;
-extern IData VL_SSCANF_IINX(int lbits, IData ld, const std::string& format, int argc,
-                            ...) VL_MT_SAFE;
-extern IData VL_SSCANF_IQNX(int lbits, QData ld, const std::string& format, int argc,
-                            ...) VL_MT_SAFE;
-extern IData VL_SSCANF_IWNX(int lbits, WDataInP const lwp, const std::string& format, int argc,
+extern IData VL_FSCANF_INX(IData fpi, const VlString& format, int argc, ...) VL_MT_SAFE;
+extern IData VL_SSCANF_IINX(int lbits, IData ld, const VlString& format, int argc, ...) VL_MT_SAFE;
+extern IData VL_SSCANF_IQNX(int lbits, QData ld, const VlString& format, int argc, ...) VL_MT_SAFE;
+extern IData VL_SSCANF_IWNX(int lbits, WDataInP const lwp, const VlString& format, int argc,
                             ...) VL_MT_SAFE;
 
-// String formatting functions taking const std::string& as format string
-extern void VL_SFORMAT_NX(int obits, CData& destr, const std::string& format, int argc,
+// String formatting functions taking const VlString& as format string
+extern void VL_SFORMAT_NX(int obits, CData& destr, const VlString& format, int argc,
                           ...) VL_MT_SAFE;
-extern void VL_SFORMAT_NX(int obits, SData& destr, const std::string& format, int argc,
+extern void VL_SFORMAT_NX(int obits, SData& destr, const VlString& format, int argc,
                           ...) VL_MT_SAFE;
-extern void VL_SFORMAT_NX(int obits, IData& destr, const std::string& format, int argc,
+extern void VL_SFORMAT_NX(int obits, IData& destr, const VlString& format, int argc,
                           ...) VL_MT_SAFE;
-extern void VL_SFORMAT_NX(int obits, QData& destr, const std::string& format, int argc,
+extern void VL_SFORMAT_NX(int obits, QData& destr, const VlString& format, int argc,
                           ...) VL_MT_SAFE;
-extern void VL_SFORMAT_NX(int obits, EData* destp, const std::string& format, int argc,
+extern void VL_SFORMAT_NX(int obits, EData* destp, const VlString& format, int argc,
                           ...) VL_MT_SAFE;
-extern void VL_SFORMAT_NX(std::string& output, const std::string& format, int argc,
-                          ...) VL_MT_SAFE;
-extern std::string VL_SFORMATF_N_NX(const std::string& format, int argc, ...) VL_MT_SAFE;
-extern void VL_WRITEF_NX(const std::string& format, int argc, ...) VL_MT_SAFE;
-extern void VL_FWRITEF_NX(IData fpi, const std::string& format, int argc, ...) VL_MT_SAFE;
+extern void VL_SFORMAT_NX(VlString& output, const VlString& format, int argc, ...) VL_MT_SAFE;
+extern VlString VL_SFORMATF_N_NX(const VlString& format, int argc, ...) VL_MT_SAFE;
+extern void VL_WRITEF_NX(const VlString& format, int argc, ...) VL_MT_SAFE;
+extern void VL_FWRITEF_NX(IData fpi, const VlString& format, int argc, ...) VL_MT_SAFE;
 
 // String formatting functions taking const char* format string
 extern void VL_SFORMAT_NX(int obits, CData& destr, const char* formatp, int argc, ...) VL_MT_SAFE;
@@ -178,19 +175,19 @@ extern void VL_SFORMAT_NX(int obits, SData& destr, const char* formatp, int argc
 extern void VL_SFORMAT_NX(int obits, IData& destr, const char* formatp, int argc, ...) VL_MT_SAFE;
 extern void VL_SFORMAT_NX(int obits, QData& destr, const char* formatp, int argc, ...) VL_MT_SAFE;
 extern void VL_SFORMAT_NX(int obits, EData* destp, const char* formatp, int argc, ...) VL_MT_SAFE;
-extern void VL_SFORMAT_NX(std::string& output, const char* formatp, int argc, ...) VL_MT_SAFE;
-extern std::string VL_SFORMATF_N_NX(const char* formatp, int argc, ...) VL_MT_SAFE;
+extern void VL_SFORMAT_NX(VlString& output, const char* formatp, int argc, ...) VL_MT_SAFE;
+extern VlString VL_SFORMATF_N_NX(const char* formatp, int argc, ...) VL_MT_SAFE;
 extern void VL_WRITEF_NX(const char* formatp, int argc, ...) VL_MT_SAFE;
 extern void VL_FWRITEF_NX(IData fpi, const char* formatp, int argc, ...) VL_MT_SAFE;
 
 extern void VL_STACKTRACE() VL_MT_SAFE;
-extern std::string VL_STACKTRACE_N() VL_MT_SAFE;
+extern VlString VL_STACKTRACE_N() VL_MT_SAFE;
 extern IData VL_SYSTEM_IW(int lhswords, WDataInP const lhsp) VL_MT_SAFE;
 extern IData VL_SYSTEM_IQ(QData lhs) VL_MT_SAFE;
 inline IData VL_SYSTEM_II(IData lhs) VL_MT_SAFE { return VL_SYSTEM_IQ(lhs); }
-extern IData VL_SYSTEM_IN(const std::string& lhs) VL_MT_SAFE;
+extern IData VL_SYSTEM_IN(const VlString& lhs) VL_MT_SAFE;
 
-extern IData VL_TESTPLUSARGS_I(const std::string& format) VL_MT_SAFE;
+extern IData VL_TESTPLUSARGS_I(const VlString& format) VL_MT_SAFE;
 extern const char* vl_mc_scan_plusargs(const char* prefixp) VL_MT_SAFE;  // PLIish
 
 //=========================================================================
@@ -253,8 +250,8 @@ inline QData VL_CVT_Q_D(double lhs) VL_PURE {
 }
 // clang-format on
 // Return string from DPI char*
-inline std::string VL_CVT_N_CSTR(const char* lhsp) VL_PURE {
-    return lhsp ? std::string{lhsp} : ""s;
+inline VlString VL_CVT_N_CSTR(const char* lhsp) VL_PURE {
+    return lhsp ? VlString{lhsp} : VlString{};
 }
 
 // Return queue from an unpacked array
@@ -3624,24 +3621,23 @@ inline void VL_CONSTLO_W_8X(int lsb, WDataOutP obase,
 //======================================================================
 // Strings
 
-extern std::string VL_PUTC_N(const std::string& lhs, IData rhs, CData ths) VL_PURE;
-extern CData VL_GETC_N(const std::string& lhs, IData rhs) VL_PURE;
-extern std::string VL_SUBSTR_N(const std::string& lhs, IData rhs, IData ths) VL_PURE;
+extern VlString VL_PUTC_N(const VlString& lhs, IData rhs, CData ths) VL_PURE;
+extern CData VL_GETC_N(const VlString& lhs, IData rhs) VL_PURE;
+extern VlString VL_SUBSTR_N(const VlString& lhs, IData rhs, IData ths) VL_PURE;
 
-inline IData VL_CMP_NN(const std::string& lhs, const std::string& rhs, bool ignoreCase) VL_PURE {
+inline IData VL_CMP_NN(const VlString& lhs, const VlString& rhs, bool ignoreCase) VL_PURE {
     // SystemVerilog does not allow a string variable to contain '\0'.
     // So C functions such as strcmp() can correctly compare strings.
     if (ignoreCase) { return VL_STRCASECMP(lhs.c_str(), rhs.c_str()); }
     return std::strcmp(lhs.c_str(), rhs.c_str());
 }
 
-extern IData VL_ATOI_N(const std::string& str, int base) VL_PURE;
-extern IData VL_NTOI_I(int obits, const std::string& str) VL_PURE;
-extern QData VL_NTOI_Q(int obits, const std::string& str) VL_PURE;
-extern void VL_NTOI_W(int obits, WDataOutP owp, const std::string& str,
-                      int truncFront = 0) VL_PURE;
+extern IData VL_ATOI_N(const VlString& str, int base) VL_PURE;
+extern IData VL_NTOI_I(int obits, const VlString& str) VL_PURE;
+extern QData VL_NTOI_Q(int obits, const VlString& str) VL_PURE;
+extern void VL_NTOI_W(int obits, WDataOutP owp, const VlString& str, int truncFront = 0) VL_PURE;
 
-extern IData VL_FGETS_NI(std::string& dest, IData fpi) VL_MT_SAFE;
+extern IData VL_FGETS_NI(VlString& dest, IData fpi) VL_MT_SAFE;
 
 //======================================================================
 // Dist functions
@@ -3657,90 +3653,88 @@ extern IData VL_DIST_UNIFORM(IData& seedr, IData ustart, IData uend) VL_MT_SAFE;
 //======================================================================
 // Conversion functions
 
-extern std::string VL_CVT_PACK_STR_NW(int lwords, const WDataInP lwp) VL_PURE;
-extern std::string VL_CVT_PACK_STR_ND(const VlQueue<VlString>& q) VL_PURE;
-inline std::string VL_CVT_PACK_STR_NQ(QData lhs) VL_PURE {
+extern VlString VL_CVT_PACK_STR_NW(int lwords, const WDataInP lwp) VL_PURE;
+extern VlString VL_CVT_PACK_STR_ND(const VlQueue<VlString>& q) VL_PURE;
+inline VlString VL_CVT_PACK_STR_NQ(QData lhs) VL_PURE {
     VlWide<VL_WQ_WORDS_E> lw;
     VL_SET_WQ(lw, lhs);
     return VL_CVT_PACK_STR_NW(VL_WQ_WORDS_E, lw);
 }
-inline std::string VL_CVT_PACK_STR_NN(const std::string& lhs) VL_PURE { return lhs; }
-inline std::string& VL_CVT_PACK_STR_NN(std::string& lhs) VL_PURE { return lhs; }
-inline std::string VL_CVT_PACK_STR_NI(IData lhs) VL_PURE {
+inline VlString VL_CVT_PACK_STR_NN(const VlString& lhs) VL_PURE { return lhs; }
+inline VlString& VL_CVT_PACK_STR_NN(VlString& lhs) VL_PURE { return lhs; }
+inline VlString VL_CVT_PACK_STR_NI(IData lhs) VL_PURE {
     VlWide<VL_WQ_WORDS_E> lw;
     VL_SET_WI(lw, lhs);
     return VL_CVT_PACK_STR_NW(1, lw);
 }
-inline std::string VL_CONCATN_NNN(const std::string& lhs, const std::string& rhs) VL_PURE {
-    return lhs + rhs;
+inline VlString VL_CONCATN_NNN(const VlString& lhs, const VlString& rhs) VL_PURE {
+    return VlString{lhs.str() + rhs.str()};
 }
-inline std::string VL_REPLICATEN_NNQ(const std::string& lhs, IData rep) VL_PURE {
+inline VlString VL_REPLICATEN_NNQ(const VlString& lhs, IData rep) VL_PURE {
     std::string result;
-    result.reserve(lhs.length() * rep);
-    for (unsigned times = 0; times < rep; ++times) result += lhs;
-    return result;
+    result.reserve(lhs.str().length() * rep);
+    for (unsigned times = 0; times < rep; ++times) result += lhs.str();
+    return VlString{std::move(result)};
 }
-inline std::string VL_REPLICATEN_NNI(const std::string& lhs, IData rep) VL_PURE {
+inline VlString VL_REPLICATEN_NNI(const VlString& lhs, IData rep) VL_PURE {
     return VL_REPLICATEN_NNQ(lhs, rep);
 }
 
-inline IData VL_LEN_IN(const std::string& ld) { return static_cast<IData>(ld.length()); }
-extern std::string VL_TOLOWER_NN(const std::string& ld) VL_PURE;
-extern std::string VL_TOUPPER_NN(const std::string& ld) VL_PURE;
+inline IData VL_LEN_IN(const VlString& ld) { return static_cast<IData>(ld.str().length()); }
+extern VlString VL_TOLOWER_NN(const VlString& ld) VL_PURE;
+extern VlString VL_TOUPPER_NN(const VlString& ld) VL_PURE;
 
-extern IData VL_FERROR_IN(IData fpi, std::string& outputr) VL_MT_SAFE;
+extern IData VL_FERROR_IN(IData fpi, VlString& outputr) VL_MT_SAFE;
 extern IData VL_FERROR_IW(IData fpi, int obits, WDataOutP outwp) VL_MT_SAFE;
-extern IData VL_FOPEN_NN(const std::string& filename, const std::string& mode) VL_MT_SAFE;
-extern IData VL_FOPEN_MCD_N(const std::string& filename) VL_MT_SAFE;
-extern void VL_READMEM_N(bool hex, int bits, QData depth, int array_lsb,
-                         const std::string& filename, void* memp, QData start,
-                         QData end) VL_MT_SAFE;
-extern void VL_WRITEMEM_N(bool hex, int bits, QData depth, int array_lsb,
-                          const std::string& filename, const void* memp, QData start,
-                          QData end) VL_MT_SAFE;
-extern IData VL_SSCANF_INNX(int lbits, const std::string& ld, const std::string& format, int argc,
+extern IData VL_FOPEN_NN(const VlString& filename, const VlString& mode) VL_MT_SAFE;
+extern IData VL_FOPEN_MCD_N(const VlString& filename) VL_MT_SAFE;
+extern void VL_READMEM_N(bool hex, int bits, QData depth, int array_lsb, const VlString& filename,
+                         void* memp, QData start, QData end) VL_MT_SAFE;
+extern void VL_WRITEMEM_N(bool hex, int bits, QData depth, int array_lsb, const VlString& filename,
+                          const void* memp, QData start, QData end) VL_MT_SAFE;
+extern IData VL_SSCANF_INNX(int lbits, const VlString& ld, const VlString& format, int argc,
                             ...) VL_MT_SAFE;
 extern void VL_TIMEFORMAT_IINI(bool hasUnits, int units, bool hasPrecision, int precision,
-                               bool hasSuffix, const std::string& suffix, bool hasWidth, int width,
+                               bool hasSuffix, const VlString& suffix, bool hasWidth, int width,
                                VerilatedContext* contextp) VL_MT_SAFE;
-extern IData VL_VALUEPLUSARGS_INW(int rbits, const std::string& ld, WDataOutP rwp) VL_MT_SAFE;
-inline IData VL_VALUEPLUSARGS_IND(int rbits, const std::string& ld, double& rdr) VL_MT_SAFE {
+extern IData VL_VALUEPLUSARGS_INW(int rbits, const VlString& ld, WDataOutP rwp) VL_MT_SAFE;
+inline IData VL_VALUEPLUSARGS_IND(int rbits, const VlString& ld, double& rdr) VL_MT_SAFE {
     VlWide<2> rwp;
     const IData got = VL_VALUEPLUSARGS_INW(rbits, ld, rwp);
     if (got) rdr = VL_CVT_D_Q(VL_SET_QW(rwp));
     return got;
 }
-inline IData VL_VALUEPLUSARGS_INI(int rbits, const std::string& ld, CData& rdr) VL_MT_SAFE {
+inline IData VL_VALUEPLUSARGS_INI(int rbits, const VlString& ld, CData& rdr) VL_MT_SAFE {
     VlWide<2> rwp;
     const IData got = VL_VALUEPLUSARGS_INW(rbits, ld, rwp);
     if (got) rdr = rwp[0];
     return got;
 }
-inline IData VL_VALUEPLUSARGS_INI(int rbits, const std::string& ld, SData& rdr) VL_MT_SAFE {
+inline IData VL_VALUEPLUSARGS_INI(int rbits, const VlString& ld, SData& rdr) VL_MT_SAFE {
     VlWide<2> rwp;
     const IData got = VL_VALUEPLUSARGS_INW(rbits, ld, rwp);
     if (got) rdr = rwp[0];
     return got;
 }
-inline IData VL_VALUEPLUSARGS_INI(int rbits, const std::string& ld, IData& rdr) VL_MT_SAFE {
+inline IData VL_VALUEPLUSARGS_INI(int rbits, const VlString& ld, IData& rdr) VL_MT_SAFE {
     VlWide<2> rwp;
     const IData got = VL_VALUEPLUSARGS_INW(rbits, ld, rwp);
     if (got) rdr = rwp[0];
     return got;
 }
-inline IData VL_VALUEPLUSARGS_INQ(int rbits, const std::string& ld, QData& rdr) VL_MT_SAFE {
+inline IData VL_VALUEPLUSARGS_INQ(int rbits, const VlString& ld, QData& rdr) VL_MT_SAFE {
     VlWide<2> rwp;
     const IData got = VL_VALUEPLUSARGS_INW(rbits, ld, rwp);
     if (got) rdr = VL_SET_QW(rwp);
     return got;
 }
-inline IData VL_VALUEPLUSARGS_INQ(int rbits, const std::string& ld, double& rdr) VL_MT_SAFE {
+inline IData VL_VALUEPLUSARGS_INQ(int rbits, const VlString& ld, double& rdr) VL_MT_SAFE {
     VlWide<2> rwp;
     const IData got = VL_VALUEPLUSARGS_INW(rbits, ld, rwp);
     if (got) rdr = VL_CVT_D_Q(VL_SET_QW(rwp));
     return got;
 }
-extern IData VL_VALUEPLUSARGS_INN(int, const std::string& ld, std::string& rdr) VL_MT_SAFE;
+extern IData VL_VALUEPLUSARGS_INN(int, const VlString& ld, VlString& rdr) VL_MT_SAFE;
 
 uint64_t VL_MURMUR64_HASH(const char* key) VL_PURE;
 

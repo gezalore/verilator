@@ -415,8 +415,8 @@ static size_t _vl_snprintf_string(std::string& str, const char* format,
 
 thread_local VlProcess* VlProcess::t_currentp = nullptr;
 
-std::string VlProcess::randstate() const VL_MT_UNSAFE { return m_rng.get_randstate(); }
-void VlProcess::randstate(const std::string& state) VL_MT_UNSAFE { m_rng.set_randstate(state); }
+VlString VlProcess::randstate() const VL_MT_UNSAFE { return m_rng.get_randstate(); }
+void VlProcess::randstate(const VlString& state) VL_MT_UNSAFE { m_rng.set_randstate(state); }
 VlRNG& VlProcess::currentRng() VL_MT_SAFE {
     if (t_currentp) return t_currentp->m_rng;
     return VlRNG::vl_thread_rng();
@@ -498,7 +498,7 @@ uint64_t VlRNG::vl_current_rng_rand64() VL_MT_SAFE {
     return result;
 }
 
-std::string VlRNG::get_randstate() const VL_MT_UNSAFE {
+VlString VlRNG::get_randstate() const VL_MT_UNSAFE {
     // Though not stated in IEEE, assumption is the string must be printable
     const char* const stateCharsp = reinterpret_cast<const char*>(&m_state);
     static_assert(sizeof(m_state) == 16, "");
@@ -507,9 +507,10 @@ std::string VlRNG::get_randstate() const VL_MT_UNSAFE {
         result[1 + i * 2] = 'a' + ((stateCharsp[i] >> 4) & 15);
         result[1 + i * 2 + 1] = 'a' + (stateCharsp[i] & 15);
     }
-    return result;
+    return VlString{std::move(result)};
 }
-void VlRNG::set_randstate(const std::string& state) VL_MT_UNSAFE {
+void VlRNG::set_randstate(const VlString& stateVl) VL_MT_UNSAFE {
+    const std::string& state = stateVl.str();
     if (VL_UNLIKELY((state.length() != 1 + 2 * sizeof(m_state)) || (state[0] != 'R'))) {
         VL_PRINTF_MT("%%Warning: set_randstate ignored as state string not from get_randstate\n");
         return;
@@ -1200,7 +1201,7 @@ void _vl_vsformat(std::string& output, const std::string& format, int argc,
                 enump = va_arg(ap, VlString*);
                 if (fmt != 'p' && fmt != 's') {
                     formatAttr = numericAttr;
-                } else if (enump && !enump->empty()) {
+                } else if (enump && !enump->str().empty()) {
                     formatAttr = (fmt == 'p') ? VL_VFORMATATTR_COMPLEX : VL_VFORMATATTR_STRING;
                     thingp = const_cast<VlString*>(enump);
                 } else if (fmt == 'p' && widthSet && width == 0) {
@@ -1266,10 +1267,10 @@ void _vl_vsformat(std::string& output, const std::string& format, int argc,
             }
             case 's': {
                 if (thingp) {  // VNumber::STRING Verilog 'string'
-                    const VlString* const strp = static_cast<const VlString*>(thingp);
+                    const std::string& str = static_cast<const VlString*>(thingp)->str();
                     std::string padding;
-                    if (width > strp->size()) padding.append(width - strp->size(), ' ');
-                    output += left ? (*strp + padding) : (padding + *strp);
+                    if (width > str.size()) padding.append(width - str.size(), ' ');
+                    output += left ? (str + padding) : (padding + str);
                     break;
                 }
                 // Number-based string
@@ -1294,8 +1295,7 @@ void _vl_vsformat(std::string& output, const std::string& format, int argc,
                     const VlString* const strp = static_cast<const VlString*>(thingp);
                     output += VL_TO_STRING(*strp);
                 } else if (formatAttr == VL_VFORMATATTR_COMPLEX) {
-                    const VlString* const strp = static_cast<const VlString*>(thingp);
-                    output += *strp;
+                    output += static_cast<const VlString*>(thingp)->str();
                 }
                 break;
             }
@@ -1375,7 +1375,7 @@ void _vl_vsformat(std::string& output, const std::string& format, int argc,
                     // V3Width errors on const %x of string, but V3Randomize may make a %x on a
                     // string, or may have a runtime format
                     const VlString* const strp = static_cast<const VlString*>(thingp);
-                    const int chars = static_cast<int>(strp->size());
+                    const int chars = static_cast<int>(strp->str().size());
                     int truncFront = widthSet ? (chars - (static_cast<int>(width) / 2)) : 0;
                     if (truncFront < 0) truncFront = 0;
                     lbits = chars * 8;
@@ -1809,7 +1809,7 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                     *p = real;
                 } else if (formatAttr == VL_VFORMATATTR_STRING) {
                     VlString* const p = static_cast<VlString*>(thingp);
-                    *p = t_tmp;
+                    *p = VlString{t_tmp};
                 } else if (obits <= VL_BYTESIZE) {
                     CData* const p = static_cast<CData*>(thingp);
                     *p = VL_CLEAN_II(obits, obits, owp[0]);
@@ -1908,27 +1908,30 @@ IData VL_FGETS_IXI(int obits, void* destp, IData fpi) VL_MT_SAFE {
     return got;
 }
 
-IData VL_FGETS_NI(std::string& dest, IData fpi) VL_MT_SAFE {
-    return getLine(dest, fpi, std::numeric_limits<size_t>::max());
+IData VL_FGETS_NI(VlString& dest, IData fpi) VL_MT_SAFE {
+    std::string str;
+    const IData got = getLine(str, fpi, std::numeric_limits<size_t>::max());
+    dest = VlString{std::move(str)};
+    return got;
 }
 
-IData VL_FERROR_IN(IData, std::string& outputr) VL_MT_SAFE {
+IData VL_FERROR_IN(IData, VlString& outputr) VL_MT_SAFE {
     // We ignore lhs/fpi - IEEE says "most recent error" so probably good enough
     const IData ret = errno;
-    outputr = std::string{::std::strerror(ret)};
+    outputr = VlString{::std::strerror(ret)};
     return ret;
 }
 IData VL_FERROR_IW(IData fpi, int obits, WDataOutP outwp) VL_MT_SAFE {
-    std::string output;
+    VlString output;
     const IData ret = VL_FERROR_IN(fpi, output /*ref*/);
-    _vl_string_to_vint(obits, outwp.datap(), output.length(), output.c_str());
+    _vl_string_to_vint(obits, outwp.datap(), output.str().length(), output.c_str());
     return ret;
 }
 
-IData VL_FOPEN_NN(const std::string& filename, const std::string& mode) {
+IData VL_FOPEN_NN(const VlString& filename, const VlString& mode) {
     return Verilated::threadContextp()->impp()->fdNew(filename.c_str(), mode.c_str());
 }
-IData VL_FOPEN_MCD_N(const std::string& filename) VL_MT_SAFE {
+IData VL_FOPEN_MCD_N(const VlString& filename) VL_MT_SAFE {
     return Verilated::threadContextp()->impp()->fdNewMcd(filename.c_str());
 }
 
@@ -1943,93 +1946,93 @@ void VL_FCLOSE_I(IData fdi) VL_MT_SAFE {
 }
 
 //===========================================================================
-// String formatting functions taking const std::string& as format string
+// String formatting functions taking const VlString& as format string
 
-void VL_SFORMAT_NX(int obits, CData& destr, const std::string& format, int argc, ...) VL_MT_SAFE {
+void VL_SFORMAT_NX(int obits, CData& destr, const VlString& format, int argc, ...) VL_MT_SAFE {
     static thread_local std::string t_output;  // static only for speed
     va_list ap;
     va_start(ap, argc);
-    _vl_vsformat(t_output, format, argc, ap);
+    _vl_vsformat(t_output, format.str(), argc, ap);
     va_end(ap);
 
     _vl_string_to_vint(obits, &destr, t_output.length(), t_output.c_str());
 }
 
-void VL_SFORMAT_NX(int obits, SData& destr, const std::string& format, int argc, ...) VL_MT_SAFE {
+void VL_SFORMAT_NX(int obits, SData& destr, const VlString& format, int argc, ...) VL_MT_SAFE {
     static thread_local std::string t_output;  // static only for speed
     va_list ap;
     va_start(ap, argc);
-    _vl_vsformat(t_output, format, argc, ap);
+    _vl_vsformat(t_output, format.str(), argc, ap);
     va_end(ap);
 
     _vl_string_to_vint(obits, &destr, t_output.length(), t_output.c_str());
 }
 
-void VL_SFORMAT_NX(int obits, IData& destr, const std::string& format, int argc, ...) VL_MT_SAFE {
+void VL_SFORMAT_NX(int obits, IData& destr, const VlString& format, int argc, ...) VL_MT_SAFE {
     static thread_local std::string t_output;  // static only for speed
     va_list ap;
     va_start(ap, argc);
-    _vl_vsformat(t_output, format, argc, ap);
+    _vl_vsformat(t_output, format.str(), argc, ap);
     va_end(ap);
 
     _vl_string_to_vint(obits, &destr, t_output.length(), t_output.c_str());
 }
 
-void VL_SFORMAT_NX(int obits, QData& destr, const std::string& format, int argc, ...) VL_MT_SAFE {
+void VL_SFORMAT_NX(int obits, QData& destr, const VlString& format, int argc, ...) VL_MT_SAFE {
     static thread_local std::string t_output;  // static only for speed
     va_list ap;
     va_start(ap, argc);
-    _vl_vsformat(t_output, format, argc, ap);
+    _vl_vsformat(t_output, format.str(), argc, ap);
     va_end(ap);
 
     _vl_string_to_vint(obits, &destr, t_output.length(), t_output.c_str());
 }
 
-void VL_SFORMAT_NX(int obits, EData* destp, const std::string& format, int argc, ...) VL_MT_SAFE {
+void VL_SFORMAT_NX(int obits, EData* destp, const VlString& format, int argc, ...) VL_MT_SAFE {
     static thread_local std::string t_output;  // static only for speed
     va_list ap;
     va_start(ap, argc);
-    _vl_vsformat(t_output, format, argc, ap);
+    _vl_vsformat(t_output, format.str(), argc, ap);
     va_end(ap);
 
     _vl_string_to_vint(obits, destp, t_output.length(), t_output.c_str());
 }
 
-void VL_SFORMAT_NX(std::string& output, const std::string& format, int argc, ...) VL_MT_SAFE {
+void VL_SFORMAT_NX(VlString& output, const VlString& format, int argc, ...) VL_MT_SAFE {
     std::string temp_output;
     va_list ap;
     va_start(ap, argc);
-    _vl_vsformat(temp_output, format, argc, ap);
+    _vl_vsformat(temp_output, format.str(), argc, ap);
     va_end(ap);
-    output = temp_output;
+    output = VlString{std::move(temp_output)};
 }
 
-std::string VL_SFORMATF_N_NX(const std::string& format, int argc, ...) VL_MT_SAFE {
+VlString VL_SFORMATF_N_NX(const VlString& format, int argc, ...) VL_MT_SAFE {
     std::string output;
     va_list ap;
     va_start(ap, argc);
-    _vl_vsformat(output, format, argc, ap);
+    _vl_vsformat(output, format.str(), argc, ap);
     va_end(ap);
 
-    return output;
+    return VlString{std::move(output)};
 }
 
-void VL_WRITEF_NX(const std::string& format, int argc, ...) VL_MT_SAFE {
+void VL_WRITEF_NX(const VlString& format, int argc, ...) VL_MT_SAFE {
     static thread_local std::string t_output;  // static only for speed
     va_list ap;
     va_start(ap, argc);
-    _vl_vsformat(t_output, format, argc, ap);
+    _vl_vsformat(t_output, format.str(), argc, ap);
     va_end(ap);
 
     VL_PRINTF_MT("%s", t_output.c_str());
 }
 
-void VL_FWRITEF_NX(IData fpi, const std::string& format, int argc, ...) VL_MT_SAFE {
+void VL_FWRITEF_NX(IData fpi, const VlString& format, int argc, ...) VL_MT_SAFE {
     // While threadsafe, each thread can only access different file handles
     static thread_local std::string t_output;  // static only for speed
     va_list ap;
     va_start(ap, argc);
-    _vl_vsformat(t_output, format, argc, ap);
+    _vl_vsformat(t_output, format.str(), argc, ap);
     va_end(ap);
 
     Verilated::threadContextp()->impp()->fdWrite(fpi, t_output);
@@ -2088,23 +2091,23 @@ void VL_SFORMAT_NX(int obits, EData* destp, const char* formatp, int argc, ...) 
     _vl_string_to_vint(obits, destp, t_output.length(), t_output.c_str());
 }
 
-void VL_SFORMAT_NX(std::string& output, const char* formatp, int argc, ...) VL_MT_SAFE {
+void VL_SFORMAT_NX(VlString& output, const char* formatp, int argc, ...) VL_MT_SAFE {
     std::string temp_output;
     va_list ap;
     va_start(ap, argc);
     _vl_vsformat(temp_output, formatp, argc, ap);
     va_end(ap);
-    output = temp_output;
+    output = VlString{std::move(temp_output)};
 }
 
-std::string VL_SFORMATF_N_NX(const char* formatp, int argc, ...) VL_MT_SAFE {
+VlString VL_SFORMATF_N_NX(const char* formatp, int argc, ...) VL_MT_SAFE {
     std::string output;
     va_list ap;
     va_start(ap, argc);
     _vl_vsformat(output, formatp, argc, ap);
     va_end(ap);
 
-    return output;
+    return VlString{std::move(output)};
 }
 
 void VL_WRITEF_NX(const char* formatp, int argc, ...) VL_MT_SAFE {
@@ -2128,7 +2131,7 @@ void VL_FWRITEF_NX(IData fpi, const char* formatp, int argc, ...) VL_MT_SAFE {
     Verilated::threadContextp()->impp()->fdWrite(fpi, t_output);
 }
 
-IData VL_FSCANF_INX(IData fpi, const std::string& format, int argc, ...) VL_MT_SAFE {
+IData VL_FSCANF_INX(IData fpi, const VlString& format, int argc, ...) VL_MT_SAFE {
     // While threadsafe, each thread can only access different file handles
     FILE* const fp = VL_CVT_I_FP(fpi);
     if (VL_UNLIKELY(!fp)) return ~0U;  // -1
@@ -2136,46 +2139,45 @@ IData VL_FSCANF_INX(IData fpi, const std::string& format, int argc, ...) VL_MT_S
     WDataInP fromp{nullptr};
     va_list ap;
     va_start(ap, argc);
-    const IData got = _vl_vsscanf(fp, 0, fromp, "", format, argc, ap);
+    const IData got = _vl_vsscanf(fp, 0, fromp, "", format.str(), argc, ap);
     va_end(ap);
     return got;
 }
 
-IData VL_SSCANF_IINX(int lbits, IData ld, const std::string& format, int argc, ...) VL_MT_SAFE {
+IData VL_SSCANF_IINX(int lbits, IData ld, const VlString& format, int argc, ...) VL_MT_SAFE {
     VlWide<VL_WQ_WORDS_E> fnw;
     VL_SET_WI(fnw, ld);
 
     va_list ap;
     va_start(ap, argc);
-    const IData got = _vl_vsscanf(nullptr, lbits, fnw, "", format, argc, ap);
+    const IData got = _vl_vsscanf(nullptr, lbits, fnw, "", format.str(), argc, ap);
     va_end(ap);
     return got;
 }
-IData VL_SSCANF_IQNX(int lbits, QData ld, const std::string& format, int argc, ...) VL_MT_SAFE {
+IData VL_SSCANF_IQNX(int lbits, QData ld, const VlString& format, int argc, ...) VL_MT_SAFE {
     VlWide<VL_WQ_WORDS_E> fnw;
     VL_SET_WQ(fnw, ld);
 
     va_list ap;
     va_start(ap, argc);
-    const IData got = _vl_vsscanf(nullptr, lbits, fnw, "", format, argc, ap);
+    const IData got = _vl_vsscanf(nullptr, lbits, fnw, "", format.str(), argc, ap);
     va_end(ap);
     return got;
 }
-IData VL_SSCANF_IWNX(int lbits, const WDataInP lwp, const std::string& format, int argc,
+IData VL_SSCANF_IWNX(int lbits, const WDataInP lwp, const VlString& format, int argc,
                      ...) VL_MT_SAFE {
     va_list ap;
     va_start(ap, argc);
-    const IData got = _vl_vsscanf(nullptr, lbits, lwp, "", format, argc, ap);
+    const IData got = _vl_vsscanf(nullptr, lbits, lwp, "", format.str(), argc, ap);
     va_end(ap);
     return got;
 }
-IData VL_SSCANF_INNX(int, const std::string& ld, const std::string& format, int argc,
-                     ...) VL_MT_SAFE {
+IData VL_SSCANF_INNX(int, const VlString& ld, const VlString& format, int argc, ...) VL_MT_SAFE {
     WDataInP fromp{nullptr};
     va_list ap;
     va_start(ap, argc);
-    const IData got
-        = _vl_vsscanf(nullptr, static_cast<int>(ld.length() * 8), fromp, ld, format, argc, ap);
+    const IData got = _vl_vsscanf(nullptr, static_cast<int>(ld.str().length() * 8), fromp,
+                                  ld.str(), format.str(), argc, ap);
     va_end(ap);
     return got;
 }
@@ -2313,7 +2315,7 @@ static std::string _vl_stacktrace_demangle(const std::string& input) VL_MT_SAFE 
 }
 #endif
 
-std::string VL_STACKTRACE_N() VL_MT_SAFE {
+VlString VL_STACKTRACE_N() VL_MT_SAFE {
     static VerilatedMutex s_stackTraceMutex;
     const VerilatedLockGuard lock{s_stackTraceMutex};
 
@@ -2327,21 +2329,21 @@ std::string VL_STACKTRACE_N() VL_MT_SAFE {
     strings = backtrace_symbols(buffer, nptrs);
 
     // cppcheck-suppress knownConditionTrueFalse
-    if (!strings) return "Unable to backtrace, call failed\n";
+    if (!strings) return VlString{"Unable to backtrace, call failed\n"};
 
     std::string result = "Backtrace:\n";
     for (int j = 0; j < nptrs; ++j)
         result += _vl_stacktrace_demangle(std::string{strings[j]} + "\n"s);
 
     free(strings);
-    return result;
+    return VlString{std::move(result)};
 #else
-    return "Unable to backtrace; not supported\n";
+    return VlString{"Unable to backtrace; not supported\n"};
 #endif
 }
 
 void VL_STACKTRACE() VL_MT_SAFE {
-    const std::string result = VL_STACKTRACE_N();
+    const VlString result = VL_STACKTRACE_N();
     VL_PRINTF("%s", result.c_str());
 }
 
@@ -2351,10 +2353,9 @@ IData VL_SYSTEM_IQ(QData lhs) VL_MT_SAFE {
     return VL_SYSTEM_IW(VL_WQ_WORDS_E, lhsw);
 }
 IData VL_SYSTEM_IW(int lhswords, const WDataInP lhsp) VL_MT_SAFE {
-    const std::string lhs = VL_CVT_PACK_STR_NW(lhswords, lhsp);
-    return VL_SYSTEM_IN(lhs);
+    return VL_SYSTEM_IN(VL_CVT_PACK_STR_NW(lhswords, lhsp));
 }
-IData VL_SYSTEM_IN(const std::string& lhs) VL_MT_SAFE {
+IData VL_SYSTEM_IN(const VlString& lhs) VL_MT_SAFE {
     VerilatedContext* ctxp = Verilated::threadContextp();
     const bool sending = ctxp->logOutputToFile();
     // system() command may echo and read so restore default stdout and stderr if sending
@@ -2365,12 +2366,12 @@ IData VL_SYSTEM_IN(const std::string& lhs) VL_MT_SAFE {
     return code >> 8;  // Want exit status
 }
 
-IData VL_TESTPLUSARGS_I(const std::string& format) VL_MT_SAFE {
+IData VL_TESTPLUSARGS_I(const VlString& format) VL_MT_SAFE {
     const std::string& match = Verilated::threadContextp()->impp()->argPlusMatch(format.c_str());
     return match.empty() ? 0 : 1;
 }
 
-IData VL_VALUEPLUSARGS_INW(int rbits, const std::string& ld, WDataOutP rwp) VL_MT_SAFE {
+IData VL_VALUEPLUSARGS_INW(int rbits, const VlString& ld, WDataOutP rwp) VL_MT_SAFE {
     std::string prefix;
     bool inPct = false;
     bool done = false;
@@ -2445,7 +2446,7 @@ IData VL_VALUEPLUSARGS_INW(int rbits, const std::string& ld, WDataOutP rwp) VL_M
     _vl_clean_inplace_w(rbits, rwp);
     return 1;
 }
-IData VL_VALUEPLUSARGS_INN(int, const std::string& ld, std::string& rdr) VL_MT_SAFE {
+IData VL_VALUEPLUSARGS_INN(int, const VlString& ld, VlString& rdr) VL_MT_SAFE {
     std::string prefix;
     bool inPct = false;
     bool done = false;
@@ -2469,7 +2470,7 @@ IData VL_VALUEPLUSARGS_INN(int, const std::string& ld, std::string& rdr) VL_MT_S
     const std::string& match = Verilated::threadContextp()->impp()->argPlusMatch(prefix.c_str());
     const char* const dp = match.c_str() + 1 /*leading + */ + prefix.length();
     if (match.empty()) return 0;
-    rdr = std::string{dp};
+    rdr = VlString{dp};
     return 1;
 }
 
@@ -2487,24 +2488,24 @@ const char* vl_mc_scan_plusargs(const char* prefixp) VL_MT_SAFE {
 // TODO these could be accelerated with a dedicated to-Hex formatter
 // instead of using VL_SFORMATF_N_NX
 std::string VL_TO_STRING(CData lhs) {
-    return VL_SFORMATF_N_NX("'h%0x", 1, VL_VFORMATATTR_UNSIGNED, 8, lhs);
+    return VL_SFORMATF_N_NX("'h%0x", 1, VL_VFORMATATTR_UNSIGNED, 8, lhs).str();
 }
 std::string VL_TO_STRING(SData lhs) {
-    return VL_SFORMATF_N_NX("'h%0x", 1, VL_VFORMATATTR_UNSIGNED, 16, lhs);
+    return VL_SFORMATF_N_NX("'h%0x", 1, VL_VFORMATATTR_UNSIGNED, 16, lhs).str();
 }
 std::string VL_TO_STRING(IData lhs) {
-    return VL_SFORMATF_N_NX("'h%0x", 1, VL_VFORMATATTR_UNSIGNED, 32, lhs);
+    return VL_SFORMATF_N_NX("'h%0x", 1, VL_VFORMATATTR_UNSIGNED, 32, lhs).str();
 }
 std::string VL_TO_STRING(QData lhs) {
-    return VL_SFORMATF_N_NX("'h%0x", 1, VL_VFORMATATTR_UNSIGNED, 64, lhs);
+    return VL_SFORMATF_N_NX("'h%0x", 1, VL_VFORMATATTR_UNSIGNED, 64, lhs).str();
 }
 std::string VL_TO_STRING(double lhs) {
-    return VL_SFORMATF_N_NX("%g", 1, VL_VFORMATATTR_DOUBLE, lhs);
+    return VL_SFORMATF_N_NX("%g", 1, VL_VFORMATATTR_DOUBLE, lhs).str();
 }
-std::string VL_TO_STRING(const std::string& obj) VL_PURE {
+std::string VL_TO_STRING(const VlString& obj) VL_PURE {
     std::string out{"\""};
-    out.reserve(obj.size() + 2);
-    for (const unsigned char ch : obj) {
+    out.reserve(obj.str().size() + 2);
+    for (const unsigned char ch : obj.str()) {
         switch (ch) {
         case '\n': out += "\\n"; break;
         case '\r': out += "\\r"; break;
@@ -2526,21 +2527,21 @@ std::string VL_TO_STRING(const std::string& obj) VL_PURE {
     return out + '"';
 }
 std::string VL_TO_STRING_W(int words, const WDataInP obj) {
-    return VL_SFORMATF_N_NX("'h%0x", 1, VL_VFORMATATTR_UNSIGNED, words * VL_EDATASIZE, obj);
+    return VL_SFORMATF_N_NX("'h%0x", 1, VL_VFORMATATTR_UNSIGNED, words * VL_EDATASIZE, obj).str();
 }
 
-std::string VL_TOLOWER_NN(const std::string& ld) VL_PURE {
-    std::string result = ld;
+VlString VL_TOLOWER_NN(const VlString& ld) VL_PURE {
+    std::string result = ld.str();
     for (auto& cr : result) cr = std::tolower(cr);
-    return result;
+    return VlString{std::move(result)};
 }
-std::string VL_TOUPPER_NN(const std::string& ld) VL_PURE {
-    std::string result = ld;
+VlString VL_TOUPPER_NN(const VlString& ld) VL_PURE {
+    std::string result = ld.str();
     for (auto& cr : result) cr = std::toupper(cr);
-    return result;
+    return VlString{std::move(result)};
 }
 
-std::string VL_CVT_PACK_STR_NW(int lwords, const WDataInP lwp) VL_PURE {
+VlString VL_CVT_PACK_STR_NW(int lwords, const WDataInP lwp) VL_PURE {
     // See also _vl_vint_to_string
     std::string result;
     result.reserve((lwords * VL_EDATASIZE) / 8 + 1);
@@ -2551,42 +2552,42 @@ std::string VL_CVT_PACK_STR_NW(int lwords, const WDataInP lwp) VL_PURE {
         const IData charval = VL_BITRSHIFT_W(lwp, lsb) & 0xff;
         if (charval) result += static_cast<char>(charval);
     }
-    return result;
+    return VlString{std::move(result)};
 }
 
-std::string VL_CVT_PACK_STR_ND(const VlQueue<VlString>& q) VL_PURE {
+VlString VL_CVT_PACK_STR_ND(const VlQueue<VlString>& q) VL_PURE {
     std::string output;
-    for (const std::string& s : q) output += s;
-    return output;
+    for (const VlString& s : q) output += s.str();
+    return VlString{std::move(output)};
 }
 
-std::string VL_PUTC_N(const std::string& lhs, IData rhs, CData ths) VL_PURE {
-    std::string lstring = lhs;
+VlString VL_PUTC_N(const VlString& lhs, IData rhs, CData ths) VL_PURE {
+    std::string lstring = lhs.str();
     const int32_t rhs_s = rhs;  // To signed value
     // 6.16.2:str.putc(i, c) does not change the value when i < 0 || i >= str.len() || c == 0
-    if (0 <= rhs_s && rhs < lhs.length() && ths != 0) lstring[rhs] = ths;
-    return lstring;
+    if (0 <= rhs_s && rhs < lstring.length() && ths != 0) lstring[rhs] = ths;
+    return VlString{std::move(lstring)};
 }
 
-CData VL_GETC_N(const std::string& lhs, IData rhs) VL_PURE {
+CData VL_GETC_N(const VlString& lhs, IData rhs) VL_PURE {
     CData v = 0;
     const int32_t rhs_s = rhs;  // To signed value
     // 6.16.3:str.getc(i) returns 0 if i < 0 || i >= str.len()
-    if (0 <= rhs_s && rhs < lhs.length()) v = lhs[rhs];
+    if (0 <= rhs_s && rhs < lhs.str().length()) v = lhs.str()[rhs];
     return v;
 }
 
-std::string VL_SUBSTR_N(const std::string& lhs, IData rhs, IData ths) VL_PURE {
+VlString VL_SUBSTR_N(const VlString& lhs, IData rhs, IData ths) VL_PURE {
     const int32_t rhs_s = rhs;  // To signed value
     const int32_t ths_s = ths;  // To signed value
     // 6.16.8:str.substr(i, j) returns an empty string when i < 0 || j < i || j >= str.len()
-    if (rhs_s < 0 || ths_s < rhs_s || ths >= lhs.length()) return "";
+    if (rhs_s < 0 || ths_s < rhs_s || ths >= lhs.str().length()) return VlString{};
     // Second parameter of std::string::substr(i, n) is length, not position as in SystemVerilog
-    return lhs.substr(rhs, ths - rhs + 1);
+    return VlString{lhs.str().substr(rhs, ths - rhs + 1)};
 }
 
-IData VL_ATOI_N(const std::string& str, int base) VL_PURE {
-    std::string str_mod = str;
+IData VL_ATOI_N(const VlString& str, int base) VL_PURE {
+    std::string str_mod = str.str();
     // IEEE 1800-2023 6.16.9 says '_' may exist.
     str_mod.erase(std::remove(str_mod.begin(), str_mod.end(), '_'), str_mod.end());
 
@@ -2595,11 +2596,11 @@ IData VL_ATOI_N(const std::string& str, int base) VL_PURE {
     if (errno != 0) v = 0;
     return static_cast<IData>(v);
 }
-IData VL_NTOI_I(int obits, const std::string& str) VL_PURE { return VL_NTOI_Q(obits, str); }
-QData VL_NTOI_Q(int obits, const std::string& str) VL_PURE {
+IData VL_NTOI_I(int obits, const VlString& str) VL_PURE { return VL_NTOI_Q(obits, str); }
+QData VL_NTOI_Q(int obits, const VlString& str) VL_PURE {
     QData out = 0;
-    const char* const datap = str.data();
-    int pos = static_cast<int>(str.length()) - 1;
+    const char* const datap = str.c_str();
+    int pos = static_cast<int>(str.str().length()) - 1;
     int bit = 0;
     while (bit < obits && pos >= 0) {
         out |= static_cast<QData>(datap[pos]) << VL_BITBIT_Q(bit);
@@ -2608,12 +2609,12 @@ QData VL_NTOI_Q(int obits, const std::string& str) VL_PURE {
     }
     return out & VL_MASK_Q(obits);
 }
-void VL_NTOI_W(int obits, WDataOutP owp, const std::string& str, int truncFront) VL_PURE {
+void VL_NTOI_W(int obits, WDataOutP owp, const VlString& str, int truncFront) VL_PURE {
     // Could also be called VL_CVT_PACK_STR_WN; converts string to wide
     const int words = VL_WORDS_I(obits);
     for (int i = 0; i < words; ++i) owp[i] = 0;
-    const char* const datap = str.data();
-    int pos = static_cast<int>(str.length()) - 1 - truncFront;
+    const char* const datap = str.c_str();
+    int pos = static_cast<int>(str.str().length()) - 1 - truncFront;
     int bit = 0;
     while (bit < obits && pos >= 0) {
         owp[VL_BITWORD_I(bit)] |= static_cast<EData>(datap[pos]) << VL_BITBIT_I(bit);
@@ -2894,14 +2895,14 @@ void VL_READMEM_N(bool hex,  // Hex format, else binary
                   QData depth,  // Number of rows
                   int array_lsb,  // Index of first row. Valid row addresses
                   //              //  range from array_lsb up to (array_lsb + depth - 1)
-                  const std::string& filename,  // Input file name
+                  const VlString& filename,  // Input file name
                   void* memp,  // Array state
                   QData start,  // First array row address to read
                   QData end  // Last row address to read
                   ) VL_MT_SAFE {
     if (start < static_cast<QData>(array_lsb)) start = array_lsb;
 
-    VlReadMem rmem{hex, bits, filename, start, end};
+    VlReadMem rmem{hex, bits, filename.str(), start, end};
     if (VL_UNLIKELY(!rmem.isOpen())) return;
     while (true) {
         QData addr = 0;
@@ -2943,7 +2944,7 @@ void VL_WRITEMEM_N(bool hex,  // Hex format, else binary
                    QData depth,  // Number of rows
                    int array_lsb,  // Index of first row. Valid row addresses
                    //              //  range from array_lsb up to (array_lsb + depth - 1)
-                   const std::string& filename,  // Output file name
+                   const VlString& filename,  // Output file name
                    const void* memp,  // Array state
                    QData start,  // First array row address to write
                    QData end  // Last address to write, or ~0 when not specified
@@ -2957,7 +2958,7 @@ void VL_WRITEMEM_N(bool hex,  // Hex format, else binary
         return;
     }
 
-    VlWriteMem wmem{hex, bits, filename, start, end};
+    VlWriteMem wmem{hex, bits, filename.str(), start, end};
     if (VL_UNLIKELY(!wmem.isOpen())) return;
 
     const QData count = (descending ? start - end : end - start) + 1;
@@ -3087,11 +3088,11 @@ void VL_PRINTTIMESCALE(const char* namep, const char* timeunitp,
                  contextp->timeprecisionString());
 }
 void VL_TIMEFORMAT_IINI(bool hasUnits, int units, bool hasPrecision, int precision, bool hasSuffix,
-                        const std::string& suffix, bool hasWidth, int width,
+                        const VlString& suffix, bool hasWidth, int width,
                         VerilatedContext* contextp) VL_MT_SAFE {
     if (hasUnits) contextp->impp()->timeFormatUnits(units);
     if (hasPrecision) contextp->impp()->timeFormatPrecision(precision);
-    if (hasSuffix) contextp->impp()->timeFormatSuffix(suffix);
+    if (hasSuffix) contextp->impp()->timeFormatSuffix(suffix.str());
     if (hasWidth) contextp->impp()->timeFormatWidth(width);
 }
 

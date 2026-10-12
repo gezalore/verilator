@@ -661,7 +661,7 @@ TriggerKit TriggerKit::create(AstNetlist* netlistp,  //
         ifp->addThensp(cstmtp);
         cstmtp->add("VL_DBG_MSGS(\"         No '\" + ");
         cstmtp->add(rd(dumpTagp));
-        cstmtp->add(" + \"\' region triggers active\\n\");");
+        cstmtp->add(".str() + \"\' region triggers active\\n\");");
     }
 
     // Adds a debug dumping statement for this trigger
@@ -676,8 +676,8 @@ TriggerKit TriggerKit::create(AstNetlist* netlistp,  //
         ifp->addThensp(cstmtp);
         cstmtp->add("VL_DBG_MSGS(\"         '\" + ");
         cstmtp->add(rd(dumpTagp));
-        cstmtp->add(" + \"' region trigger index " + std::to_string(index) + " is active: " + text
-                    + "\\n\");");
+        cstmtp->add(".str() + \"' region trigger index " + std::to_string(index)
+                    + " is active: " + text + "\\n\");");
     };
 
     // Add sense trigger computation

@@ -433,7 +433,7 @@ public:
                 const std::string& base_name, size_t& idx_width) {
         // Convert the input string to its ASCII hexadecimal representation
         std::ostringstream oss;
-        for (unsigned char c : key) {
+        for (unsigned char c : key.str()) {
             oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
         }
         std::string hex_str = oss.str();
@@ -470,11 +470,18 @@ public:
 
     // Mark a variable as rand_mode-disabled: solver keeps it in m_vars
     // (so constraints still reference it) but skips write-back after solving.
-    void set_var_disabled(const std::string& name) { m_disabledVars.insert(name); }
+    void set_var_disabled(const VlString& name) { m_disabledVars.insert(name.str()); }
     // Clear disabled state for a variable
-    void clear_var_disabled(const std::string& name) { m_disabledVars.erase(name); }
+    void clear_var_disabled(const VlString& name) { m_disabledVars.erase(name.str()); }
 
     // ---  write_var to register variables  ---
+    // Register variable with name computed by generated code
+    template <typename T>
+    void write_var(T& var, int width, const VlString& name, int dimension,
+                   std::uint32_t randmodeIdx = std::numeric_limits<std::uint32_t>::max()) {
+        write_var(var, width, name.c_str(), dimension, randmodeIdx);
+    }
+
     // Register scalar variable (non-struct, basic type)
     template <typename T>
     typename std::enable_if<!VlContainsCustomStruct<T>::value && !IsVlUnpacked<T>::value,
@@ -600,8 +607,8 @@ public:
     // This is the "Sender" API for the generated code.
     // The elements to make distinct are taken from the array element table at
     // solve time, so a container resized by the solver is handled correctly.
-    void rand_unique(const std::string& name, const uint32_t key) {
-        m_uniqueArrays[key].insert(name);
+    void rand_unique(const VlString& name, const uint32_t key) {
+        m_uniqueArrays[key].insert(name.str());
     }
 
     // Recursively record all elements in an unpacked array
@@ -940,21 +947,21 @@ public:
         }
     }
 
-    void hard(std::string&& constraint, const char* filename = "", uint32_t linenum = 0,
+    void hard(const VlString& constraint, const char* filename = "", uint32_t linenum = 0,
               const char* source = "");
-    void soft(std::string&& constraint, const char* filename = "", uint32_t linenum = 0,
+    void soft(const VlString& constraint, const char* filename = "", uint32_t linenum = 0,
               const char* source = "");
     void pin_var(const char* name, int width, uint64_t value) {
         std::string constraint = "(__Vbv (= "s + name + " (_ bv" + std::to_string(value) + " "
                                  + std::to_string(width) + ")))";
-        hard(std::move(constraint));
+        hard(VlString{std::move(constraint)});
     }
-    void disable_soft(const std::string& varName);
+    void disable_soft(const VlString& varName);
     void clearConstraints();
     void clearAll();  // Clear both constraints and variables
-    void markRandc(const std::string& name);  // Mark variable as randc for cyclic tracking
-    void solveBefore(const std::string& beforeName,
-                     const std::string& afterName);  // Register solve-before ordering
+    void markRandc(const VlString& name);  // Mark variable as randc for cyclic tracking
+    void solveBefore(const VlString& beforeName,
+                     const VlString& afterName);  // Register solve-before ordering
     void set_randmode(const VlQueue<CData>& randmode) { m_randmodep = &randmode; }
     // Shared across all instances; consulted instead of m_randmodep for vars marked via
     // mark_var_static().

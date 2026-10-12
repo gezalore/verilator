@@ -1725,9 +1725,9 @@ bool VlRandomizer::parseModel(std::istream& is, size_t requested) {
     return true;
 }
 
-void VlRandomizer::hard(std::string&& constraint, const char* filename, uint32_t linenum,
+void VlRandomizer::hard(const VlString& constraint, const char* filename, uint32_t linenum,
                         const char* source) {
-    m_constraints.emplace_back(std::move(constraint));
+    m_constraints.emplace_back(constraint.str());
     // Format constraint location: "filename:linenum   source"
     if (filename[0] != '\0' || source[0] != '\0') {
         std::string line;
@@ -1741,17 +1741,18 @@ void VlRandomizer::hard(std::string&& constraint, const char* filename, uint32_t
     }
 }
 
-void VlRandomizer::soft(std::string&& constraint, const char* /*filename*/, uint32_t /*linenum*/,
+void VlRandomizer::soft(const VlString& constraint, const char* /*filename*/, uint32_t /*linenum*/,
                         const char* /*source*/) {
-    m_softConstraints.emplace_back(std::move(constraint));
+    m_softConstraints.emplace_back(constraint.str());
 }
 
-void VlRandomizer::disable_soft(const std::string& varName) {
+void VlRandomizer::disable_soft(const VlString& varName) {
     // IEEE 1800-2023 18.5.13: Remove all soft constraints referencing the variable
-    m_softConstraints.erase(
-        std::remove_if(m_softConstraints.begin(), m_softConstraints.end(),
-                       [&](const std::string& c) { return c.find(varName) != std::string::npos; }),
-        m_softConstraints.end());
+    m_softConstraints.erase(std::remove_if(m_softConstraints.begin(), m_softConstraints.end(),
+                                           [&](const std::string& c) {
+                                               return c.find(varName.str()) != std::string::npos;
+                                           }),
+                            m_softConstraints.end());
 }
 
 void VlRandomizer::clearConstraints() {
@@ -1772,10 +1773,10 @@ void VlRandomizer::clearAll() {
     m_randcConstraintHash = 0;
 }
 
-void VlRandomizer::markRandc(const std::string& name) { m_randcVarNames.insert(name); }
+void VlRandomizer::markRandc(const VlString& name) { m_randcVarNames.insert(name.str()); }
 
-void VlRandomizer::solveBefore(const std::string& beforeName, const std::string& afterName) {
-    m_solveBefore.emplace_back(beforeName, afterName);
+void VlRandomizer::solveBefore(const VlString& beforeName, const VlString& afterName) {
+    m_solveBefore.emplace_back(beforeName.str(), afterName.str());
 }
 
 bool VlRandomizer::buildSolveLayers(std::vector<std::vector<std::string>>& layersr) {

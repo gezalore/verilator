@@ -301,6 +301,15 @@ inline VerilatedDeserialize& operator>>(VerilatedDeserialize& os, std::string& r
     // cppcheck-suppress cstyleCast  // NOLINTNEXTLINE(google-readability-casting)
     return os.read((void*)(rhs.data()), len);
 }
+inline VerilatedSerialize& operator<<(VerilatedSerialize& os, const VlString& rhs) {
+    return os << rhs.str();
+}
+inline VerilatedDeserialize& operator>>(VerilatedDeserialize& os, VlString& rhs) {
+    std::string str;
+    os >> str;
+    rhs = VlString{std::move(str)};
+    return os;
+}
 VerilatedSerialize& operator<<(VerilatedSerialize& os, VerilatedContext* rhsp);
 VerilatedDeserialize& operator>>(VerilatedDeserialize& os, VerilatedContext* rhsp);
 

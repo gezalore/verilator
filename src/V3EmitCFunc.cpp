@@ -288,6 +288,12 @@ void EmitCFunc::displayNode(AstNode* nodep, AstSFormatF* fmtp,  // fmtp is nullp
         iterateConst(exprsp);
         emitDatap(exprsp);
         exprsp = exprsp->nextp();
+    } else if (isScan || vformat.find('\0') != std::string::npos) {
+        // Scan functions, and formats with NULs (which putsQuoted emits as a
+        // std::string literal), take the format as VlString
+        ofp()->puts("VlString{");
+        ofp()->putsQuoted(vformat);
+        ofp()->puts("}");
     } else {
         ofp()->putsQuoted(vformat);
     }
@@ -455,8 +461,8 @@ void EmitCFunc::emitConstant(AstConst* nodep) {
 }
 
 void EmitCFunc::emitConstantString(const AstConst* nodep) {
-    // Const might be a Verilog array-type string, but need to always output std::string
-    putnbs(nodep, "std::string{");
+    // Const might be a Verilog array-type string, but need to always output VlString
+    putnbs(nodep, "VlString{");
     const string str = nodep->num().toString();
     if (!str.empty()) putsQuoted(str);
     puts("}");

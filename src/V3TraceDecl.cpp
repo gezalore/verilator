@@ -406,7 +406,7 @@ class TraceDeclVisitor final : public VNVisitor {
         initp->add("if (!__VlibName.empty()) __VlibName += '.';\n");
         initp->add("__VlibName += ");
         initp->add(new AstConst{flp, AstConst::String{}, name});
-        initp->add(";\n");
+        initp->add(".str();\n");
         initp->add("tracep->initLib(__VlibName);\n");
         initp->add("}\n");
 

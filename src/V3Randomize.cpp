@@ -1006,7 +1006,7 @@ class ConstraintExprVisitor final : public VNVisitor {
         constraint += "))";
         AstCMethodHard* const callp = new AstCMethodHard{
             fl, new AstVarRef{fl, genModp, genVarp, VAccess::READWRITE}, VCMethod::RANDOMIZER_HARD,
-            new AstCExpr{fl, AstCExpr::Pure{}, "\"" + constraint + "\""}};
+            new AstConst{fl, AstConst::String{}, constraint}};
         callp->dtypeSetVoid();
         return callp;
     };
@@ -1126,21 +1126,21 @@ class ConstraintExprVisitor final : public VNVisitor {
         }
     }
 
-    // Build a C++ expression (as AstNodeExpr) that evaluates to a const char*
+    // Build a C++ expression (as AstNodeExpr) that evaluates to a VlString
     // containing the SMT variable name for a solve-before variable reference.
     // Handles simple vars, struct selects, and array element selects (for foreach).
     static AstCExpr* buildPathExpr(FileLine* const fl, const AstNodeExpr* nodep,
                                    const std::string selName) {
-        AstCExpr* const exprp = new AstCExpr{fl, ""};
+        AstCExpr* const exprp = new AstCExpr{fl, "VlString{"};
         buildNamePrefix(exprp, nodep);
         if (selName != "") {
             exprp->add(".");
             exprp->add(selName);
         }
-        exprp->add("\")");
+        exprp->add("\")}");
         return exprp;
     }
-    // Build a C++ expression (as AstNodeExpr) that evaluates to a const char*
+    // Build a C++ expression (as AstNodeExpr) that evaluates to a VlString
     // containing the SMT variable name for a solve-before variable reference.
     // Handles simple vars, member selects, and array element selects (for foreach).
     // Returns nullptr for unsupported expression types.
@@ -1148,9 +1148,9 @@ class ConstraintExprVisitor final : public VNVisitor {
     AstCExpr* buildArraySelNameExpr(FileLine* fl, const std::string& baseName,
                                     const AstNodeSel* selp) {
         AstCExpr* const p = new AstCExpr{fl, ""};
-        p->add("(\""s + baseName + ".\" + vlToSolverHex(");
+        p->add("VlString{\""s + baseName + ".\" + vlToSolverHex(");
         p->add(selp->bitp()->cloneTreePure(false));
-        p->add("))");
+        p->add(")}");
         p->dtypeSetString();
         return p;
     }
@@ -1164,7 +1164,8 @@ class ConstraintExprVisitor final : public VNVisitor {
 
     AstNodeExpr* buildSolveBeforeNameExpr(FileLine* fl, AstNodeExpr* exprp) {
         if (const AstVarRef* const varrefp = VN_CAST(exprp, VarRef)) {
-            AstCExpr* const p = new AstCExpr{fl, AstCExpr::Pure{}, "\"" + varrefp->name() + "\"s"};
+            AstCExpr* const p
+                = new AstCExpr{fl, AstCExpr::Pure{}, "VlString{\"" + varrefp->name() + "\"}"};
             p->dtypeSetString();
             return p;
         }
@@ -1181,16 +1182,17 @@ class ConstraintExprVisitor final : public VNVisitor {
                 }
                 if (baseName.empty()) return nullptr;
                 AstCExpr* const p = new AstCExpr{fl, ""};
-                p->add("(\""s + baseName + ".\" + vlToSolverHex(");
+                p->add("VlString{\""s + baseName + ".\" + vlToSolverHex(");
                 p->add(arrSelp->bitp()->cloneTreePure(false));
-                p->add("))");
+                p->add(")}");
                 p->dtypeSetString();
                 return p;
             }
             // Static member path (obj.field)
             if (const AstVarRef* const vp = VN_CAST(selFromp, VarRef)) {
                 const std::string path = vp->name() + "." + selName;
-                AstCExpr* const p = new AstCExpr{fl, AstCExpr::Pure{}, "\"" + path + "\"s"};
+                AstCExpr* const p
+                    = new AstCExpr{fl, AstCExpr::Pure{}, "VlString{\"" + path + "\"}"};
                 p->dtypeSetString();
                 return p;
             }
@@ -2784,7 +2786,7 @@ class ConstraintExprVisitor final : public VNVisitor {
             cstmtp->add("ret += \" \";\n");
             cstmtp->add("ret += ");
             cstmtp->add(itemp);
-            cstmtp->add(";");
+            cstmtp->add(".str();");
             AstNode* const bodyp = prependDistPreamble(nodep, cstmtp);
             AstCExpr* const cexprp = new AstCExpr{fl};
             cexprp->dtypeSetString();
@@ -2792,7 +2794,8 @@ class ConstraintExprVisitor final : public VNVisitor {
             cexprp->add(new AstBegin{fl, m_uniqueNames.get("__VrandBlock"),
                                      new AstForeach{fl, nodep->headerp()->unlinkFrBack(), bodyp},
                                      true});
-            cexprp->add("return ret.empty() ? \"#b1\" : \"(bvand\" + ret + \")\";\n})()");
+            cexprp->add(
+                "return VlString{ret.empty() ? \"#b1\" : \"(bvand\" + ret + \")\"};\n})()");
             nodep->replaceWith(new AstSFormatF{fl, "%s", false, cexprp});
         } else {
             iterateAndNextNull(nodep->bodyp());
@@ -3166,13 +3169,13 @@ class ConstraintExprVisitor final : public VNVisitor {
             cstmtp->add("ret += \" \";\n");
             cstmtp->add("ret += ");
             cstmtp->add(iterateSubtreeReturnEdits(itemp));
-            cstmtp->add(";");
+            cstmtp->add(".str();");
             AstCExpr* const cexprp = new AstCExpr{fl};
             cexprp->dtypeSetString();
             cexprp->add("([&]{\nstd::string ret;\n");
             cexprp->add(new AstBegin{fl, m_uniqueNames.get("__VrandBlock"),
                                      new AstForeach{fl, headerp, cstmtp}, true});
-            cexprp->add("return ret.empty() ? \"#b0\" : \"(bvor\" + ret + \")\";\n})()");
+            cexprp->add("return VlString{ret.empty() ? \"#b0\" : \"(bvor\" + ret + \")\"};\n})()");
             nodep->replaceWith(new AstSFormatF{fl, "%s", false, cexprp});
             VL_DO_DANGLING(nodep->deleteTree(), nodep);
             return;
@@ -3341,7 +3344,7 @@ class ConstraintExprVisitor final : public VNVisitor {
                 cstmtp->add("ret = \"(" + std::string(smtOp) + " \" + ret + \" \";\n");
                 cstmtp->add("ret += ");
                 cstmtp->add(iterateSubtreeReturnEdits(perElemExprp));
-                cstmtp->add(";\n");
+                cstmtp->add(".str();\n");
                 cstmtp->add("ret += \")\";\n");
             } else {
                 // Without 'with' clause: register each element as solver variable
@@ -3391,7 +3394,7 @@ class ConstraintExprVisitor final : public VNVisitor {
                 cstmtp->add("ret += \" \";\n");
                 cstmtp->add("ret += ");
                 cstmtp->add(varNamep);
-                cstmtp->add(";\n");
+                cstmtp->add(".str();\n");
             }
 
             // Build final expression
@@ -3402,7 +3405,7 @@ class ConstraintExprVisitor final : public VNVisitor {
                 cexprp->add("([&]{\nstd::string ret = \"" + identity + "\";\n");
                 cexprp->add(new AstBegin{fl, m_uniqueNames.get("__VrandBlock"),
                                          new AstForeach{fl, headerp, cstmtp}, true});
-                cexprp->add("return ret;\n})()");
+                cexprp->add("return VlString{ret};\n})()");
                 nodep->replaceWith(new AstSFormatF{fl, "%s", false, cexprp});
             } else {
                 // For without 'with' clause: use AstCExpr with conditional
@@ -3411,8 +3414,8 @@ class ConstraintExprVisitor final : public VNVisitor {
                 cexprp->add("([&]{\nstd::string ret;\n");
                 cexprp->add(new AstBegin{fl, m_uniqueNames.get("__VrandBlock"),
                                          new AstForeach{fl, headerp, cstmtp}, true});
-                cexprp->add("return ret.empty() ? \"" + identity + "\" : \"(" + smtOp
-                            + "\" + ret + \")\";\n})()");
+                cexprp->add("return VlString{ret.empty() ? \"" + identity + "\" : \"(" + smtOp
+                            + "\" + ret + \")\"};\n})()");
                 nodep->replaceWith(new AstSFormatF{fl, "%s", false, cexprp});
             }
             VL_DO_DANGLING(nodep->deleteTree(), nodep);

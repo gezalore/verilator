@@ -152,7 +152,8 @@ static void makeToStringMiddle(AstClass* nodep) {
         exprp = new AstCExpr{nodep->fileline(), "out"};
         exprp->dtypeSetString();
     } else {  // Nothing to print, return ""
-        exprp = new AstConst{nodep->fileline(), AstConst::String{}, ""};
+        exprp = new AstCExpr{nodep->fileline(), "std::string{}"};
+        exprp->dtypeSetString();
     }
     funcp->addStmtsp(new AstCReturn{nodep->fileline(), exprp});
 

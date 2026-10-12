@@ -69,22 +69,39 @@ class VlUnpacked;
 #endif
 
 //===================================================================
-/// SystemVerilog 'string'. A distinct type rather than std::string, so
-/// generated code can refer to it by an unqualified name (e.g. to call
-/// its destructor explicitly).
+/// SystemVerilog 'string'. All accesses to string values go through this
+/// class, so its representation is independent of std::string. There are
+/// no implicit conversions to or from other types.
 
-class VlString final : public std::string {
+class VlString final {
+    // MEMBERS
+    std::string m_str;  // Value
+
 public:
     // CONSTRUCTORS
-    using std::string::string;
     VlString() = default;
-    // Implicit, as the runtime library returns std::string
-    VlString(const std::string& str)
-        : std::string{str} {}
-    VlString(std::string&& str)
-        : std::string{std::move(str)} {}
+    explicit VlString(const char* strp)
+        : m_str{strp} {}
+    explicit VlString(const std::string& str)
+        : m_str{str} {}
+    explicit VlString(std::string&& str)
+        : m_str{std::move(str)} {}
+
     // METHODS
-    using std::string::operator=;
+    /// Value as a std::string
+    const std::string& str() const { return m_str; }
+    /// Value as a C string
+    const char* c_str() const { return m_str.c_str(); }
+    /// Set to the empty string
+    void clear() { m_str.clear(); }
+
+    // OPERATORS
+    bool operator==(const VlString& rhs) const { return m_str == rhs.m_str; }
+    bool operator!=(const VlString& rhs) const { return m_str != rhs.m_str; }
+    bool operator<(const VlString& rhs) const { return m_str < rhs.m_str; }
+    bool operator<=(const VlString& rhs) const { return m_str <= rhs.m_str; }
+    bool operator>(const VlString& rhs) const { return m_str > rhs.m_str; }
+    bool operator>=(const VlString& rhs) const { return m_str >= rhs.m_str; }
 };
 
 //===================================================================
@@ -254,7 +271,7 @@ extern std::string VL_TO_STRING(SData lhs);
 extern std::string VL_TO_STRING(IData lhs);
 extern std::string VL_TO_STRING(QData lhs);
 extern std::string VL_TO_STRING(double lhs);
-extern std::string VL_TO_STRING(const std::string& obj) VL_PURE;
+extern std::string VL_TO_STRING(const VlString& obj) VL_PURE;
 template <std::size_t N_Words>
 inline std::string VL_TO_STRING(const VlWide<N_Words>& obj) {
     return VL_TO_STRING_W(N_Words, obj);
@@ -309,8 +326,8 @@ public:
     VlRNG() VL_MT_SAFE;
     explicit VlRNG(uint64_t seed) VL_PURE;
     void srandom(uint64_t n) VL_MT_UNSAFE;
-    std::string get_randstate() const VL_MT_UNSAFE;
-    void set_randstate(const std::string& state) VL_MT_UNSAFE;
+    VlString get_randstate() const VL_MT_UNSAFE;
+    void set_randstate(const VlString& state) VL_MT_UNSAFE;
     uint64_t rand64() VL_MT_UNSAFE;
     // Threadsafe, but requires use on vl_thread_rng or vl_current_rng
     static uint64_t vl_thread_rng_rand64() VL_MT_SAFE;
@@ -327,7 +344,7 @@ public:
         VlRNG::srandom(n);
         ++m_reseeds;
     }
-    void set_randstate(const std::string& state) VL_MT_UNSAFE {
+    void set_randstate(const VlString& state) VL_MT_UNSAFE {
         VlRNG::set_randstate(state);
         ++m_reseeds;
     }
@@ -429,8 +446,8 @@ public:
 
     // Random state (IEEE 1800-2023 9.7, 18.14)
     void srandom(uint64_t seed) VL_MT_UNSAFE { m_rng.srandom(seed); }
-    std::string randstate() const VL_MT_UNSAFE;
-    void randstate(const std::string& state) VL_MT_UNSAFE;
+    VlString randstate() const VL_MT_UNSAFE;
+    void randstate(const VlString& state) VL_MT_UNSAFE;
 
     // Current process tracking for hierarchical object seeding
     static VlProcess* currentp() VL_MT_UNSAFE { return t_currentp; }
@@ -1461,9 +1478,9 @@ template <typename T_Key, typename T_Value>
 struct VlContainsCustomStruct<VlAssocArray<T_Key, T_Value>> : VlContainsCustomStruct<T_Value> {};
 
 template <typename T_Key, typename T_Value>
-void VL_READMEM_N(bool hex, int bits, const std::string& filename,
-                  VlAssocArray<T_Key, T_Value>& obj, QData start, QData end) VL_MT_SAFE {
-    VlReadMem rmem{hex, bits, filename, start, end};
+void VL_READMEM_N(bool hex, int bits, const VlString& filename, VlAssocArray<T_Key, T_Value>& obj,
+                  QData start, QData end) VL_MT_SAFE {
+    VlReadMem rmem{hex, bits, filename.str(), start, end};
     if (VL_UNLIKELY(!rmem.isOpen())) return;
     while (true) {
         QData addr;
@@ -1477,9 +1494,9 @@ void VL_READMEM_N(bool hex, int bits, const std::string& filename,
 }
 
 template <typename T_Key, typename T_Value>
-void VL_WRITEMEM_N(bool hex, int bits, const std::string& filename,
+void VL_WRITEMEM_N(bool hex, int bits, const VlString& filename,
                    const VlAssocArray<T_Key, T_Value>& obj, QData start, QData end) VL_MT_SAFE {
-    VlWriteMem wmem{hex, bits, filename, start, end};
+    VlWriteMem wmem{hex, bits, filename.str(), start, end};
     if (VL_UNLIKELY(!wmem.isOpen())) return;
     const QData lo = std::min(start, end);
     const QData hi = std::max(start, end);
