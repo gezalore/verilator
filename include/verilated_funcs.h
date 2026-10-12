@@ -1843,8 +1843,8 @@ inline VlQueue<T> VL_STREAMR_RRI(int lbits, const VlQueue<T> q, IData rd) VL_MT_
     return q;
 }
 
-inline VlQueue<std::string> VL_STREAMR_NRI(int lbits, const VlQueue<std::string> q,
-                                           IData rd) VL_MT_SAFE {
+inline VlQueue<VlString> VL_STREAMR_NRI(int lbits, const VlQueue<VlString> q,
+                                        IData rd) VL_MT_SAFE {
     return q;
 }
 
@@ -3658,7 +3658,7 @@ extern IData VL_DIST_UNIFORM(IData& seedr, IData ustart, IData uend) VL_MT_SAFE;
 // Conversion functions
 
 extern std::string VL_CVT_PACK_STR_NW(int lwords, const WDataInP lwp) VL_PURE;
-extern std::string VL_CVT_PACK_STR_ND(const VlQueue<std::string>& q) VL_PURE;
+extern std::string VL_CVT_PACK_STR_ND(const VlQueue<VlString>& q) VL_PURE;
 inline std::string VL_CVT_PACK_STR_NQ(QData lhs) VL_PURE {
     VlWide<VL_WQ_WORDS_E> lw;
     VL_SET_WQ(lw, lhs);

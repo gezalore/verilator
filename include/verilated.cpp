@@ -2554,7 +2554,7 @@ std::string VL_CVT_PACK_STR_NW(int lwords, const WDataInP lwp) VL_PURE {
     return result;
 }
 
-std::string VL_CVT_PACK_STR_ND(const VlQueue<std::string>& q) VL_PURE {
+std::string VL_CVT_PACK_STR_ND(const VlQueue<VlString>& q) VL_PURE {
     std::string output;
     for (const std::string& s : q) output += s;
     return output;

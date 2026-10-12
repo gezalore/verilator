@@ -69,6 +69,25 @@ class VlUnpacked;
 #endif
 
 //===================================================================
+/// SystemVerilog 'string'. A distinct type rather than std::string, so
+/// generated code can refer to it by an unqualified name (e.g. to call
+/// its destructor explicitly).
+
+class VlString final : public std::string {
+public:
+    // CONSTRUCTORS
+    using std::string::string;
+    VlString() = default;
+    // Implicit, as the runtime library returns std::string
+    VlString(const std::string& str)
+        : std::string{str} {}
+    VlString(std::string&& str)
+        : std::string{std::move(str)} {}
+    // METHODS
+    using std::string::operator=;
+};
+
+//===================================================================
 /// Verilog wide packed bit container.
 /// Similar to std::array<EData, N>, but lighter weight, only methods needed
 /// by Verilator, to help compile time.

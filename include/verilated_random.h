@@ -120,7 +120,7 @@ struct VlRandomAssocKeyWidths final {
 template <typename T_Key, typename T_Value>
 struct VlRandomAssocKeyWidths<VlAssocArray<T_Key, T_Value>> final {
     static void push(std::vector<size_t>& widths) {
-        widths.push_back(std::is_same<T_Key, std::string>::value ? 128 : sizeof(T_Key) * 8);
+        widths.push_back(std::is_same<T_Key, VlString>::value ? 128 : sizeof(T_Key) * 8);
         VlRandomAssocKeyWidths<T_Value>::push(widths);
     }
 };
@@ -428,7 +428,7 @@ public:
 
     // process_key: Handle string key, encoded as 128-bit hex
     template <typename T_Key>
-    typename std::enable_if<std::is_same<T_Key, std::string>::value>::type
+    typename std::enable_if<std::is_same<T_Key, VlString>::value>::type
     process_key(const T_Key& key, std::string& indexed_name, std::vector<size_t>& integral_index,
                 const std::string& base_name, size_t& idx_width) {
         // Convert the input string to its ASCII hexadecimal representation
@@ -459,7 +459,7 @@ public:
     // process_key: Unsupported key type fallback
     template <typename T_Key>
     typename std::enable_if<!std::is_integral<T_Key>::value
-                            && !std::is_same<T_Key, std::string>::value
+                            && !std::is_same<T_Key, VlString>::value
                             && !VlIsVlWide<T_Key>::value>::type
     process_key(const T_Key& key, std::string& indexed_name, std::vector<size_t>& integral_index,
                 const std::string& base_name, size_t& idx_width) {
