@@ -1157,14 +1157,14 @@ void _vl_vsformat(std::string& output, const std::string& format, int argc,
             // Similar code flow in V3Number::displayed
             int lbits = 0;
             void* thingp = nullptr;
-            const std::string* enump = nullptr;
+            const VlString* enump = nullptr;
             QData ld = 0;
             std::vector<EData> strwide;
             WDataInP lwp{nullptr};
             int lsb = 0;
             double real = 0.0;
             if (formatAttr == VL_VFORMATATTR_COMPLEX) {  // printed as string
-                thingp = va_arg(ap, std::string*);
+                thingp = va_arg(ap, VlString*);
                 if (fmt != 'p') fmt = 's';  // Override
             } else if (formatAttr == VL_VFORMATATTR_DOUBLE) {
                 real = va_arg(ap, double);
@@ -1176,7 +1176,7 @@ void _vl_vsformat(std::string& output, const std::string& format, int argc,
                 lbits = 64;
                 // Not changint fmt == 'p' to fmt = 'g', as need fmts correct
             } else if (formatAttr == VL_VFORMATATTR_STRING) {
-                thingp = va_arg(ap, std::string*);
+                thingp = va_arg(ap, VlString*);
                 if (fmt != 'p' && fmt != 'x') fmt = 's';  // Override
             } else if (formatAttr == VL_VFORMATATTR_ENUM
                        || formatAttr == VL_VFORMATATTR_ENUM_SIGNED) {
@@ -1197,12 +1197,12 @@ void _vl_vsformat(std::string& output, const std::string& format, int argc,
                 lsb = lbits - 1;
                 ++argn;  // Enum value is followed by the generated name string argument
                 static_cast<void>(va_arg(ap, int));  // VL_VFORMATATTR_STRING
-                enump = va_arg(ap, std::string*);
+                enump = va_arg(ap, VlString*);
                 if (fmt != 'p' && fmt != 's') {
                     formatAttr = numericAttr;
                 } else if (enump && !enump->empty()) {
                     formatAttr = (fmt == 'p') ? VL_VFORMATATTR_COMPLEX : VL_VFORMATATTR_STRING;
-                    thingp = const_cast<std::string*>(enump);
+                    thingp = const_cast<VlString*>(enump);
                 } else if (fmt == 'p' && widthSet && width == 0) {
                     output += "'h";
                     fmt = 'h';
@@ -1266,7 +1266,7 @@ void _vl_vsformat(std::string& output, const std::string& format, int argc,
             }
             case 's': {
                 if (thingp) {  // VNumber::STRING Verilog 'string'
-                    const std::string* const strp = static_cast<const std::string*>(thingp);
+                    const VlString* const strp = static_cast<const VlString*>(thingp);
                     std::string padding;
                     if (width > strp->size()) padding.append(width - strp->size(), ' ');
                     output += left ? (*strp + padding) : (padding + *strp);
@@ -1291,10 +1291,10 @@ void _vl_vsformat(std::string& output, const std::string& format, int argc,
                     _vl_snprintf_string(t_tmp, "%g", real);
                     output += t_tmp;
                 } else if (formatAttr == VL_VFORMATATTR_STRING) {
-                    const std::string* const strp = static_cast<const std::string*>(thingp);
+                    const VlString* const strp = static_cast<const VlString*>(thingp);
                     output += VL_TO_STRING(*strp);
                 } else if (formatAttr == VL_VFORMATATTR_COMPLEX) {
-                    const std::string* const strp = static_cast<const std::string*>(thingp);
+                    const VlString* const strp = static_cast<const VlString*>(thingp);
                     output += *strp;
                 }
                 break;
@@ -1374,7 +1374,7 @@ void _vl_vsformat(std::string& output, const std::string& format, int argc,
                 if (formatAttr == VL_VFORMATATTR_STRING) {
                     // V3Width errors on const %x of string, but V3Randomize may make a %x on a
                     // string, or may have a runtime format
-                    const std::string* const strp = static_cast<const std::string*>(thingp);
+                    const VlString* const strp = static_cast<const VlString*>(thingp);
                     const int chars = static_cast<int>(strp->size());
                     int truncFront = widthSet ? (chars - (static_cast<int>(width) / 2)) : 0;
                     if (truncFront < 0) truncFront = 0;
@@ -1808,7 +1808,7 @@ IData _vl_vsscanf(FILE* fp,  // If a fscanf
                     double* const p = static_cast<double*>(thingp);
                     *p = real;
                 } else if (formatAttr == VL_VFORMATATTR_STRING) {
-                    std::string* const p = static_cast<std::string*>(thingp);
+                    VlString* const p = static_cast<VlString*>(thingp);
                     *p = t_tmp;
                 } else if (obits <= VL_BYTESIZE) {
                     CData* const p = static_cast<CData*>(thingp);

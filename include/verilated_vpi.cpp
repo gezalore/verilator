@@ -283,9 +283,9 @@ public:
         VL_DEBUG_IFDEF(assert(varp()->vltype() == VLVT_REAL););
         return static_cast<double*>(readDatap());
     }
-    std::string* readStringDatap() const {
+    VlString* readStringDatap() const {
         VL_DEBUG_IFDEF(assert(varp()->vltype() == VLVT_STRING););
-        return static_cast<std::string*>(readDatap());
+        return static_cast<VlString*>(readDatap());
     }
     virtual uint32_t bitOffset() const { return m_varp->bitOffset(); }
     virtual int32_t partselBits() const { return -1; }

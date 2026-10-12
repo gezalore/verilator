@@ -461,12 +461,12 @@ using ssize_t = uint32_t;  ///< signed size_t; returned from read()
 // (...) indicates what is passed as arguments in emitted code
 #define VL_VFORMATATTR_UNSIGNED '#'  // (int widthMin, IData/VlWide/etc) Use standard format
 #define VL_VFORMATATTR_SIGNED '~'  // (int widthMin, IData/VlWide/etc) Signed number; for %d showing sign
-#define VL_VFORMATATTR_COMPLEX '!'  // (std::string*); for non-POD; e.g. struct, requires %p typically
+#define VL_VFORMATATTR_COMPLEX '!'  // (VlString*); for non-POD; e.g. struct, requires %p typically
 #define VL_VFORMATATTR_DOUBLE 'D'  // (double); promote %p to %f
-#define VL_VFORMATATTR_ENUM 'E'  // (width, IData/QData/const EData*, STRING, std::string* name)
+#define VL_VFORMATATTR_ENUM 'E'  // (width, IData/QData/const EData*, STRING, VlString* name)
 #define VL_VFORMATATTR_ENUM_SIGNED 'F'  // Same arguments as ENUM, with a signed numeric value
 #define VL_VFORMATATTR_SCOPE 'M'  // (char* name, char* scope); for scopes
-#define VL_VFORMATATTR_STRING 'S'  // (char* name, char* scope); for scopes  // (std::string*); for %p/%s
+#define VL_VFORMATATTR_STRING 'S'  // (char* name, char* scope); for scopes  // (VlString*); for %p/%s
 #define VL_VFORMATATTR_TIMEUNIT 'T'  // (int timeunit); timeunits passed from V3Emit to runtime
 
 //=========================================================================
