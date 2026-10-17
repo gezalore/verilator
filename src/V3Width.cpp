@@ -2526,6 +2526,7 @@ class WidthVisitor final : public VNVisitor {
         userIterateAndNext(nodep->fromp(), WidthVP{SELF, BOTH}.p());
         // Type set in constructor
     }
+    void visit(AstCvtUnpackedToUnpacked* nodep) override {}  // Widthed when created
     void visit(AstTimeImport* nodep) override {
         // LHS is a real number in seconds
         // Need to round to time units and precision
@@ -3139,7 +3140,9 @@ class WidthVisitor final : public VNVisitor {
                                               nodep->fromp()->unlinkFrBack()},
                                 new AstConst{fl, AstConst::Signed32{}, 1}},
                 new AstConst{fl, AstConst::Signed32{}, 0}};
-        } else if (castable == VCastable::SAMEISH || castable == VCastable::COMPATIBLE) {
+        } else if ((castable == VCastable::SAMEISH || castable == VCastable::COMPATIBLE)
+                   // Unsupported: the static cast below has no lowering for unpacked arrays
+                   && !VN_IS(toDtp, UnpackArrayDType)) {
             nodep->v3warn(CASTCONST, "$cast will always return one as "
                                          << toDtp->prettyDTypeNameQ()
                                          << " is always castable from "
@@ -3786,9 +3789,7 @@ class WidthVisitor final : public VNVisitor {
         // InitArray has type of the array; children are array values
         assertAtExpr(nodep);
         if (m_vup->prelim()) {  // First stage evaluation
-            AstNodeDType* const vdtypep = m_vup->dtypeNullp();
-            // A whole array of interfaces keeps its type, for its connections to be checked
-            if (vdtypep && !isIfaceArrayDType(nodep->dtypep())) nodep->retypeOrdered(vdtypep);
+            // Keeps its type, an assignment to a reversed array converts it
             const AstNodeDType* const arrayp = nodep->dtypep()->skipRefp();
             if (VN_IS(arrayp, NodeArrayDType)) {
                 userIterateChildren(nodep,
@@ -6206,10 +6207,10 @@ class WidthVisitor final : public VNVisitor {
         if (!valuep->dtypep()) userIterate(valuep, WidthVP{SELF, BOTH}.p());
         bool wholeElement = unpackedStruct;
         if (AstNodeDType* const valueDTypep = valuep->dtypep()) {
+            // An array value only if of the matching type, else it applies to its elements
+            // (IEEE 1800-2023 10.9.1)
             wholeElement = unpackedStruct ? !valueDTypep->skipRefp()->isIntegralOrPacked()
-                                          : AstNode::computeCastable(valueDTypep->skipRefp(),
-                                                                     elemDTypeSkipRefp, nullptr)
-                                                .isAssignable();
+                                          : valueDTypep->similarDType(elemDTypeSkipRefp);
         }
         if (wholeElement) {
             VL_DO_DANGLING(pushDeletep(valuep), valuep);
@@ -7689,7 +7690,8 @@ class WidthVisitor final : public VNVisitor {
                     UINFO(1, "    Related lo: " << modDTypep);
                     UINFO(1, "    Related hi: " << conDTypep);
                 }
-                iterateCheckAssign(nodep, "pin connection", nodep->exprp(), FINAL, subDTypep);
+                iterateCheckAssign(nodep, "pin connection", nodep->exprp(), FINAL, subDTypep,
+                                   nodep->modVarp()->direction().pinAccess());
             }
             // Interface array port: connect its elements
             if (nodep->modVarp()->isIfaceArraySplit()) expandIfaceArrayPin(nodep);
@@ -8868,6 +8870,8 @@ class WidthVisitor final : public VNVisitor {
                     VL_DO_DANGLING(pushDeletep(nodep), nodep);
                     return;
                 }
+                // Elements are compared by their left-to-right order, as when assigned (7.4.6)
+                convertUnpackedOrder(nodep->rhsp(), nodep->lhsp()->dtypep());
             } else if (nodep->lhsp()->isDouble() || nodep->rhsp()->isDouble()) {
                 if (cmpType == ComparisonType::WILD) {
                     nodep->v3error("Real is illegal operand to ?== operator");
@@ -9880,6 +9884,17 @@ class WidthVisitor final : public VNVisitor {
         // UINFOTREE(1, parentp, "", "checkout");
         (void)rhsp;  // cppcheck
     }
+    // Convert an unpacked array value to an equivalent type with some dimension reversed,
+    // keeping elements in left-to-right order (IEEE 1800-2023 7.6)
+    AstNodeExpr* convertUnpackedOrder(AstNodeExpr* exprp, AstNodeDType* dtypep) {
+        const AstUnpackArrayDType* const arrayp = VN_CAST(dtypep->skipRefp(), UnpackArrayDType);
+        if (!arrayp || !arrayp->isReverseOf(exprp->dtypep())) return exprp;
+        VNRelinker relinker;
+        exprp->unlinkFrBack(&relinker);
+        AstNodeExpr* const newp = new AstCvtUnpackedToUnpacked{exprp->fileline(), exprp, dtypep};
+        relinker.relink(newp);
+        return newp;
+    }
 
     void iterateCheckBool(AstNode* parentp, const char* side, AstNode* underp, Stage stage) {
         UASSERT_OBJ(stage == BOTH, parentp,
@@ -10105,6 +10120,13 @@ class WidthVisitor final : public VNVisitor {
                 // Hope it just works out (perhaps a cast will deal with it)
                 underp = userIterateSubtreeReturnEdits(
                     underp, WidthVP{expDTypep, FINAL, childStreamUse}.p());
+            }
+        }
+        // A value read is converted as assigned, written ones are converted by
+        // V3Inst/V3Task where the data flows back
+        if (rhsAccess.isReadOnly()) {
+            if (AstNodeExpr* const exprp = VN_CAST(underp, NodeExpr)) {
+                underp = convertUnpackedOrder(exprp, expDTypep);
             }
         }
         return underp;

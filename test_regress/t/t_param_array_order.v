@@ -92,6 +92,18 @@ module t;
   localparam s_t LES[1:0] = BES;
   localparam be_t BE_DEFAULT = '{1: 7, default: 9};
   localparam le_t LE_DEFAULT = BE_DEFAULT;
+  // Reversed pattern elements and members
+  localparam le2_t PATTERN2 = '{be3_t'{1, 2, 3}, be3_t'{4, 5, 6}};
+  typedef struct {int a[3:0];} sle_t;
+  localparam sle_t SMEMBER = '{a: BE};
+  localparam be_t BE_B = '{50, 51, 52, 53};
+  localparam le_t KEYED[2] = '{1: BE, 0: BE_B};
+  // Comparisons, equal by position, and equal only by offset
+  localparam bit EQ_POS = COPY == BE;
+  localparam le_t LE_SAMEOFF = '{13, 12, 11, 10};
+  localparam bit EQ_OFF = LE_SAMEOFF == BE;
+  // A conditional of reversed operands
+  localparam le_t CONDP = 1'b1 ? BE : COPY;
 
   sub #(.LE(BE)) u_sub ();
 
@@ -121,6 +133,18 @@ module t;
     `checkd(LES[0].a[1], 5);
     `checkd(LE_DEFAULT[2], 7);
     `checkd(LE_DEFAULT[1], 9);
+    `checkd(PATTERN2[1][2], 1);
+    `checkd(PATTERN2[1][0], 3);
+    `checkd(PATTERN2[0][0], 6);
+    `checkd(SMEMBER.a[3], 10);
+    `checkd(SMEMBER.a[0], 13);
+    `checkd(KEYED[1][3], 10);
+    `checkd(KEYED[0][3], 50);
+    `checkd(KEYED[0][0], 53);
+    `checkd(EQ_POS, 1'b1);
+    `checkd(EQ_OFF, 1'b0);
+    `checkd(CONDP[3], 10);
+    `checkd(CONDP[0], 13);
     $write("*-* All Finished *-*\n");
     $finish;
   end
