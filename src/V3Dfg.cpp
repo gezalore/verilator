@@ -36,6 +36,160 @@ DfgGraph::~DfgGraph() {
     forEachVertex([&](DfgVertex& vtx) { vtx.unlinkDelete(*this); });
 }
 
+std::unique_ptr<DfgGraph> DfgGraph::clone() const {
+    // Create the new graph
+    DfgGraph* const clonep = new DfgGraph{m_ctx, name()};
+
+    // Map from original vertex to clone
+    std::unordered_map<const DfgVertex*, DfgVertex*> vtxp2clonep(size() * 2);
+
+    // Clone constVertices
+    for (const DfgConst& vtx : m_constVertices) {
+        DfgConst* const cp = new DfgConst{*clonep, vtx.fileline(), vtx.num()};
+        vtxp2clonep.emplace(&vtx, cp);
+    }
+    // Clone variable vertices
+    for (const DfgVertexVar& vtx : m_varVertices) {
+        const DfgVertexVar* const vp = vtx.as<DfgVertexVar>();
+        DfgVertexVar* cp = nullptr;
+
+        switch (vtx.type()) {
+        case VDfgType::VarArray: {
+            cp = new DfgVarArray{*clonep, vp->vscp()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        case VDfgType::VarPacked: {
+            cp = new DfgVarPacked{*clonep, vp->vscp()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        default: {  // LCOV_EXCL_START
+            vtx.v3fatalSrc("Unhandled variable vertex type: " + vtx.typeName());
+            VL_UNREACHABLE;
+            break;
+        }  // LCOV_EXCL_STOP
+        }
+
+        if (AstVarScope* const tmpForp = vp->tmpForp()) cp->tmpForp(tmpForp);
+        cp->driverFileLine(vp->driverFileLine());
+    }
+    // Clone ast reference vertices
+    for (const DfgVertexAst& vtx : m_astVertices) {
+        switch (vtx.type()) {
+        case VDfgType::AstRd: {
+            const DfgAstRd* const vp = vtx.as<DfgAstRd>();
+            DfgAstRd* const cp = new DfgAstRd{*clonep, vp->exprp(), vp->inSenItem(), vp->inLoop()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        default: {  // LCOV_EXCL_START
+            vtx.v3fatalSrc("Unhandled ast reference vertex type: " + vtx.typeName());
+            VL_UNREACHABLE;
+            break;
+        }  // LCOV_EXCL_STOP
+        }
+    }
+    // Clone operation vertices
+    for (const DfgVertex& vtx : m_opVertices) {
+        switch (vtx.type()) {
+#include "V3Dfg__gen_clone_cases.h"  // From ./astgen
+        case VDfgType::CReset: {
+            DfgCReset* const cp = new DfgCReset{*clonep, vtx.fileline(), vtx.dtype()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        case VDfgType::Prev: {
+            DfgPrev* const cp = new DfgPrev{*clonep, vtx.as<DfgPrev>()->vscp()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        case VDfgType::MatchMasked: {
+            DfgMatchMasked* const cp = new DfgMatchMasked{*clonep, vtx.fileline(), vtx.dtype()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        case VDfgType::Sel: {
+            DfgSel* const cp = new DfgSel{*clonep, vtx.fileline(), vtx.dtype()};
+            cp->lsb(vtx.as<DfgSel>()->lsb());
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        case VDfgType::Rep: {
+            DfgRep* const cp = new DfgRep{*clonep, vtx.fileline(), vtx.dtype()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        case VDfgType::UnitArray: {
+            DfgUnitArray* const cp = new DfgUnitArray{*clonep, vtx.fileline(), vtx.dtype()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        case VDfgType::Mux: {
+            DfgMux* const cp = new DfgMux{*clonep, vtx.fileline(), vtx.dtype()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        case VDfgType::SpliceArray: {
+            DfgSpliceArray* const cp = new DfgSpliceArray{*clonep, vtx.fileline(), vtx.dtype()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        case VDfgType::SplicePacked: {
+            DfgSplicePacked* const cp = new DfgSplicePacked{*clonep, vtx.fileline(), vtx.dtype()};
+            vtxp2clonep.emplace(&vtx, cp);
+            break;
+        }
+        case VDfgType::Logic:  // LCOV_EXCL_START
+        case VDfgType::Unresolved: {
+            vtx.v3fatalSrc("Cannot clone " + vtx.typeName());
+            VL_UNREACHABLE;
+            break;
+        }
+        case VDfgType::AstRd:
+        case VDfgType::Const:
+        case VDfgType::VarArray:
+        case VDfgType::VarPacked: {
+            vtx.v3fatalSrc("Vertex should have been handled above: " + vtx.typeName());
+            VL_UNREACHABLE;
+            break;
+        }  // LCOV_EXCL_STOP
+        }
+    }
+    UASSERT(size() == clonep->size(), "Size of clone should be the same");
+
+    // Constants have no inputs
+    // Hook up inputs of cloned variables
+    for (const DfgVertexVar& vtx : m_varVertices) {
+        DfgVertexVar* const cp = vtxp2clonep.at(&vtx)->as<DfgVertexVar>();
+        if (const DfgVertex* const srcp = vtx.srcp()) cp->srcp(vtxp2clonep.at(srcp));
+        if (const DfgVertex* const defp = vtx.defaultp()) cp->defaultp(vtxp2clonep.at(defp));
+    }
+    // Hook up inputs of cloned ast references
+    for (const DfgVertexAst& vtx : m_astVertices) {
+        const DfgAstRd* const vp = vtx.as<DfgAstRd>();
+        DfgAstRd* const cp = vtxp2clonep.at(vp)->as<DfgAstRd>();
+        if (const DfgVertex* const srcp = vp->srcp()) cp->srcp(vtxp2clonep.at(srcp));
+    }
+    // Hook up inputs of cloned operation vertices
+    for (const DfgVertex& vtx : m_opVertices) {
+        if (const DfgVertexSplice* const vp = vtx.cast<DfgVertexSplice>()) {
+            DfgVertexSplice* const cp = vtxp2clonep.at(vp)->as<DfgVertexSplice>();
+            vp->foreachDriver([&](const DfgVertex& src, uint32_t lo, FileLine* flp) {
+                cp->addDriver(vtxp2clonep.at(&src), lo, flp);
+                return false;
+            });
+            continue;
+        }
+        DfgVertex* const cp = vtxp2clonep.at(&vtx);
+        for (size_t i = 0; i < vtx.nInputs(); ++i) {
+            cp->inputp(i, vtxp2clonep.at(vtx.inputp(i)));
+        }
+    }
+
+    return std::unique_ptr<DfgGraph>{clonep};
+}
+
 void DfgGraph::mergeGraphs(std::vector<std::unique_ptr<DfgGraph>>&& otherps) {
     if (otherps.empty()) return;
 

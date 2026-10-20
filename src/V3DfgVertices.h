@@ -57,6 +57,11 @@ class DfgVertexVar VL_NOT_FINAL : public DfgVertex {
     // input AstVarScope.
     AstVarScope* m_tmpForp = nullptr;
 
+public:
+    // Increments of the AstVarScope::user1 counters, see V3DfgOptimizer
+    static constexpr uint64_t PREV_COUNT_ONE = 1ULL << 6;  // DfgPrev instances
+    static constexpr uint64_t VAR_COUNT_ONE = 1ULL << 32;  // DfgVertexVar instances
+
 protected:
     DfgVertexVar(DfgGraph& dfg, VDfgType type, AstVarScope* vscp)
         : DfgVertex{dfg,
@@ -67,15 +72,15 @@ protected:
                     2}
         , m_vscp{vscp} {
         // Increment reference count
-        m_vscp->user1(m_vscp->user1() + 0x40);
-        UASSERT_OBJ((m_vscp->user1() >> 6) > 0, m_vscp, "Reference count overflow");
+        m_vscp->user1(m_vscp->user1() + VAR_COUNT_ONE);
+        UASSERT_OBJ(m_vscp->user1() >= VAR_COUNT_ONE, m_vscp, "Reference count overflow");
     }
 
 public:
     ~DfgVertexVar() {
         // Decrement reference count
-        UASSERT_OBJ(m_vscp->user1() >= 0x40, m_vscp, "Reference count underflow");
-        m_vscp->user1(m_vscp->user1() - 0x40);
+        UASSERT_OBJ(m_vscp->user1() >= VAR_COUNT_ONE, m_vscp, "Reference count underflow");
+        m_vscp->user1(m_vscp->user1() - VAR_COUNT_ONE);
     }
     ASTGEN_MEMBERS_DfgVertexVar;
 
@@ -106,7 +111,7 @@ public:
     void driverFileLine(FileLine* flp) { m_driverFileLine = flp; }
 
     // Variable referenced from other DFG in the same module/netlist
-    bool hasDfgRefs() const { return m_vscp->user1() >> 7; }  // I.e.: (nodep()->user1() >> 6) > 1
+    bool hasDfgRefs() const { return m_vscp->user1() >= 2 * VAR_COUNT_ONE; }
 
     // Variable referenced from Ast code in the same module/netlist
     static bool hasModWrRefs(const AstVarScope* nodep) { return nodep->user1() & 0x08; }
@@ -127,8 +132,20 @@ public:
     static bool hasRWRefs(const AstVarScope* nodep) { return nodep->user1() & 0x10; }
     static void setHasRWRefs(AstVarScope* nodep) { nodep->user1(nodep->user1() | 0x10); }
 
+    // Variable only read externally by run time model descriptors
+    static bool hasRtmdOnlyRdRefs(const AstVarScope* nodep) { return nodep->user1() & 0x20; }
+    static void setHasRtmdOnlyRdRefs(AstVarScope* nodep) { nodep->user1(nodep->user1() | 0x20); }
+    bool hasRtmdOnlyRdRefs() const { return hasRtmdOnlyRdRefs(m_vscp); }
+    // Hide or reveal reads by run time model descriptors, if those are the only external reads
+    void hideRtmdOnlyRdRefs(bool hide) {
+        if (!hasRtmdOnlyRdRefs()) return;
+        m_vscp->user1(hide ? m_vscp->user1() & ~0x01ULL : m_vscp->user1() | 0x01);
+    }
+
     // There exists a DfgPrev vertex for this variable
-    static bool hasPrev(const AstVarScope* nodep) { return nodep->user1() & 0x20; }
+    static bool hasPrev(const AstVarScope* nodep) {
+        return nodep->user1() & (VAR_COUNT_ONE - PREV_COUNT_ONE);
+    }
     bool hasPrev() const { return hasPrev(m_vscp); }
 
     // True iff this variable is consumed without an explicit sink: its value is read outside
@@ -192,11 +209,11 @@ public:
                     nullptr,
                     0}
         , m_vscp{vscp} {
-        UASSERT_OBJ(!DfgVertexVar::hasPrev(vscp), vscp, "Variable already has a DfgPrev");
-        m_vscp->user1(m_vscp->user1() | 0x20);  // Mark having a DfgPrev
+        m_vscp->user1(m_vscp->user1() + DfgVertexVar::PREV_COUNT_ONE);
     }
     ~DfgPrev() {
-        m_vscp->user1(m_vscp->user1() & ~0x20);  // Unmark having a DfgPrev
+        UASSERT_OBJ(DfgVertexVar::hasPrev(m_vscp), m_vscp, "DfgPrev count underflow");
+        m_vscp->user1(m_vscp->user1() - DfgVertexVar::PREV_COUNT_ONE);
     }
     ASTGEN_MEMBERS_DfgPrev;
 

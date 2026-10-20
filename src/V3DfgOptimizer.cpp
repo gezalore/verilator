@@ -27,20 +27,22 @@
 #include "V3DfgPasses.h"
 #include "V3Error.h"
 
+#include <algorithm>
 #include <vector>
 
 VL_DEFINE_DEBUG_FUNCTIONS;
 
 class DataflowOptimize final {
     // NODE STATE
-    // AstVar::user1, AstVarScope::user1 -> int, used as a bit-field
+    // AstVar::user1, AstVarScope::user1 -> uint64_t, used as a bit-field
     // - bit0: Read via AstVarXRef (hierarchical reference)
     // - bit1: Written via AstVarXRef (hierarchical reference)
     // - bit2: Read by logic in same module/netlist not represented in DFG
     // - bit3: Written by logic in same module/netlist not represented in DFG
     // - bit4: Has READWRITE references
-    // - bit5: Has DfgPrev instance
-    // - bit31-6: Reference count, how many DfgVertexVar represent this variable
+    // - bit5: Only read externally by run time model descriptors (bit0 also set unless hidden)
+    // - bit31-6: How many DfgPrev represent this variable
+    // - bit63-32: Reference count, how many DfgVertexVar represent this variable
     //
     // AstNode::user2/user3/user4 can be used by various DFG algorithms
     const VNUser1InUse m_user1InUse;
@@ -74,7 +76,8 @@ class DataflowOptimize final {
 
     // Mark variables with external references
     void markExternallyReferencedVariables(AstNetlist* netlistp) {
-        netlistp->foreach([](AstNode* nodep) {
+        std::vector<AstVarScope*> rtmdReadps;
+        netlistp->foreach([&](AstNode* nodep) {
             // Check variable flags
             if (AstVarScope* const vscp = VN_CAST(nodep, VarScope)) {
                 const AstVar* const varp = vscp->varp();
@@ -92,9 +95,8 @@ class DataflowOptimize final {
                 if (hasExtWr) DfgVertexVar::setHasExtWrRefs(vscp);
                 return;
             }
-            // Variables read by descriptors are read externally
             if (const AstRtmdSignal* const sigp = VN_CAST(nodep, RtmdSignal)) {
-                if (sigp->refp()) DfgVertexVar::setHasExtRdRefs(sigp->vscp());
+                if (sigp->refp()) rtmdReadps.push_back(sigp->vscp());
                 return;
             }
             // Check references
@@ -111,6 +113,82 @@ class DataflowOptimize final {
                 return;
             }
         });
+        // Variables read by descriptors are read externally
+        for (AstVarScope* const vscp : rtmdReadps) {
+            if (DfgVertexVar::hasExtRdRefs(vscp)) continue;
+            DfgVertexVar::setHasExtRdRefs(vscp);
+            DfgVertexVar::setHasRtmdOnlyRdRefs(vscp);
+        }
+    }
+
+    // Remove or restore the variable references held by the vertices of the given graph.
+    // While removed, the graph does not affect the optimization of other graphs.
+    static void hideRefs(DfgGraph& dfg, bool hide) {
+        const auto adjust = [hide](AstVarScope* vscp, uint64_t one) {
+            vscp->user1(hide ? vscp->user1() - one : vscp->user1() + one);
+        };
+        for (DfgVertexVar& vtx : dfg.varVertices()) {
+            adjust(vtx.vscp(), DfgVertexVar::VAR_COUNT_ONE);
+        }
+        for (DfgVertex& vtx : dfg.opVertices()) {
+            if (DfgPrev* const prevp = vtx.cast<DfgPrev>()) {
+                adjust(prevp->vscp(), DfgVertexVar::PREV_COUNT_ONE);
+            }
+        }
+    }
+
+    // Reconstruct, from the unoptimized clones, the variables only read by descriptors
+    // that the optimized graph no longer computes
+    void reconstructRtmdOnly(DfgGraph& dfg, std::vector<std::unique_ptr<DfgGraph>>&& clonesp) {
+        if (clonesp.empty()) return;
+
+        // Merge the clones into one graph
+        std::unique_ptr<DfgGraph> rtmdp{new DfgGraph{m_ctx, "rtmdOnly"}};
+        for (const std::unique_ptr<DfgGraph>& clonep : clonesp) hideRefs(*clonep, false);
+        rtmdp->mergeGraphs(std::move(clonesp));
+
+        // Reads by descriptors are observable again
+        for (DfgVertexVar& vtx : dfg.varVertices()) vtx.hideRtmdOnlyRdRefs(false);
+        for (DfgVertexVar& vtx : rtmdp->varVertices()) vtx.hideRtmdOnlyRdRefs(false);
+
+        // Ast references are updated by the optimized graph
+        for (DfgVertexAst* const vtxp : rtmdp->astVertices().unlinkable()) {
+            VL_DO_DANGLING(vtxp->unlinkDelete(*rtmdp), vtxp);
+        }
+
+        // Read the variables the optimized graph still computes instead of recomputing them
+        {
+            const VNUser2InUse user2InUse;
+            for (DfgVertexVar& vtx : dfg.varVertices()) {
+                if (vtx.srcp()) vtx.vscp()->user2(1);
+            }
+            for (DfgVertexVar& vtx : rtmdp->varVertices()) {
+                if (!vtx.vscp()->user2()) continue;
+                vtx.srcp(nullptr);
+                vtx.defaultp(nullptr);
+            }
+        }
+        V3DfgPasses::removeUnused(*rtmdp);
+
+        // The optimized graph might have deleted variables written here, keep them
+        {
+            const VNUser2InUse user2InUse;
+            for (DfgVertexVar& vtx : rtmdp->varVertices()) vtx.vscp()->user2(1);
+            std::vector<AstNode*>& deleteps = m_ctx.m_peepholeContext.m_deleteps;
+            deleteps.erase(std::remove_if(deleteps.begin(), deleteps.end(),
+                                          [](const AstNode* nodep) { return nodep->user2(); }),
+                           deleteps.end());
+        }
+
+        // Optimize what is left
+        V3DfgPasses::inlineVars(*rtmdp);
+        V3DfgPasses::cse(*rtmdp, m_ctx.m_cseContext1);
+        V3DfgPasses::peephole(*rtmdp, m_ctx.m_peepholeContext);
+
+        // Add to the optimized graph
+        std::vector<std::unique_ptr<DfgGraph>> rtmdps;
+        rtmdps.emplace_back(std::move(rtmdp));
+        dfg.mergeGraphs(std::move(rtmdps));
     }
 
     void optimize(DfgGraph& dfg) {
@@ -135,6 +213,22 @@ class DataflowOptimize final {
         std::vector<std::unique_ptr<DfgGraph>> comps = dfg.splitIntoComponents("acyclic");
         UASSERT(dfg.size() == 0, "DfgGraph should have become empty");
         endOfStage("splitAcyclic", dfg, comps);
+
+        // Optimize the components as if variables only read by descriptors were not read,
+        // keeping an unoptimized clone to reconstruct them from if needed. The clones must
+        // not affect the optimization of the components, so hide them.
+        std::vector<std::unique_ptr<DfgGraph>> clonesp;
+        for (const auto& cp : comps) {
+            bool drivesRtmdOnly = false;
+            for (DfgVertexVar& vtx : cp->varVertices()) {
+                if (!vtx.srcp() || !vtx.hasRtmdOnlyRdRefs()) continue;
+                vtx.hideRtmdOnlyRdRefs(true);
+                drivesRtmdOnly = true;
+            }
+            if (!drivesRtmdOnly) continue;
+            clonesp.emplace_back(cp->clone());
+            hideRefs(*clonesp.back(), true);
+        }
 
         // Main pass pipeline - optimize each acyclic component
         {
@@ -161,6 +255,9 @@ class DataflowOptimize final {
         // Merge everything back under the main graph
         dfg.mergeGraphs(std::move(comps));
         endOfStage("optimized", dfg, {});
+
+        reconstructRtmdOnly(dfg, std::move(clonesp));
+        endOfStage("reconstructRtmdOnly", dfg, {});
 
         // Regularize the graph after merging it all back together so all
         // references are known and we only need to iterate the Ast once
