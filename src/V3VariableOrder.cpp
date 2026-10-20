@@ -29,6 +29,10 @@
 // it, however the MTasks are packed onto threads. Grouping by readers as well
 // would only add padding.
 //
+// Variables only used by the 'rtmd_comb' region, which only runs when the run
+// time model descriptors are read, are placed after the others of the same kind,
+// so they do not dilute the variables used on every evaluation.
+//
 //*************************************************************************
 
 #include "V3PchAstMT.h"
@@ -41,6 +45,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <unordered_set>
 #include <vector>
 
 VL_DEFINE_DEBUG_FUNCTIONS;
@@ -102,6 +107,71 @@ public:
     }
 };
 
+// Variables only referenced by the code of the 'rtmd_comb' region
+using RtmdCombVars = std::unordered_set<const AstVar*>;
+
+class GatherRtmdCombVars final : VNVisitorConst {
+    // NODE STATE
+    //  AstCFunc::user1()  // bool: Function of the 'rtmd_comb' region
+    //  AstCFunc::user2()  // bool: Already traced this function from other code
+    const VNUser1InUse m_user1InUse;
+    const VNUser2InUse m_user2InUse;
+
+    // STATE
+    std::unordered_set<const AstVar*> m_otherVarps;  // Variables referenced by other code
+
+    // VISITORS - Gather the variables referenced by code other than the region's
+    void visit(AstNodeVarRef* nodep) override { m_otherVarps.insert(nodep->varp()); }
+    void visit(AstCFunc* nodep) override {
+        // The functions of the region are traced only if called from other code
+        if (nodep->user1() || nodep->user2SetOnce()) return;
+        iterateChildrenConst(nodep);
+    }
+    void visit(AstNodeCCall* nodep) override {
+        iterateChildrenConst(nodep);  // Arguments
+        AstCFunc* const funcp = nodep->funcp();
+        if (!funcp->user2SetOnce()) iterateChildrenConst(funcp);  // Callee, even in the region
+    }
+    void visit(AstNodeAssign* nodep) override {
+        // Resetting a variable at construction is not a use
+        const AstCReset* const resetp = VN_CAST(nodep->rhsp(), CReset);
+        if (resetp && resetp->constructing()) return;
+        iterateChildrenConst(nodep);
+    }
+    void visit(AstNodeRtmdItem*) override {}  // Descriptors are not code
+    void visit(AstNode* nodep) override { iterateChildrenConst(nodep); }
+
+    // CONSTRUCTOR
+    GatherRtmdCombVars(AstNetlist* netlistp, RtmdCombVars& results) {
+        // The functions of the region, reachable from its entry points
+        std::vector<AstCFunc*> funcps;
+        for (AstCFunc* const funcp : {netlistp->evalFuncp(VEval::RTMD_COMB),
+                                      netlistp->dumpTriggersFuncp(VEval::RTMD_COMB)}) {
+            if (!funcp->user1SetOnce()) funcps.push_back(funcp);
+        }
+        for (size_t i = 0; i < funcps.size(); ++i) {
+            funcps[i]->foreach([&](const AstNodeCCall* callp) {
+                if (!callp->funcp()->user1SetOnce()) funcps.push_back(callp->funcp());
+            });
+        }
+        // Everything else
+        iterateConst(netlistp);
+        // The variables the region references, and nothing else does
+        for (AstCFunc* const funcp : funcps) {
+            funcp->foreach([&](const AstNodeVarRef* refp) {
+                if (!m_otherVarps.count(refp->varp())) results.insert(refp->varp());
+            });
+        }
+    }
+    ~GatherRtmdCombVars() = default;
+    VL_UNMOVABLE(GatherRtmdCombVars);
+
+public:
+    static void apply(AstNetlist* netlistp, RtmdCombVars& results) {
+        GatherRtmdCombVars{netlistp, results};
+    }
+};
+
 class VariableOrder final {
     // NODE STATE
     //  AstVar::user1()   ->   uint64_t: Stratum, roughly equivalent to alignment
@@ -109,9 +179,12 @@ class VariableOrder final {
     const VNUser1InUse m_user1InUse;
 
     const MTaskWritersMap& m_mTaskWriters;
+    const RtmdCombVars& m_rtmdCombVars;
 
-    VariableOrder(AstNodeModule* modp, const MTaskWritersMap& mTaskWriters)
-        : m_mTaskWriters{mTaskWriters} {
+    VariableOrder(AstNodeModule* modp, const MTaskWritersMap& mTaskWriters,
+                  const RtmdCombVars& rtmdCombVars)
+        : m_mTaskWriters{mTaskWriters}
+        , m_rtmdCombVars{rtmdCombVars} {
         orderModuleVars(modp);
     }
     ~VariableOrder() = default;
@@ -173,10 +246,12 @@ class VariableOrder final {
     void orderModuleVars(AstNodeModule* modp) {
         // Top level ports stay first, in source order (--lib-create wrapper must match original)
         std::vector<AstVar*> portps;
-        // Followed by trivially constructible variables
+        // Followed by trivially constructible variables, those only used by 'rtmd_comb' last
         std::vector<AstVar*> trivps;
-        // Followed by not trivially constructible variables
+        std::vector<AstVar*> rtmdTrivps;
+        // Followed by not trivially constructible variables, likewise
         std::vector<AstVar*> nontps;
+        std::vector<AstVar*> rtmdNontps;
         // Followed by variables that are not model state, in source order
         std::vector<AstVar*> restps;
 
@@ -193,10 +268,11 @@ class VariableOrder final {
                     continue;
                 }
 
+                const bool rtmdComb = m_rtmdCombVars.count(varp);
                 if (varp->isTriviallyConstructible()) {
-                    trivps.push_back(varp);
+                    (rtmdComb ? rtmdTrivps : trivps).push_back(varp);
                 } else {
-                    nontps.push_back(varp);
+                    (rtmdComb ? rtmdNontps : nontps).push_back(varp);
                 }
 
                 AstNodeDType* const dtypep = varp->dtypeSkipRefp();
@@ -214,7 +290,7 @@ class VariableOrder final {
         }
 
         // Sort them
-        for (std::vector<AstVar*>* const varpsp : {&trivps, &nontps}) {
+        for (std::vector<AstVar*>* const varpsp : {&trivps, &rtmdTrivps, &nontps, &rtmdNontps}) {
             if (varpsp->empty()) continue;
             if (!v3Global.opt.mtasks()) {
                 simpleSortVars(*varpsp);
@@ -226,7 +302,8 @@ class VariableOrder final {
         // Insert them back under the module, in the new order, but at
         // the front of the list so they come out first in dumps/JSON.
         AstNode* nodesp = nullptr;
-        for (const std::vector<AstVar*>* const varpsp : {&portps, &trivps, &nontps, &restps}) {
+        for (const std::vector<AstVar*>* const varpsp :
+             {&portps, &trivps, &rtmdTrivps, &nontps, &rtmdNontps, &restps}) {
             for (AstVar* const varp : *varpsp) {
                 nodesp = AstNode::addNextNull(nodesp, varp->unlinkFrBack());
             }
@@ -235,8 +312,9 @@ class VariableOrder final {
     }
 
 public:
-    static void apply(AstNodeModule* modp, const MTaskWritersMap& mTaskWriters) {
-        VariableOrder{modp, mTaskWriters};
+    static void apply(AstNodeModule* modp, const MTaskWritersMap& mTaskWriters,
+                      const RtmdCombVars& rtmdCombVars) {
+        VariableOrder{modp, mTaskWriters, rtmdCombVars};
     }
 };
 
@@ -257,11 +335,16 @@ void V3VariableOrder::orderAll(AstNetlist* netlistp) {
         });
     }
 
+    // Gather the variables only used by the 'rtmd_comb' region
+    RtmdCombVars rtmdCombVars;
+    if (v3Global.opt.rtmd()) GatherRtmdCombVars::apply(netlistp, rtmdCombVars);
+    V3Stats::addStat("VariableOrder, rtmd_comb only variables", rtmdCombVars.size());
+
     // Sort variables of each module
     for (AstNodeModule* modp = v3Global.rootp()->modulesp(); modp;
          modp = VN_AS(modp->nextp(), NodeModule)) {
         if (modp->isConstPool()) continue;
-        VariableOrder::apply(modp, mTaskWriters);
+        VariableOrder::apply(modp, mTaskWriters, rtmdCombVars);
     }
 
     V3Global::dumpCheckGlobalTree("variableorder", 0, dumpTreeEitherLevel() >= 3);
