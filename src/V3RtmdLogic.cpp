@@ -109,6 +109,16 @@ class RtmdLogic final : public VNVisitorConst {
         });
     }
 
+    // Whether the logic vertex reads a variable it also writes
+    static bool readsOwnWrite(const V3GraphVertex& logicVtx) {
+        for (const V3GraphEdge& writeEdge : logicVtx.outEdges()) {
+            for (const V3GraphEdge& readEdge : writeEdge.top()->outEdges()) {
+                if (readEdge.top() == &logicVtx) return true;
+            }
+        }
+        return false;
+    }
+
     // Set 'flag' on every vertex a vertex with it depends on
     void propagate(uint32_t flag) {
         std::vector<V3GraphVertex*> stack;
@@ -166,6 +176,11 @@ class RtmdLogic final : public VNVisitorConst {
     // CONSTRUCTORS
     explicit RtmdLogic(AstNetlist* netlistp) {
         iterateConst(netlistp);
+        // Logic reading a variable it also writes might hold state in it, e.g. a counter
+        for (V3GraphVertex& vtx : m_graph.vertices()) {
+            if (!vtx.is<RtmdLogicVertex>() || !readsOwnWrite(vtx)) continue;
+            vtx.user(vtx.user() | FEEDS_STATE);
+        }
         propagate(NEEDED);
         propagate(FOR_RTMD);
         propagate(FEEDS_STATE);
