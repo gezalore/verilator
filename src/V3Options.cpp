@@ -1715,9 +1715,7 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc,
     });
     DECL_OPTION("-output-split-rtmd", CbVal, [this, fl](const char* valp) {
         m_outputSplitRtmd = std::atoi(valp);
-        if (m_outputSplitRtmd < 0) {
-            fl->v3error("--output-split-rtmd must be >= 0: " << valp);
-        }
+        if (m_outputSplitRtmd < 0) { fl->v3error("--output-split-rtmd must be >= 0: " << valp); }
         if (m_outputSplitRtmd <= 0 || m_outputSplitRtmd > 32) m_outputSplitRtmd = 32;
     });
 
