@@ -474,6 +474,9 @@ static void process() {
             // Remove SAMPLED
             if (v3Global.hasSampled()) V3Sampled::sampledAll(v3Global.rootp());
 
+            // Flag the logic only computing values read by the run time model descriptors
+            if (v3Global.opt.rtmd()) V3Rtmd::logicAll(v3Global.rootp());
+
             if (v3Global.opt.stats()) V3Stats::statsStageAll(v3Global.rootp(), "PreOrder");
 
             // Schedule the logic

@@ -520,6 +520,8 @@ void AstAbortOn::dumpJson(std::ostream& str) const {
 }
 void AstActive::dump(std::ostream& str) const {
     Super::dump(str);
+    if (rtmdOnly()) str << " [RTMDONLY]";
+    if (rtmdOnlyComb()) str << " [RTMDONLYCOMB]";
     str << " => ";
     if (sentreep()) {
         sentreep()->dump(str);
@@ -527,7 +529,11 @@ void AstActive::dump(std::ostream& str) const {
         str << "UNLINKED";
     }
 }
-void AstActive::dumpJson(std::ostream& str) const { dumpJsonGen(str); }
+void AstActive::dumpJson(std::ostream& str) const {
+    dumpJsonBoolFuncIf(str, rtmdOnly);
+    dumpJsonBoolFuncIf(str, rtmdOnlyComb);
+    dumpJsonGen(str);
+}
 void AstAddrOfCFunc::dump(std::ostream& str) const {
     Super::dump(str);
     str << " -> ";

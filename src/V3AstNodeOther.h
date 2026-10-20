@@ -476,6 +476,8 @@ class AstActive final : public AstNode {
     //
     // @astgen ptr := m_sentreep : Optional[AstSenTree]  // Sensitivity list for this process
     string m_name;
+    bool m_rtmdOnly = false;  // Logic only computes values read by the RTMD, see V3Rtmd::logicAll
+    bool m_rtmdOnlyComb = false;  // As m_rtmdOnly, and only via combinational logic
 
 public:
     AstActive(FileLine* fl, const string& name, AstSenTree* sentreep)
@@ -491,6 +493,10 @@ public:
     // Statements are broken into pieces, as some must come before others.
     void sentreep(AstSenTree* nodep) { m_sentreep = nodep; }
     AstSenTree* sentreep() const { return m_sentreep; }
+    bool rtmdOnly() const { return m_rtmdOnly; }
+    void rtmdOnly(bool flag) { m_rtmdOnly = flag; }
+    bool rtmdOnlyComb() const { return m_rtmdOnlyComb; }
+    void rtmdOnlyComb(bool flag) { m_rtmdOnlyComb = flag; }
     // METHODS
     inline bool hasClocked() const;
     inline bool hasCombo() const;

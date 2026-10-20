@@ -169,6 +169,8 @@ struct LogicClasses final {
     LogicByScope m_postponed;  // Postponed logic ($strobe)
     LogicByScope m_observed;  // Observed logic (contains AstAlwaysObserved)
     LogicByScope m_reactive;  // Reactive logic (contains AstAlwaysReactive)
+    LogicByScope m_rtmdComb;  // Combinational logic only read by the RTMD (rtmdOnlyComb)
+    LogicByScope m_rtmdHybrid;  // Hybrid logic only read by the RTMD (cycles in m_rtmdComb)
 
     LogicClasses() = default;
     VL_UNCOPYABLE(LogicClasses);

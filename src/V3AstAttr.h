@@ -1779,6 +1779,7 @@ constexpr bool operator==(VEdgeType::en lhs, const VEdgeType& rhs) { return lhs 
     macro(OBS,       true,      true,     false,   false) \
     macro(REACT,     true,      true,     false,   false) \
     macro(POSTPONED, false,     false,    false,   false) \
+    macro(RTMD_COMB, true,      true,     true,    false) \
     macro(FINAL,     false,     false,    false,   true)
 // clang-format on
 
@@ -1857,9 +1858,21 @@ public:
     operator en() const { return m_e; }
 
 private:
+    // The name in camel case, e.g. 'RtmdComb' for RTMD_COMB
     std::string capitalizedTag() const {
         const std::string name = ascii();
-        return name.substr(0, 1) + VString::downcase(name.substr(1));
+        const std::string lower = VString::downcase(name);
+        std::string result;
+        bool upper = true;
+        for (size_t i = 0; i < name.size(); ++i) {
+            if (name[i] == '_') {
+                upper = true;
+                continue;
+            }
+            result += upper ? name[i] : lower[i];
+            upper = false;
+        }
+        return result;
     }
 };
 

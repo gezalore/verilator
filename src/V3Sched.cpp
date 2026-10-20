@@ -19,6 +19,7 @@
 //
 //  - Gather and classify all logic in the design based on what triggers its execution
 //  - Schedule static, initial and final logic classes in source order
+//  - Create the 'rtmd_comb' region, computing the combinational logic only read by the RTMD
 //  - Break combinational cycles by introducing hybrid logic
 //  - Create 'settle' region that restores the combinational invariant
 //  - Partition the clocked and combinational (including hybrid) logic into pre/act/nba.
@@ -226,6 +227,8 @@ LogicClasses gatherLogicClasses(AstNetlist* netlistp) {
                             "combinational logic with additional sensitivities");
                 if (VN_IS(activep->stmtsp(), AlwaysPostponed)) {
                     result.m_postponed.add(scopep, activep);
+                } else if (activep->rtmdOnlyComb()) {
+                    result.m_rtmdComb.add(scopep, activep);
                 } else {
                     result.m_comb.add(scopep, activep);
                 }
@@ -426,6 +429,52 @@ void createSettle(AstNetlist* netlistp, AstCFunc* const initFuncp, SenExprBuilde
         }(),
         // Work statements: Invoke the 'stl' function
         util::callVoidFunc(stlFuncp));
+}
+
+// Order the combinational logic only read by the RTMD to create the 'rtmd_comb' region
+void createRtmdComb(AstNetlist* netlistp, AstCFunc* const initFuncp,
+                    SenExprBuilder& senExprBulider, LogicClasses& logicClasses,
+                    const CovergroupRefBindings& cgRefBindings) {
+    // Not needed by any other region, so ordered as is
+    LogicByScope& comb = logicClasses.m_rtmdComb;
+    LogicByScope& hybrid = logicClasses.m_rtmdHybrid;
+
+    // We have an extra trigger denoting this is the first iteration of the loop
+    TriggerKit::ExtraTriggers extraTriggers;
+    const uint32_t firstIterationTrigger = extraTriggers.allocate("first iteration");
+
+    // Gather the relevant sensitivity expressions and create the trigger kit
+    const auto& senTreeps = getSenTreesUsedBy({&comb, &hybrid});
+    const TriggerKit trigKit
+        = TriggerKit::create(netlistp, initFuncp, senExprBulider, {}, senTreeps, "rtmd_comb",
+                             extraTriggers, false, false);
+
+    // Add trigger indices (comb has none, so only do the hybrid)
+    addTriggerIndices(hybrid, trigKit, false);
+
+    // First trigger is for pure combinational triggers (first iteration)
+    const uint32_t inputChanged = trigKit.extraTriggerIndex(firstIterationTrigger);
+
+    // Create and the body function
+    AstCFunc* const rtmdCombFuncp = V3Order::order(
+        {&comb, &hybrid}, trigKit, trigKit.vscp(), cgRefBindings, "rtmd_comb", false, false,
+        [=](const AstVarScope*, std::set<uint32_t>& triggers) { triggers.insert(inputChanged); });
+    util::splitCheck(rtmdCombFuncp);
+
+    // Create the region evaluation function
+    createEvalRegion(  //
+        netlistp, VEval::RTMD_COMB, firstIterationTrigger, trigKit,
+        // Use trigger
+        trigKit.vscp(), nullptr,
+        // Explicit condition
+        // Prep statements: Compute the current 'rtmd_comb' triggers
+        [&trigKit] {
+            AstNodeStmt* const stmtp = trigKit.newCompBaseCall();
+            if (stmtp) stmtp->addNext(trigKit.newDumpCall(trigKit.vscp(), trigKit.name(), true));
+            return stmtp;
+        }(),
+        // Work statements: Invoke the 'rtmd_comb' function
+        util::callVoidFunc(rtmdCombFuncp));
 }
 
 //============================================================================
@@ -823,10 +872,14 @@ void schedule(AstNetlist* netlistp) {
     // Step 5: Break combinational cycles by introducing hybrid logic
     // Note: breakCycles also removes corresponding logic from logicClasses.m_comb;
     logicClasses.m_hybrid = breakCycles(netlistp, logicClasses.m_comb);
+    // Separately for the combinational logic only read by the RTMD
+    logicClasses.m_rtmdHybrid = breakCycles(netlistp, logicClasses.m_rtmdComb);
     if (v3Global.opt.stats()) {
         addSizeStat("size of class: clocked", logicClasses.m_clocked);
         addSizeStat("size of class: combinational", logicClasses.m_comb);
         addSizeStat("size of class: hybrid", logicClasses.m_hybrid);
+        addSizeStat("size of class: rtmd combinational", logicClasses.m_rtmdComb);
+        addSizeStat("size of class: rtmd hybrid", logicClasses.m_rtmdHybrid);
         V3Stats::statsStage("sched-break-cycles");
     }
 
@@ -839,6 +892,10 @@ void schedule(AstNetlist* netlistp) {
     // Step 6: Create 'settle' region that restores the combinational invariant
     createSettle(netlistp, staticp, senExprBuilder, logicClasses, cgRefBindings);
     if (v3Global.opt.stats()) V3Stats::statsStage("sched-settle");
+
+    // Step 6b: Create 'rtmd_comb' region computing the combinational logic only read by the RTMD
+    createRtmdComb(netlistp, staticp, senExprBuilder, logicClasses, cgRefBindings);
+    if (v3Global.opt.stats()) V3Stats::statsStage("sched-rtmd-comb");
 
     // Step 7: Partition the clocked and combinational (including hybrid) logic into pre/act/nba.
     // All clocks (signals referenced in an AstSenTree) generated via a blocking assignment

@@ -151,6 +151,7 @@ private:
     const VerilatedContext* m_contextp = nullptr;  // The context being traced
     // The activity flags of each declared model, and their number, cleared after each dump
     std::vector<std::pair<CData*, uint32_t>> m_activityFlags;
+    std::vector<VerilatedModel*> m_modelps;  // The declared models
 
     // The values to dump, grouped by activity set and how to dump them, in that order
     std::vector<std::pair<VlRtmdActSet, Group>> m_groupVec;

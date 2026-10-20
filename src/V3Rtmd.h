@@ -32,6 +32,8 @@ public:
     // excluded by control directives, clear the references no longer needed, and reference
     // constants from the constant pool. Must run after V3Scope.
     static void scopedAll(AstNetlist* nodep) VL_MT_DISABLED;
+    // Flag the logic only computing values read by the descriptors. Must run before V3Sched.
+    static void logicAll(AstNetlist* nodep) VL_MT_DISABLED;
 };
 
 #endif  // Guard

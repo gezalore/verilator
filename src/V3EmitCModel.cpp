@@ -263,6 +263,7 @@ class EmitCModel final : public EmitCFunc {
 
         ofp()->putsPrivate(true);  // private:
         puts("\n// Internal functions - the model's evaluation entry points\n");
+        puts("VerilatedEvalLoop& evalLoop() override final { return m_evalLoop; }\n");
         puts("void evalBegin() override final;\n");
         puts("void evalEnd() override final;\n");
         for (int i = 0; i < VEval::_ENUM_END; ++i) {

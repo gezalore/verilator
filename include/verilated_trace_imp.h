@@ -162,11 +162,13 @@ void VerilatedTrace<VL_SUB_T, VL_BUF_T>::traceInit() VL_MT_UNSAFE {
 
     m_groupVec.clear();
     m_activityFlags.clear();
+    m_modelps.clear();
 
     // Declare all enum types, in all models, before the signals that reference them
     for (const std::pair<const std::string, VerilatedModel*>& pair : m_contextp->models()) {
         const VlRtmd* const rtmdp = pair.second->rtmd();
         if (!rtmdp) continue;
+        m_modelps.push_back(pair.second);
         // Its activity flags are cleared after each dump
         if (rtmdp->m_activityFlagsp) {
             m_activityFlags.emplace_back(const_cast<CData*>(rtmdp->m_activityFlagsp),
@@ -598,6 +600,9 @@ void VerilatedTrace<VL_SUB_T, VL_BUF_T>::dump(uint64_t timeui) VL_MT_SAFE_EXCLUD
 
     // Update time point
     emitTimeChange(timeui);
+
+    // Compute the values only read by the descriptors
+    for (VerilatedModel* const modelp : m_modelps) modelp->evalLoop().evalRtmdComb();
 
     // Dump the described models
     Buffer* const bufp = getTraceBuffer();

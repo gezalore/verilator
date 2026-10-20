@@ -94,6 +94,7 @@ class VerilatedContext;
 class VerilatedContextImp;
 class VerilatedContextImpData;
 class VerilatedCovContext;
+class VerilatedEvalLoop;
 class VerilatedEvalMsgQueue;
 class VerilatedFst;
 class VerilatedFstC;
@@ -382,6 +383,9 @@ private:
     friend class VerilatedContext;
     friend class VerilatedEvalLoop;
 
+    // The evaluation loop of this model
+    virtual VerilatedEvalLoop& evalLoop() = 0;
+
     // Entry points called by VerilatedEvalLoop
     virtual void evalBegin() = 0;
     virtual void evalEnd() = 0;
@@ -396,12 +400,14 @@ private:
     virtual bool evalObs() = 0;
     virtual bool evalReact() = 0;
     virtual void evalPostponed() = 0;
+    virtual bool evalRtmdComb(bool firstIteration) = 0;
     virtual void dumpTriggersStl() = 0;
     virtual void dumpTriggersIco() = 0;
     virtual void dumpTriggersAct() = 0;
     virtual void dumpTriggersNba() = 0;
     virtual void dumpTriggersObs() = 0;
     virtual void dumpTriggersReact() = 0;
+    virtual void dumpTriggersRtmdComb() = 0;
 
     // Runs 'final' blocks at the end of the simulation
     virtual void evalFinal() = 0;
@@ -435,6 +441,8 @@ public:
             evalImpl<false>();
         }
     }
+    // Evaluate the combinational logic only read by the run time model descriptors
+    void evalRtmdComb();
     // Set --prof-exec profiler
     void profiler(VlExecutionProfilerBase* profilerp, bool topLevel) {
         m_profilerp = profilerp;

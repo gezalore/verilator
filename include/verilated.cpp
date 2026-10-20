@@ -4251,6 +4251,13 @@ void VerilatedEvalLoop::evalImpl() {
 template void VerilatedEvalLoop::evalImpl<false>();
 template void VerilatedEvalLoop::evalImpl<true>();
 
+void VerilatedEvalLoop::evalRtmdComb() {
+    uint32_t iterCount = 0;
+    do {
+        checkConvergence(++iterCount, "RTMD combinational", &VerilatedModel::dumpTriggersRtmdComb);
+    } while (m_model.evalRtmdComb(iterCount == 1));
+}
+
 //===========================================================================
 // VerilatedModel:: Methods
 
