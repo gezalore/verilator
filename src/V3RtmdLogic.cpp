@@ -16,14 +16,16 @@
 // V3RtmdLogic's Transformations:
 //
 // Builds a bipartite graph of the always blocks and the variables: always block -> the
-// variables it writes -> the always blocks reading them. Always blocks with side effects other
-// than writing variables are needed, so are variables read by anything other than an always
-// block, or visible outside the model, and so is the logic they depend on. Always blocks that
-// are not needed, but compute values read by the descriptors, are moved under AstActives of
-// their own, flagged with AstActive::rtmdOnly, so they can be scheduled to only run when tracing
-// might be used. Those that are combinational, and only feed the descriptors via combinational
-// logic, hold no state, so their AstActives are also flagged with AstActive::rtmdOnlyComb, to
-// only run when the descriptors are read.
+// variables it writes -> the always blocks reading them. The 'pre' and 'post' blocks of
+// non-blocking assignments (from V3Delayed) are always blocks here too, so registers are seen
+// through their commits. Always blocks with side effects other than writing variables are
+// needed, so are variables read by anything other than an always block, or visible outside the
+// model, and so is the logic they depend on. Always blocks that are not needed, but compute
+// values read by the descriptors, are moved under AstActives of their own, flagged with
+// AstActive::rtmdOnly, so they can be scheduled to only run when tracing might be used. Those
+// that are combinational, and only feed the descriptors via combinational logic, hold no state,
+// so their AstActives are also flagged with AstActive::rtmdOnlyComb, to only run when the
+// descriptors are read.
 //
 //*************************************************************************
 
@@ -54,16 +56,16 @@ public:
 
 class RtmdLogicVertex final : public V3GraphVertex {
     VL_RTTI_IMPL(RtmdLogicVertex, V3GraphVertex)
-    AstAlways* const m_alwaysp;  // The logic
+    AstNodeProcedure* const m_procp;  // The logic
     AstActive* const m_activep;  // The AstActive holding the logic
 
 public:
-    RtmdLogicVertex(V3Graph* graphp, AstAlways* alwaysp, AstActive* activep)
+    RtmdLogicVertex(V3Graph* graphp, AstNodeProcedure* procp, AstActive* activep)
         : V3GraphVertex{graphp}
-        , m_alwaysp{alwaysp}
+        , m_procp{procp}
         , m_activep{activep} {}
-    std::string name() const override VL_MT_STABLE { return cvtToHex(m_alwaysp); }
-    AstAlways* alwaysp() const { return m_alwaysp; }
+    std::string name() const override VL_MT_STABLE { return cvtToHex(m_procp); }
+    AstNodeProcedure* procp() const { return m_procp; }
     AstActive* activep() const { return m_activep; }
 };
 
@@ -102,9 +104,9 @@ class RtmdLogic final : public VNVisitorConst {
     }
 
     // Whether the always block has side effects other than writing variables
-    static bool isImpure(AstAlways* alwaysp) {
-        if (alwaysp->isSuspendable() || alwaysp->needProcess()) return true;
-        return alwaysp->exists([](AstNode* nodep) {  //
+    static bool isImpure(AstNodeProcedure* procp) {
+        if (procp->isSuspendable() || procp->needProcess()) return true;
+        return procp->exists([](AstNode* nodep) {  //
             return !nodep->isPure() || nodep->isOutputter();
         });
     }
@@ -141,12 +143,14 @@ class RtmdLogic final : public VNVisitorConst {
     void visit(AstActive* nodep) override {
         for (AstNode* logicp = nodep->stmtsp(); logicp; logicp = logicp->nextp()) {
             VL_RESTORER(m_logicVtxp);
-            if (AstAlways* const alwaysp = VN_CAST(logicp, Always)) {
-                m_logicVtxp = new RtmdLogicVertex{&m_graph, alwaysp, nodep};
-                if (isImpure(alwaysp)) m_logicVtxp->user(NEEDED);
+            if (VN_IS(logicp, Always) || VN_IS(logicp, AlwaysPre) || VN_IS(logicp, AlwaysPost)) {
+                AstNodeProcedure* const procp = VN_AS(logicp, NodeProcedure);
+                m_logicVtxp = new RtmdLogicVertex{&m_graph, procp, nodep};
+                if (isImpure(procp)) m_logicVtxp->user(NEEDED);
                 // Only purely combinational logic holds no state between evaluations
+                const AstAlways* const alwaysp = VN_CAST(procp, Always);
                 if (!nodep->sentreep()->hasCombo()
-                    || alwaysp->keyword() == VAlwaysKwd::ALWAYS_LATCH) {
+                    || (alwaysp && alwaysp->keyword() == VAlwaysKwd::ALWAYS_LATCH)) {
                     m_logicVtxp->user(m_logicVtxp->user() | FEEDS_STATE);
                 }
             }
@@ -204,7 +208,7 @@ class RtmdLogic final : public VNVisitorConst {
                 rtmdActivep->rtmdOnlyComb(comb);
                 activep->addNextHere(rtmdActivep);
             }
-            rtmdActivep->addStmtsp(logicVtxp->alwaysp()->unlinkFrBack());
+            rtmdActivep->addStmtsp(logicVtxp->procp()->unlinkFrBack());
         }
         // Delete the AstActives left empty
         for (const auto& pair : rtmdActives) {
