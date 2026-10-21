@@ -315,7 +315,21 @@ void EmitCFunc::displayNode(AstNode* nodep, AstSFormatF* fmtp,  // fmtp is nullp
         AstScopeName* const scopenamep = fmtp ? fmtp->scopeNamep() : nullptr;
         UASSERT_OBJ(scopenamep, nodep, "Display with %m but no AstScopeName");
         ofp()->puts(", '"s + VFormatAttr{VFormatAttr::SCOPE}.ascii() + "'");
-        if (scopenamep->selfRelative()) {
+        if (scopenamep->selfRelative() && scopenamep->selfRelativeSkip()) {
+            // The instance name in vlNamep after the model name and the top module omitted by
+            // %m, followed by the path below the instance
+            const string instp = string{m_useSelfForThis ? "vlSelf" : "this"}
+                                 + "->vlNamep + std::strlen(vlSymsp->name()) + "
+                                 + std::to_string(scopenamep->selfRelativeSkip() + 1);
+            ofp()->puts(",vlSymsp->name(),");
+            if (scopenamep->scopeAttr().empty()) {
+                ofp()->puts(instp);
+            } else {
+                ofp()->puts("(std::string{" + instp + "} + ");
+                ofp()->putsQuoted("." + scopenamep->scopeAttr());
+                ofp()->puts(").c_str()");
+            }
+        } else if (scopenamep->selfRelative()) {
             // vlNamep is catName(name(), instance), so starts with '.' when the model is unnamed
             const string namep = string{m_useSelfForThis ? "vlSelf" : "this"} + "->vlNamep";
             ofp()->puts(",(vlSymsp->name()[0] ? " + namep + " : " + namep + " + 1),");

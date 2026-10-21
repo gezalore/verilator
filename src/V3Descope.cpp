@@ -264,7 +264,15 @@ class DescopeVisitor final : public VNVisitor {
             return;
         }
         std::string path = nodep->scopePrettySymName();
-        const std::string inst = m_scopep->prettyName();
+        std::string inst = m_scopep->prettyName();
+        // Library builds omit the top module from %m, but not from vlNamep
+        size_t skip = 0;
+        if (!v3Global.opt.libCreate().empty()) {
+            skip = inst.find('.');
+            if (skip == std::string::npos) return;
+            ++skip;
+            inst.erase(0, skip);
+        }
         if (path != inst && !VString::startsWith(path, inst + ".")) return;
         path.erase(0, inst.size() + 1);
         // The DPI scope table keeps the absolute name, via a copy outside any function
@@ -272,6 +280,7 @@ class DescopeVisitor final : public VNVisitor {
         nodep->scopeAttr(path);
         nodep->scopeEntr("");  // Only used by the DPI scope table
         nodep->selfRelative(true);
+        nodep->selfRelativeSkip(static_cast<uint32_t>(skip));
     }
     void visit(AstCMethodCall* nodep) override { iterateChildren(nodep); }
     void visit(AstCNew* nodep) override { iterateChildren(nodep); }

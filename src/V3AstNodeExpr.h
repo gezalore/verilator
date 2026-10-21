@@ -2572,6 +2572,7 @@ class AstScopeName final : public AstNodeExpr {
     std::string m_scopeEntr;  // Scope path for the DPI import/export context name
     bool m_dpiExport = false;  // Is for dpiExport
     bool m_selfRelative = false;  // scopeAttr is the pretty path below the running instance
+    uint32_t m_selfRelativeSkip = 0;  // Leading characters of the instance name not in %m
     const bool m_forFormat;  // Is for a format %m
     static std::string scopeNameFormatter(const std::string& text);
     static std::string scopePrettyNameFormatter(const std::string& text);
@@ -2590,6 +2591,7 @@ public:
                && m_scopeEntr == sp->m_scopeEntr  //
                && m_dpiExport == sp->m_dpiExport  //
                && m_selfRelative == sp->m_selfRelative  //
+               && m_selfRelativeSkip == sp->m_selfRelativeSkip  //
                && m_forFormat == sp->m_forFormat;
     }
     string emitVerilog() override { V3ERROR_NA_RETURN(""); }
@@ -2606,6 +2608,8 @@ public:
     void dpiExport(bool flag) { m_dpiExport = flag; }
     bool selfRelative() const { return m_selfRelative; }
     void selfRelative(bool flag) { m_selfRelative = flag; }
+    uint32_t selfRelativeSkip() const { return m_selfRelativeSkip; }
+    void selfRelativeSkip(uint32_t value) { m_selfRelativeSkip = value; }
     bool forFormat() const { return m_forFormat; }
     // Name for __Vscopep variable including children
     string scopeSymName() const { return scopeNameFormatter(m_scopeAttr); }
