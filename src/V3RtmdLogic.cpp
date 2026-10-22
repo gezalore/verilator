@@ -22,7 +22,7 @@
 // needed, so are variables read by anything other than an always block, or visible outside the
 // model, and so is the logic they depend on. Always blocks that are not needed, but compute
 // values read by the descriptors, are moved under AstActives of their own, flagged with
-// AstActive::rtmdOnly, so they can be scheduled to only run when tracing might be used. Those
+// AstActive::rtmdOnly, and their bodies only run when tracing might be used. Those
 // that are combinational, and only feed the descriptors via combinational logic, hold no state,
 // so their AstActives are also flagged with AstActive::rtmdOnlyComb, to only run when the
 // descriptors are read.
@@ -208,7 +208,15 @@ class RtmdLogic final : public VNVisitorConst {
                 rtmdActivep->rtmdOnlyComb(comb);
                 activep->addNextHere(rtmdActivep);
             }
-            rtmdActivep->addStmtsp(logicVtxp->procp()->unlinkFrBack());
+            AstNodeProcedure* const procp = logicVtxp->procp();
+            rtmdActivep->addStmtsp(procp->unlinkFrBack());
+            // The state it holds only needs updating if tracing might be used
+            if (!comb && procp->stmtsp()) {
+                FileLine* const flp = procp->fileline();
+                AstCExpr* const condp = new AstCExpr{
+                    flp, AstCExpr::Pure{}, "vlSymsp->_vm_contextp__->calcUnusedSigs()", 1};
+                procp->addStmtsp(new AstIf{flp, condp, procp->stmtsp()->unlinkFrBackWithNext()});
+            }
         }
         // Delete the AstActives left empty
         for (const auto& pair : rtmdActives) {

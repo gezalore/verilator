@@ -138,7 +138,7 @@ class DataflowOptimize final {
     }
 
     // Reconstruct, from the unoptimized clones, the variables only read by descriptors
-    // that the optimized graph no longer computes
+    // that the optimized and regularized graph no longer computes
     void reconstructRtmdOnly(DfgGraph& dfg, std::vector<std::unique_ptr<DfgGraph>>&& clonesp) {
         if (clonesp.empty()) return;
 
@@ -174,10 +174,13 @@ class DataflowOptimize final {
         {
             const VNUser2InUse user2InUse;
             for (DfgVertexVar& vtx : rtmdp->varVertices()) vtx.vscp()->user2(1);
-            std::vector<AstNode*>& deleteps = m_ctx.m_peepholeContext.m_deleteps;
-            deleteps.erase(std::remove_if(deleteps.begin(), deleteps.end(),
-                                          [](const AstNode* nodep) { return nodep->user2(); }),
-                           deleteps.end());
+            for (std::vector<AstNode*>* const deletepsp :
+                 {&m_ctx.m_peepholeContext.m_deleteps, &m_ctx.m_regularizeContext.m_deleteps}) {
+                deletepsp->erase(
+                    std::remove_if(deletepsp->begin(), deletepsp->end(),
+                                   [](const AstNode* nodep) { return nodep->user2(); }),
+                    deletepsp->end());
+            }
         }
 
         // Optimize what is left
@@ -185,10 +188,11 @@ class DataflowOptimize final {
         V3DfgPasses::cse(*rtmdp, m_ctx.m_cseContext1);
         V3DfgPasses::peephole(*rtmdp, m_ctx.m_peepholeContext);
 
-        // Add to the optimized graph
+        // Add to the optimized graph, and regularize again
         std::vector<std::unique_ptr<DfgGraph>> rtmdps;
         rtmdps.emplace_back(std::move(rtmdp));
         dfg.mergeGraphs(std::move(rtmdps));
+        V3DfgPasses::regularize(dfg, m_ctx.m_regularizeContext);
     }
 
     void optimize(DfgGraph& dfg) {
@@ -256,14 +260,14 @@ class DataflowOptimize final {
         dfg.mergeGraphs(std::move(comps));
         endOfStage("optimized", dfg, {});
 
-        reconstructRtmdOnly(dfg, std::move(clonesp));
-        endOfStage("reconstructRtmdOnly", dfg, {});
-
         // Regularize the graph after merging it all back together so all
         // references are known and we only need to iterate the Ast once
         // to replace redundant variables.
         V3DfgPasses::regularize(dfg, m_ctx.m_regularizeContext);
         endOfStage("regularize", dfg, {});
+
+        reconstructRtmdOnly(dfg, std::move(clonesp));
+        endOfStage("reconstructRtmdOnly", dfg, {});
     }
 
     void removeNeverActives(AstNetlist* netlistp) {
