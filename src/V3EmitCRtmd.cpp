@@ -120,9 +120,7 @@ protected:
         }
         puts("\nVL_CONSTINIT_CXX20 extern const " + m_rowType + "* const " + m_symbol
              + "[] = {\n");
-        for (uint32_t i = 0; i < m_nChunks; ++i) {
-            puts("    " + chunkName(i) + ",\n");
-        }
+        for (uint32_t i = 0; i < m_nChunks; ++i) { puts("    " + chunkName(i) + ",\n"); }
         puts("};\n");
         closeOutputFile();
     }
