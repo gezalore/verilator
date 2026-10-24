@@ -22,7 +22,9 @@ test.file_grep(test.obj_dir + "/Vlib_lib__stats.txt", r'Optimizations, Combined 
 
 test.vm_prefix = "Vt_display_m_combine_lib"
 test.main_filename = test.obj_dir + "/" + test.vm_prefix + "__main.cpp"
-test.compile(verilator_flags2=["--top-module", "t", "+define+USE_LIB", test.obj_dir + "/lib.sv", "liblib.a"])
+test.compile(verilator_flags2=[
+    "--top-module", "t", "+define+USE_LIB", test.obj_dir + "/lib.sv", "liblib.a"
+])
 
 test.execute(expect_filename=test.golden_filename)
 
