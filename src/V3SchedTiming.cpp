@@ -228,6 +228,8 @@ class AwaitVisitor final : public VNVisitor {
             = UNINITIALIZED;
     };
     std::vector<const AstCFunc*> m_callStack;  // Current callstack of AstCFuncs
+    // CFuncs whose cached values were already added to the current sets, per m_gatherVars
+    std::array<std::unordered_set<const AstCFunc*>, 2> m_added;
     // Caches how visiting the function with given value of m_gatherVars changes
     // m_processDomains and m_writtenBySuspendable - only accessed from visit(AstCFunc* nodep)
     AstUser1Allocator<AstCFunc, std::array<CFuncCache, 2>> m_cfuncsCache;
@@ -248,17 +250,17 @@ class AwaitVisitor final : public VNVisitor {
             resumep->addPinsp(pinsp->cloneTree(false));
         }
     }
-    void addCFuncCachedValues(const AstCFunc* const cfuncp,
-                              std::unordered_set<const AstCFunc*>& visited) {
-        if (!visited.insert(cfuncp).second) return;
-        CFuncCache& value = m_cfuncsCache(cfuncp)[static_cast<size_t>(m_gatherVars)];
+    void addCFuncCachedValues(const AstCFunc* const cfuncp) {
+        const size_t cacheKey = static_cast<size_t>(m_gatherVars);
+        if (!m_added[cacheKey].insert(cfuncp).second) return;
+        CFuncCache& value = m_cfuncsCache(cfuncp)[cacheKey];
         const size_t initialSize = m_writtenBySuspendable.size();
         m_writtenBySuspendable.insert(value.m_writtenBySuspendable.begin(),
                                       value.m_writtenBySuspendable.end());
         m_notInlinedWritesInSuspendableUsage += m_writtenBySuspendable.size() - initialSize;
         m_processDomains.insert(value.m_processDomains.begin(), value.m_processDomains.end());
         for (const AstCFunc* const includedp : value.m_includes) {
-            addCFuncCachedValues(includedp, visited);
+            addCFuncCachedValues(includedp);
         }
     }
     // Create an active with a timing scheduler resume() call
@@ -300,6 +302,7 @@ class AwaitVisitor final : public VNVisitor {
             // Save current state
             VL_RESTORER_CLEAR(m_processDomains);
             VL_RESTORER_CLEAR(m_writtenBySuspendable);
+            VL_RESTORER_CLEAR(m_added);
 
             // Visit
             value.m_state = CFuncCache::VISITING;
@@ -320,8 +323,7 @@ class AwaitVisitor final : public VNVisitor {
         }
         case CFuncCache::INITIALIZED: break;
         }
-        std::unordered_set<const AstCFunc*> visited;
-        addCFuncCachedValues(nodep, visited);
+        addCFuncCachedValues(nodep);
     }
 
     // VISITORS
@@ -338,6 +340,7 @@ class AwaitVisitor final : public VNVisitor {
         }
         m_processDomains.clear();
         m_writtenBySuspendable.clear();
+        for (std::unordered_set<const AstCFunc*>& added : m_added) added.clear();
         m_inProcess = false;
         m_gatherVars = false;
     }
