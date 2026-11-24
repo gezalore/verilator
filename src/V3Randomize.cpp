@@ -265,6 +265,30 @@ class RandomizeMarkVisitor final : public VNVisitor {
         }
         return false;
     }
+    // True if classp reaches declClassp's members through rand class handles
+    static bool reachesThroughRandHandle(const AstClass* classp, const AstClass* declClassp,
+                                         std::set<const AstClass*>& visited) {
+        return classp->existsMember([&](const AstClass*, const AstVar* varp) {
+            if (!varp->rand().isRandomizable()) return false;
+            const AstNodeDType* dtypep = varp->dtypep()->skipRefp();
+            while (const AstNodeDType* const subp = dtypep->subDTypep()) dtypep = subp->skipRefp();
+            const AstClassRefDType* const classRefp = VN_CAST(dtypep, ClassRefDType);
+            if (!classRefp) return false;
+            const AstClass* const memberClassp = classRefp->classp();
+            if (AstClass::isClassExtendedFrom(memberClassp, declClassp)) return true;
+            return visited.insert(memberClassp).second
+                   && reachesThroughRandHandle(memberClassp, declClassp, visited);
+        });
+    }
+    // True for a static member of another class that is not reached through rand class
+    // handles, so a state variable of this class's constraints (IEEE 1800-2023 18.4)
+    bool isStateStatic(const AstVar* varp) const {
+        if (!m_classp || m_withp || !varp->lifetime().isStatic()) return false;
+        const AstClass* const declClassp = VN_CAST(varp->aboveLoopp(), Class);
+        if (!declClassp || AstClass::isClassExtendedFrom(m_classp, declClassp)) return false;
+        std::set<const AstClass*> visited;
+        return !reachesThroughRandHandle(m_classp, declClassp, visited);
+    }
     void markMembers(const AstClass* nodep) {
         for (const AstClass* classp = nodep; classp;
              classp = classp->extendsp() ? classp->extendsp()->classp() : nullptr) {
@@ -378,6 +402,8 @@ class RandomizeMarkVisitor final : public VNVisitor {
         cloneConstrp->foreach([&](AstNodeExpr* exprp) {
             if (AstVarRef* const varRefp = VN_CAST(exprp, VarRef)) {
                 if (!varRefp->varp()->isClassMember()) return;
+                // Static members are not accessed through an object (see V3Width)
+                if (varRefp->varp()->lifetime().isStatic()) return;
                 AstNodeExpr* const chainp = buildMemberRefChain(rootVarRefp, newPath);
                 AstMemberRef* const finalRefp
                     = new AstMemberRef{varRefp->fileline(), chainp, varRefp->varp()};
@@ -408,7 +434,9 @@ class RandomizeMarkVisitor final : public VNVisitor {
 
         // Add constraint directly to the target class
         targetClassp->addMembersp(cloneConstrp);
-        // Immediately iterate to set user1 marks
+        // Immediately iterate to set user1 marks, as a constraint of the target class
+        VL_RESTORER(m_classp);
+        m_classp = targetClassp;
         iterateConst(cloneConstrp);
     }
 
@@ -754,7 +782,8 @@ class RandomizeMarkVisitor final : public VNVisitor {
         if (nodep->varp()->lifetime().isStatic()) m_staticRefs.emplace(nodep);
 
         // Mark as randomizable if: rand-declared, or listed in std::randomize() args
-        if (nodep->varp()->rand().isRandomizable() && !(m_inStdWith && m_stdRandCallp)) {
+        if (nodep->varp()->rand().isRandomizable() && !(m_inStdWith && m_stdRandCallp)
+            && !isStateStatic(nodep->varp())) {
             nodep->user1(true);
         } else if (isVarInStdRandomizeArgs(nodep->varp())) {
             nodep->user1(true);
@@ -1849,20 +1878,28 @@ class RandomizeVisitor final : public VNVisitor {
         });
     }
     // True if this class owns a global constraint: a member-select chain rooted
-    // at a rand class-typed handle reaching into a sub-object.
+    // at a rand class-typed handle reaching into a sub-object, or a reference to
+    // a sub-object's static rand member (V3Width turns that member select into a VarRef).
     bool classOwnsGlobalConstraint(const AstClass* classp) const {
-        return classp->existsMember([](const AstClass*, const AstConstraint* constrp) {
+        return classp->existsMember([&](const AstClass*, const AstConstraint* constrp) {
             bool owns = false;
-            constrp->foreach([&](const AstMemberRef* memberRefp) {
-                const AstNode* const rootp
-                    = const_cast<AstMemberRef*>(memberRefp)->baseFromp(true);
-                if (const AstVarRef* const refp = VN_CAST(rootp, VarRef)) {
-                    // Owns a sub-object constraint if the root is a class handle, or
-                    // an array/assoc/queue/unpacked array of class handles.
-                    const AstNodeDType* dtypep = refp->varp()->dtypep()->skipRefp();
-                    while (const AstNodeDType* const subp = dtypep->subDTypep())
-                        dtypep = subp->skipRefp();
-                    if (VN_IS(dtypep, ClassRefDType)) owns = true;
+            constrp->foreach([&](const AstNodeExpr* exprp) {
+                if (const AstVarRef* const refp = VN_CAST(exprp, VarRef)) {
+                    const AstClass* const declClassp = VN_CAST(refp->classOrPackagep(), Class);
+                    if (declClassp && refp->user1()
+                        && !AstClass::isClassExtendedFrom(classp, declClassp))
+                        owns = true;
+                } else if (const AstMemberRef* const memberRefp = VN_CAST(exprp, MemberRef)) {
+                    const AstNode* const rootp
+                        = const_cast<AstMemberRef*>(memberRefp)->baseFromp(true);
+                    if (const AstVarRef* const refp = VN_CAST(rootp, VarRef)) {
+                        // Owns a sub-object constraint if the root is a class handle, or
+                        // an array/assoc/queue/unpacked array of class handles.
+                        const AstNodeDType* dtypep = refp->varp()->dtypep()->skipRefp();
+                        while (const AstNodeDType* const subp = dtypep->subDTypep())
+                            dtypep = subp->skipRefp();
+                        if (VN_IS(dtypep, ClassRefDType)) owns = true;
+                    }
                 }
             });
             return owns;
